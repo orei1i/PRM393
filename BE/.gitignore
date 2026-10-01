@@ -1,0 +1,42 @@
+# .NET Build / Output
+**/_build_check/
+**/bin/
+**/obj/
+**/out/
+**/publish/
+**/TestResults/
+**/[Dd]ebug/
+**/[Rr]elease/
+x64/
+x86/
+
+# IDE / User-specific
+.vs/
+*.user
+*.suo
+*.userprefs
+.vscode/
+.idea/
+*.sln.iml
+
+# NuGet / Packages
+**/packages/
+**/*.nupkg
+**/nuget/
+
+# Logs, temp, diagnostics
+*.log
+*.tmp
+*.diagnostics
+**/logs/
+
+# macOS / Windows junk
+.DS_Store
+Thumbs.db
+
+# Build/debug output (auto-generated)
+build_*.txt
+*_log.txt
+*_err*.txt
+git_status.txt
+deleted_files.txt

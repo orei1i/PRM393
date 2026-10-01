@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:8.0
+    ports:
+      - "27017:27017"
+    restart: always
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - veganlife-network
+
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    restart: always
+    volumes:
+      - redis_data:/data
+    networks:
+      - veganlife-network
+
+  api:
+    build:
+      context: .
+      dockerfile: ControllerLayer/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__MongoConnection=mongodb://mongodb:27017
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - veganlife-network
+    volumes:
+      - logs_data:/app/logs
+
+volumes:
+  mongodb_data:
+  redis_data:
+  logs_data:
+
+networks:
+  veganlife-network:
+    driver: bridge
