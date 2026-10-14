@@ -1,0 +1,153 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* VeganLife tokens — shared with the Flutter theme (sage / sprout / ochre / AI lavender). */
+:root {
+  --radius: 0.75rem;
+
+  --background: #f9fafb;
+  --foreground: #111827;
+  --card: #ffffff;
+  --card-foreground: #111827;
+  --popover: #ffffff;
+  --popover-foreground: #111827;
+
+  --primary: #1b4d3e;
+  --primary-foreground: #ffffff;
+  --secondary: #eef5f2;
+  --secondary-foreground: #1b4d3e;
+  --muted: #f3f4f6;
+  --muted-foreground: #4b5563;
+  --accent: #eef5f2;
+  --accent-foreground: #12352b;
+  --destructive: #b91c1c;
+  --destructive-foreground: #ffffff;
+  --border: #e5e7eb;
+  --input: #d1d5db;
+  --ring: #1b4d3e;
+
+  /* Sprout — progress / healthy (fill only on white; text uses --sprout-text) */
+  --sprout: #22c55e;
+  --sprout-soft: #f0fdf4;
+  --sprout-text: #166534;
+  /* Ochre — caution, never colour-only */
+  --ochre: #d97706;
+  --ochre-soft: #fffbeb;
+  --ochre-border: #fcd34d;
+  --ochre-text: #92400e;
+  /* AI lavender — anything model-generated */
+  --ai: #7c3aed;
+  --ai-light: #c4b5fd;
+  --ai-soft: #f5f3ff;
+  --ai-border: #ddd6fe;
+  --ai-text: #6d28d9;
+}
+
+.dark {
+  --background: #0c1512;
+  --foreground: #e8f0ec;
+  --card: #13201b;
+  --card-foreground: #e8f0ec;
+  --popover: #13201b;
+  --popover-foreground: #e8f0ec;
+  --primary: #4ade80;
+  --primary-foreground: #052e16;
+  --secondary: #1a2b24;
+  --secondary-foreground: #e8f0ec;
+  --muted: #1a2b24;
+  --muted-foreground: #9db0a7;
+  --accent: #1a2b24;
+  --accent-foreground: #e8f0ec;
+  --destructive: #f87171;
+  --destructive-foreground: #450a0a;
+  --border: #24362e;
+  --input: #24362e;
+  --ring: #4ade80;
+  --sprout: #4ade80;
+  --sprout-soft: #12301f;
+  --sprout-text: #bbf7d0;
+  --ochre: #fcd34d;
+  --ochre-soft: #3a2a0a;
+  --ochre-border: #6b4a12;
+  --ochre-text: #fcd34d;
+  --ai: #a78bfa;
+  --ai-light: #6d28d9;
+  --ai-soft: #2a1f4d;
+  --ai-border: #3f2f73;
+  --ai-text: #c4b5fd;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-sprout: var(--sprout);
+  --color-sprout-soft: var(--sprout-soft);
+  --color-sprout-text: var(--sprout-text);
+  --color-ochre: var(--ochre);
+  --color-ochre-soft: var(--ochre-soft);
+  --color-ochre-border: var(--ochre-border);
+  --color-ochre-text: var(--ochre-text);
+  --color-ai: var(--ai);
+  --color-ai-light: var(--ai-light);
+  --color-ai-soft: var(--ai-soft);
+  --color-ai-border: var(--ai-border);
+  --color-ai-text: var(--ai-text);
+
+  --font-sans: "Plus Jakarta Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* New live-log rows flash lavender once. */
+@keyframes vl-row-in {
+  from {
+    background-color: var(--ai-soft);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+.vl-row-new {
+  animation: vl-row-in 1.6s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .vl-row-new {
+    animation: none;
+  }
+}
