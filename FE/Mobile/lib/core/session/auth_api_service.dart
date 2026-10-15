@@ -6,24 +6,49 @@ import '../config/env.dart';
 import '../network/api_endpoints.dart';
 import '../network/api_exception.dart';
 import '../network/dio_client.dart';
+import '../utils/json_helpers.dart';
 import '../utils/mock_delay.dart';
+import 'mock_accounts.dart';
+import 'user_role.dart';
 
 class AuthResult {
-  const AuthResult({required this.accessToken, required this.displayName});
+  const AuthResult({
+    required this.accessToken,
+    required this.displayName,
+    this.userId,
+    this.role = UserRole.user,
+  });
 
-  factory AuthResult.fromJson(Map<String, dynamic> json) => AuthResult(
-        accessToken: json['accessToken'] as String,
-        displayName: (json['displayName'] as String?) ?? 'Bạn',
-      );
+  /// `{ accessToken, user: { id, fullName | name, email, role } }`, or the
+  /// legacy `{ accessToken, displayName }`.
+  factory AuthResult.fromJson(Map<String, dynamic> json) {
+    final user = readMap(json['user']);
+    return AuthResult(
+      accessToken: json['accessToken'] as String,
+      displayName: (user['fullName'] ?? user['name'] ?? json['displayName'])
+              as String? ??
+          'Bạn',
+      userId: user['id']?.toString(),
+      role: UserRole.fromApi(user['role'] ?? json['role']),
+    );
+  }
 
   final String accessToken;
   final String displayName;
+  final String? userId;
+  final UserRole role;
 }
 
 abstract interface class AuthApiService {
   /// Signs in with Google. [guestToken] lets the server merge guest data
   /// (free chat history, saved recipes) into the new account.
-  Future<AuthResult> signInWithGoogle({required String guestToken});
+  ///
+  /// [account] is the identity picked in the mock account picker; the real
+  /// service ignores it (Google decides who signs in).
+  Future<AuthResult> signInWithGoogle({
+    required String guestToken,
+    MockAccount? account,
+  });
 }
 
 class RemoteAuthApiService implements AuthApiService {
@@ -32,7 +57,10 @@ class RemoteAuthApiService implements AuthApiService {
   final Dio _dio;
 
   @override
-  Future<AuthResult> signInWithGoogle({required String guestToken}) async {
+  Future<AuthResult> signInWithGoogle({
+    required String guestToken,
+    MockAccount? account,
+  }) async {
     // TODO(auth): obtain a Google ID token with `package:google_sign_in`
     // (or Firebase/Supabase Auth) and pass it to [exchangeGoogleIdToken].
     throw const ApiException(
@@ -41,7 +69,7 @@ class RemoteAuthApiService implements AuthApiService {
     );
   }
 
-  /// POST /auth/google { id_token, guest_token } → { access_token, display_name }
+  /// POST /auth/google { idToken, guestToken } → { accessToken, user }
   Future<AuthResult> exchangeGoogleIdToken({
     required String idToken,
     required String guestToken,
@@ -57,11 +85,17 @@ class RemoteAuthApiService implements AuthApiService {
 
 class MockAuthApiService implements AuthApiService {
   @override
-  Future<AuthResult> signInWithGoogle({required String guestToken}) async {
+  Future<AuthResult> signInWithGoogle({
+    required String guestToken,
+    MockAccount? account,
+  }) async {
     await mockDelay(900);
+    final picked = account ?? minhAnhAccount;
     return AuthResult(
       accessToken: 'mock.jwt.${DateTime.now().millisecondsSinceEpoch}',
-      displayName: 'Minh Anh',
+      displayName: picked.displayName,
+      userId: picked.userId,
+      role: picked.role,
     );
   }
 }

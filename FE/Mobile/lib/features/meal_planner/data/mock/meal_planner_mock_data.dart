@@ -191,6 +191,33 @@ final Map<String, List<Map<String, Object?>>> mockSwapPool = {
   ],
 };
 
+/// Dishes built around common fridge items, offered when the plan is
+/// generated from the pantry (same ids as the scanner's menu suggestions, so
+/// the recipe screen knows them).
+final List<Map<String, Object?>> mockPantryDishes = [
+  _r('menu_1', 'Đậu hũ xào bông cải cà rốt',
+      kcal: 420,
+      p: 24,
+      c: 38,
+      f: 18,
+      fi: 8,
+      allergens: ['soy'],
+      tags: ['high_protein', 'quick']),
+  _r('menu_3', 'Cơm chiên rau củ kiểu Việt',
+      kcal: 540, p: 14, c: 84, f: 15, fi: 6, prep: 25),
+  _r('pd_canh_ca_chua', 'Canh cà chua đậu hũ & cơm gạo lứt',
+      kcal: 540,
+      p: 24,
+      c: 82,
+      f: 12,
+      fi: 8,
+      allergens: ['soy'],
+      tags: ['low_sodium'],
+      prep: 25),
+  _r('pd_nam_rom_kho', 'Nấm rơm kho tiêu & rau muống luộc',
+      kcal: 500, p: 18, c: 76, f: 13, fi: 10, allergens: ['soy']),
+];
+
 const Map<String, Object?> mockDailyTargets = {
   'calories': 1850,
   'proteinG': 90,
@@ -198,6 +225,24 @@ const Map<String, Object?> mockDailyTargets = {
   'fatG': 60,
   'fiberG': 32,
 };
+
+/// Seed profile per demo account: Minh Anh (and guests, and unknown ids) get
+/// [mockHealthProfileJson]; Lê Quang Tâm has his own.
+Map<String, Object?> mockHealthProfileJsonFor(String? userId,
+    {required String syncProvider}) {
+  if (userId != 'u_chef_tam') {
+    return mockHealthProfileJson(syncProvider: syncProvider);
+  }
+  return {
+    'heightCm': 168,
+    'weightKg': 63,
+    'bmi': 22.3,
+    'goal': 'maintain',
+    'allergies': <String>[],
+    'dietaryRestrictions': <String>[],
+    'healthSync': {'provider': 'none', 'status': 'paused'},
+  };
+}
 
 Map<String, Object?> mockHealthProfileJson({required String syncProvider}) => {
       'heightCm': 172,

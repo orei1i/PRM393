@@ -9,18 +9,27 @@ import {
   FileText,
   LayoutDashboard,
   Leaf,
+  Library,
+  Megaphone,
+  MessageSquare,
+  Receipt,
   ShieldAlert,
+  SlidersHorizontal,
   Smartphone,
+  Store,
   Tags,
   Users,
+  Wallet,
   type LucideIcon,
 } from "lucide-react";
 
 import { useChefApplicationCounts } from "@/lib/hooks/use-admin";
+import { useKnowledgeCounts } from "@/lib/hooks/use-knowledge";
 import { useFlagCounts } from "@/lib/hooks/use-moderation";
+import { usePayoutSummary } from "@/lib/hooks/use-payouts";
 import { cn } from "@/lib/utils";
 
-type NavItem = { href: string; label: string; icon: LucideIcon; badge?: "flags" | "chefs" };
+type NavItem = { href: string; label: string; icon: LucideIcon; badge?: "flags" | "chefs" | "knowledge" | "withdrawals" };
 
 const GROUPS: { label: string; items: NavItem[] }[] = [
   { label: "", items: [{ href: "/overview", label: "Tổng quan", icon: LayoutDashboard }] },
@@ -35,18 +44,43 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
     label: "Nội dung",
     items: [
       { href: "/content", label: "Quản lý nội dung", icon: FileText },
+      { href: "/comments", label: "Bình luận", icon: MessageSquare },
       { href: "/moderation", label: "Kiểm duyệt AI", icon: ShieldAlert, badge: "flags" },
+      { href: "/restaurants", label: "Quán chay", icon: Store },
       { href: "/catalog", label: "Danh mục", icon: Tags },
     ],
   },
-  { label: "Hệ thống", items: [{ href: "/telemetry", label: "Giám sát AI", icon: Activity }] },
+  {
+    label: "Kinh doanh",
+    items: [
+      { href: "/orders", label: "Đơn hàng & thanh toán", icon: Receipt },
+      { href: "/payouts", label: "Ví & rút tiền", icon: Wallet, badge: "withdrawals" },
+      { href: "/ads", label: "Quảng cáo cửa hàng", icon: Megaphone },
+    ],
+  },
+  {
+    label: "AI & tri thức",
+    items: [
+      { href: "/knowledge", label: "Tài liệu kiến thức", icon: Library, badge: "knowledge" },
+      { href: "/ai-models", label: "Mô hình AI", icon: SlidersHorizontal },
+      { href: "/telemetry", label: "Giám sát AI", icon: Activity },
+    ],
+  },
 ];
 
 export function AdminSidebar() {
   const pathname = usePathname();
   const { data: flagCounts } = useFlagCounts();
   const { data: chefCounts } = useChefApplicationCounts();
-  const badges = { flags: flagCounts?.pending, chefs: chefCounts?.pending };
+  const { data: knowledgeCounts } = useKnowledgeCounts();
+  const { data: payoutSummary } = usePayoutSummary();
+  const badges = {
+    flags: flagCounts?.pending,
+    chefs: chefCounts?.pending,
+    knowledge: knowledgeCounts?.Pending,
+    // Withdrawals above the auto-payout limit, waiting for an admin.
+    withdrawals: payoutSummary?.awaitingApproval,
+  };
 
   return (
     <aside className="flex shrink-0 flex-col gap-5 border-b bg-card px-3 py-4 md:sticky md:top-0 md:h-dvh md:w-64 md:border-b-0 md:border-r">

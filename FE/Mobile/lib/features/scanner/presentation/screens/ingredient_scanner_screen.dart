@@ -8,36 +8,47 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/widgets/guest_gate.dart';
+import '../../data/scan_image_source.dart';
 import '../../domain/entities/detected_ingredient.dart';
+import '../../domain/scan_mode.dart';
+import '../controllers/scan_mode_controller.dart';
 import '../controllers/scanner_controller.dart';
 import '../widgets/bounding_box_overlay.dart';
 import '../widgets/mock_fridge_preview.dart';
 import '../widgets/scanned_ingredients_sheet.dart';
 
 /// Full-screen Smart Kitchen scanner (pushed as a fullscreen dialog route).
+/// [mode] is how it starts: the live camera ("Chụp hình"), a photo from the
+/// gallery ("Chọn ảnh") or the tray with manual entry ("Nhập tay"). Closes
+/// with [ScannerExit.openPlanner] when the member asks to see the Thực đơn
+/// tab.
 class IngredientScannerScreen extends StatelessWidget {
-  const IngredientScannerScreen({super.key});
+  const IngredientScannerScreen({super.key, this.mode = ScanMode.camera});
 
-  static Route<void> route() => MaterialPageRoute<void>(
+  final ScanMode mode;
+
+  static Route<ScannerExit> route({ScanMode mode = ScanMode.camera}) =>
+      MaterialPageRoute<ScannerExit>(
         fullscreenDialog: true,
-        builder: (_) => const IngredientScannerScreen(),
+        builder: (_) => IngredientScannerScreen(mode: mode),
       );
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
+    return Scaffold(
       backgroundColor: Colors.black,
       body: GuestGate(
         icon: Icons.document_scanner_outlined,
         title: 'Quét tủ lạnh, ra thực đơn',
         message:
-            'Đăng nhập để AI nhận diện nguyên liệu trong tủ và gợi ý món chay phù hợp.',
-        benefits: [
+            'Đăng nhập để AI nhận diện thực phẩm trong tủ, cho biết món nào thuần chay và gợi ý món chay phù hợp.',
+        benefits: const [
           'Nhận diện rau củ, đậu hũ, nấm… ngay trên camera',
-          'Ưu tiên nguyên liệu sắp hết hạn để không lãng phí',
+          'Biết ngay thực phẩm nào thuần chay, kèm gợi ý thay thế',
           'Tự loại trừ món chứa chất bạn dị ứng',
         ],
-        child: _ScannerView(),
+        showClose: true,
+        child: _ScannerView(mode: mode),
       ),
     );
   }
@@ -45,8 +56,28 @@ class IngredientScannerScreen extends StatelessWidget {
 
 enum _CameraIssue { permissionDenied, unavailable }
 
+/// What fills the screen behind the tray.
+enum _Feed {
+  /// Live camera (or the camera starting / its permission screen).
+  camera,
+
+  /// A photo picked from the gallery.
+  photo,
+
+  /// The bundled sample fridge (emulators, no camera, no gallery photo).
+  sample,
+
+  /// Nothing yet: waiting for the gallery, or typing ingredients in.
+  none,
+}
+
+/// "Không có ảnh" fallbacks.
+enum _Fallback { sample, camera, manual }
+
 class _ScannerView extends ConsumerStatefulWidget {
-  const _ScannerView();
+  const _ScannerView({required this.mode});
+
+  final ScanMode mode;
 
   @override
   ConsumerState<_ScannerView> createState() => _ScannerViewState();
@@ -63,11 +94,13 @@ class _ScannerViewState extends ConsumerState<_ScannerView>
 
   CameraController? _camera;
   _CameraIssue? _issue;
+  late _Feed _feed;
   bool _pausedByLifecycle = false;
   bool _torchOn = false;
-  bool _useMockPreview = false;
   bool _manualEntry = false;
+  bool _picking = false;
   Uint8List? _frozenFrame;
+  Uint8List? _photo;
 
   @override
   void initState() {
@@ -76,7 +109,19 @@ class _ScannerViewState extends ConsumerState<_ScannerView>
     // Start from a clean scan each time the screen opens.
     Future.microtask(
         () => ref.read(scannerControllerProvider.notifier).reset());
-    _initCamera();
+    switch (widget.mode) {
+      case ScanMode.camera:
+        _feed = _Feed.camera;
+        _initCamera();
+      case ScanMode.gallery:
+        _feed = _Feed.none;
+        WidgetsBinding.instance
+            .addPostFrameCallback((_) => _pickPhoto(initial: true));
+      case ScanMode.manual:
+        // No camera (and no permission prompt) just to type names in.
+        _feed = _Feed.none;
+        _manualEntry = true;
+    }
   }
 
   @override
@@ -98,12 +143,12 @@ class _ScannerViewState extends ConsumerState<_ScannerView>
       if (mounted) setState(() {});
     } else if (state == AppLifecycleState.resumed && _pausedByLifecycle) {
       _pausedByLifecycle = false;
-      _initCamera();
+      if (_feed == _Feed.camera) _initCamera();
     }
   }
 
   Future<void> _initCamera() async {
-    if (_useMockPreview) return;
+    if (_feed != _Feed.camera || _camera != null) return;
     if (_issue != null) setState(() => _issue = null);
     try {
       final cameras = await availableCameras();
@@ -118,7 +163,7 @@ class _ScannerViewState extends ConsumerState<_ScannerView>
       final controller =
           CameraController(back, ResolutionPreset.high, enableAudio: false);
       await controller.initialize();
-      if (!mounted) {
+      if (!mounted || _feed != _Feed.camera) {
         await controller.dispose();
         return;
       }
@@ -141,8 +186,34 @@ class _ScannerViewState extends ConsumerState<_ScannerView>
     setState(() {
       _issue = issue;
       // Fall back to the simulated fridge automatically when there is no camera.
-      if (issue == _CameraIssue.unavailable) _useMockPreview = true;
+      if (issue == _CameraIssue.unavailable && _feed == _Feed.camera) {
+        _feed = _Feed.sample;
+      }
     });
+  }
+
+  /// A way of scanning picked anywhere in the scanner (the "Chưa có ảnh nào
+  /// được chọn" sheet, the shutter row, "Nhập tay" cards, the camera
+  /// permission screen) becomes what the "Quét" button opens next time, like
+  /// a pick from its long-press menu.
+  void _remember(ScanMode mode) =>
+      ref.read(scanModeProvider.notifier).remember(mode);
+
+  /// Frees the camera while a gallery photo is on screen.
+  void _releaseCamera() {
+    final camera = _camera;
+    _camera = null;
+    _torchOn = false;
+    camera?.dispose();
+  }
+
+  void _startCamera() {
+    setState(() {
+      _feed = _Feed.camera;
+      _photo = null;
+      _frozenFrame = null;
+    });
+    _initCamera();
   }
 
   Future<void> _toggleTorch() async {
@@ -159,8 +230,17 @@ class _ScannerViewState extends ConsumerState<_ScannerView>
     }
   }
 
+  Future<void> _analyze(Uint8List bytes) async {
+    HapticFeedback.mediumImpact();
+    await ref.read(scannerControllerProvider.notifier).analyze(bytes);
+    if (!mounted) return;
+    if (ref.read(scannerControllerProvider).status == ScanStatus.detected) {
+      HapticFeedback.lightImpact();
+    }
+  }
+
   Future<void> _capture() async {
-    final notifier = ref.read(scannerControllerProvider.notifier);
+    if (_feed == _Feed.photo && _photo != null) return _analyze(_photo!);
     var bytes = Uint8List(0);
     final camera = _camera;
     if (camera != null &&
@@ -177,41 +257,117 @@ class _ScannerViewState extends ConsumerState<_ScannerView>
         return;
       }
     }
-    HapticFeedback.mediumImpact();
     setState(() {
       _frozenFrame = bytes.isEmpty ? null : bytes;
       _manualEntry = false;
     });
-    await notifier.analyze(bytes);
+    await _analyze(bytes);
+  }
+
+  /// "Chọn ảnh". With nothing picked on the first try (closed picker, empty
+  /// emulator gallery) or a gallery that can't open, offers the bundled
+  /// sample fridge, the camera or manual entry instead of a blank screen.
+  Future<void> _pickPhoto({bool initial = false}) async {
+    if (_picking) return;
+    setState(() => _picking = true);
+    Uint8List? bytes;
+    String? problem;
+    try {
+      bytes = await ref.read(scanImageSourceProvider).pickFromGallery();
+    } on ScanPickerUnavailable catch (e) {
+      problem = e.message;
+    } catch (_) {
+      problem = const ScanPickerUnavailable().message;
+    }
     if (!mounted) return;
-    if (ref.read(scannerControllerProvider).status == ScanStatus.detected) {
-      HapticFeedback.lightImpact();
+    setState(() => _picking = false);
+
+    if (bytes != null) {
+      final photo = bytes;
+      _remember(ScanMode.gallery);
+      _releaseCamera();
+      setState(() {
+        _feed = _Feed.photo;
+        _photo = photo;
+        _frozenFrame = null;
+        _manualEntry = false;
+      });
+      await _analyze(photo);
+      return;
+    }
+    // Closed the picker from the live view: just stay there.
+    if (!initial && problem == null) return;
+
+    final choice = await _NoPhotoSheet.show(context, problem: problem);
+    if (!mounted) return;
+    switch (choice) {
+      case _Fallback.sample:
+        _releaseCamera();
+        setState(() {
+          _feed = _Feed.sample;
+          _photo = null;
+          _manualEntry = false;
+        });
+        await _analyze(Uint8List(0));
+      case _Fallback.camera:
+        _remember(ScanMode.camera);
+        _startCamera();
+      case _Fallback.manual:
+        _remember(ScanMode.manual);
+        setState(() => _manualEntry = true);
+      case null:
+        if (_feed == _Feed.none && !_manualEntry) _startCamera();
     }
   }
 
+  /// Back to the live camera (or the sample fridge); detected items stay in
+  /// the tray.
   void _rescan() {
     setState(() {
       _frozenFrame = null;
       _manualEntry = false;
     });
+    if (_feed == _Feed.photo || _feed == _Feed.none) _startCamera();
     ref.read(scannerControllerProvider.notifier).resumeLive();
   }
 
-  void _openManualEntry() => setState(() => _manualEntry = true);
+  void _openManualEntry() {
+    _remember(ScanMode.manual);
+    setState(() => _manualEntry = true);
+  }
+
+  String _statusLabel(ScannerState state) => switch (state.status) {
+        ScanStatus.analyzing => 'Đang nhận diện…',
+        ScanStatus.detected => 'Tìm thấy ${state.items.length} thực phẩm',
+        ScanStatus.empty => 'Không tìm thấy nguyên liệu',
+        ScanStatus.error => 'Lỗi nhận diện',
+        ScanStatus.idle => switch (_feed) {
+            _Feed.camera => 'Hướng camera vào tủ lạnh',
+            _Feed.sample => 'Chế độ mô phỏng · sẵn sàng',
+            _Feed.photo => 'Ảnh từ thư viện',
+            _Feed.none => _manualEntry
+                ? 'Nhập nguyên liệu bằng tay'
+                : 'Đang mở thư viện ảnh…',
+          },
+      };
 
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(scannerControllerProvider);
     final showTray = state.status == ScanStatus.detected || _manualEntry;
 
-    if (_issue == _CameraIssue.permissionDenied && !_useMockPreview) {
+    if (_feed == _Feed.camera && _issue == _CameraIssue.permissionDenied) {
       return _PermissionDeniedView(
         onRetry: _initCamera,
-        onUseMock: () => setState(() => _useMockPreview = true),
-        onManual: () => setState(() {
-          _useMockPreview = true;
-          _manualEntry = true;
-        }),
+        onUseMock: () => setState(() => _feed = _Feed.sample),
+        onGallery: () => _pickPhoto(initial: true),
+        onManual: () {
+          _remember(ScanMode.manual);
+          setState(() {
+            _feed = _Feed.sample;
+            _manualEntry = true;
+          });
+        },
       );
     }
 
@@ -219,9 +375,11 @@ class _ScannerViewState extends ConsumerState<_ScannerView>
       fit: StackFit.expand,
       children: [
         _Viewport(
+          feed: _feed,
           camera: _camera,
           frozenFrame: _frozenFrame,
-          useMockPreview: _useMockPreview,
+          photo: _photo,
+          manual: _manualEntry,
           items: state.status == ScanStatus.detected ? state.items : const [],
           onTapItem: (item) {
             if (!item.confirmed) {
@@ -231,11 +389,9 @@ class _ScannerViewState extends ConsumerState<_ScannerView>
         ),
         if (state.status == ScanStatus.analyzing) const _AnalyzingOverlay(),
         _TopBar(
-          status: state.status,
-          itemCount: state.items.length,
-          isMock: _useMockPreview,
+          label: _statusLabel(state),
           torchOn: _torchOn,
-          canTorch: _camera != null,
+          canTorch: _camera != null && _feed == _Feed.camera,
           onClose: () => Navigator.of(context).maybePop(),
           onTorch: _toggleTorch,
         ),
@@ -270,10 +426,12 @@ class _ScannerViewState extends ConsumerState<_ScannerView>
                       onAction: _openManualEntry,
                     ),
                   _ShutterRow(
-                    busy: state.isBusy,
+                    busy: state.isBusy || _picking,
+                    canCapture: _feed != _Feed.none,
                     trayCount: state.items.length,
                     onCapture: _capture,
                     onManual: _openManualEntry,
+                    onGallery: _pickPhoto,
                     onOpenTray: () =>
                         ref.read(scannerControllerProvider.notifier).showTray(),
                   ),
@@ -281,7 +439,13 @@ class _ScannerViewState extends ConsumerState<_ScannerView>
               ),
             ),
           ),
-        if (showTray) ScannedIngredientsSheet(onRescan: _rescan),
+        if (showTray)
+          ScannedIngredientsSheet(
+            onRescan: _rescan,
+            // Fully dragged up, the tray stops under the top bar so "Đóng"
+            // stays tappable.
+            reservedTop: MediaQuery.paddingOf(context).top + _TopBar.height + 8,
+          ),
       ],
     );
   }
@@ -291,16 +455,20 @@ class _ScannerViewState extends ConsumerState<_ScannerView>
 
 class _Viewport extends StatelessWidget {
   const _Viewport({
+    required this.feed,
     required this.camera,
     required this.frozenFrame,
-    required this.useMockPreview,
+    required this.photo,
+    required this.manual,
     required this.items,
     required this.onTapItem,
   });
 
+  final _Feed feed;
   final CameraController? camera;
   final Uint8List? frozenFrame;
-  final bool useMockPreview;
+  final Uint8List? photo;
+  final bool manual;
   final List<DetectedIngredient> items;
   final ValueChanged<DetectedIngredient> onTapItem;
 
@@ -315,22 +483,37 @@ class _Viewport extends StatelessWidget {
     final Size frame;
     final Widget background;
 
-    if (useMockPreview) {
-      frame = MockFridgePreview.frameSize;
-      background = const MockFridgePreview();
-    } else if (cam != null && cam.value.isInitialized) {
-      frame = _portrait(cam.value.previewSize);
-      background = frozenFrame != null
-          ? Image.memory(frozenFrame!, fit: BoxFit.cover, gaplessPlayback: true)
-          : CameraPreview(cam);
-    } else {
-      return const ColoredBox(
-        color: Colors.black,
-        child: Center(
-          child:
-              Text('Đang mở camera…', style: TextStyle(color: Colors.white70)),
-        ),
-      );
+    switch (feed) {
+      case _Feed.sample:
+        frame = MockFridgePreview.frameSize;
+        background = const MockFridgePreview();
+      case _Feed.photo when photo != null:
+        // Boxes are normalised against the photo shown edge to edge.
+        frame = MockFridgePreview.frameSize;
+        background = Image.memory(
+          photo!,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          errorBuilder: (_, __, ___) =>
+              const ColoredBox(color: Color(0xFF1B2722)),
+        );
+      case _Feed.camera when cam != null && cam.value.isInitialized:
+        frame = _portrait(cam.value.previewSize);
+        background = frozenFrame != null
+            ? Image.memory(frozenFrame!,
+                fit: BoxFit.cover, gaplessPlayback: true)
+            : CameraPreview(cam);
+      case _Feed.camera:
+        return const ColoredBox(
+          color: Colors.black,
+          child: Center(
+            child: Text('Đang mở camera…',
+                style: TextStyle(color: Colors.white70)),
+          ),
+        );
+      case _Feed.photo:
+      case _Feed.none:
+        return _EmptyViewport(manual: manual);
     }
 
     return Stack(
@@ -350,38 +533,69 @@ class _Viewport extends StatelessWidget {
   }
 }
 
+/// Behind the tray in "Nhập tay", or while the gallery is open.
+class _EmptyViewport extends StatelessWidget {
+  const _EmptyViewport({required this.manual});
+
+  final bool manual;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: const Color(0xFF121A17),
+      child: SafeArea(
+        child: Align(
+          alignment: const Alignment(0, -0.45),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                    manual
+                        ? Icons.keyboard_alt_outlined
+                        : Icons.photo_library_outlined,
+                    size: 44,
+                    color: Colors.white54),
+                const SizedBox(height: 12),
+                Text(
+                  manual
+                      ? 'Gõ tên nguyên liệu bạn có ở khay bên dưới'
+                      : 'Chọn một ảnh tủ lạnh trong thư viện',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70, fontSize: 15),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ------------------------------------------------------------------ chrome --
 
 class _TopBar extends StatelessWidget {
   const _TopBar({
-    required this.status,
-    required this.itemCount,
-    required this.isMock,
+    required this.label,
     required this.torchOn,
     required this.canTorch,
     required this.onClose,
     required this.onTorch,
   });
 
-  final ScanStatus status;
-  final int itemCount;
-  final bool isMock;
+  final String label;
   final bool torchOn;
   final bool canTorch;
   final VoidCallback onClose;
   final VoidCallback onTorch;
 
+  /// Below the status bar: 8 top padding + 48 round buttons.
+  static const double height = 56;
+
   @override
   Widget build(BuildContext context) {
-    final label = switch (status) {
-      ScanStatus.idle =>
-        isMock ? 'Chế độ mô phỏng · sẵn sàng' : 'Hướng camera vào tủ lạnh',
-      ScanStatus.analyzing => 'Đang nhận diện…',
-      ScanStatus.detected => 'Tìm thấy $itemCount nguyên liệu',
-      ScanStatus.empty => 'Không tìm thấy nguyên liệu',
-      ScanStatus.error => 'Lỗi nhận diện',
-    };
-
     return Positioned(
       left: 0,
       right: 0,
@@ -409,6 +623,7 @@ class _TopBar extends StatelessWidget {
                       ),
                       child: Text(
                         label,
+                        textAlign: TextAlign.center,
                         style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w600,
@@ -462,40 +677,58 @@ class _RoundButton extends StatelessWidget {
   }
 }
 
+/// Nhập tay · Chọn ảnh | shutter | tray. The shutter stays centred.
 class _ShutterRow extends StatelessWidget {
   const _ShutterRow({
     required this.busy,
+    required this.canCapture,
     required this.trayCount,
     required this.onCapture,
     required this.onManual,
+    required this.onGallery,
     required this.onOpenTray,
   });
 
   final bool busy;
+  final bool canCapture;
   final int trayCount;
   final VoidCallback onCapture;
   final VoidCallback onManual;
+  final VoidCallback onGallery;
   final VoidCallback onOpenTray;
 
   @override
   Widget build(BuildContext context) {
+    final enabled = !busy && canCapture;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(32, 12, 32, 20),
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          _RoundButton(
-              icon: Icons.keyboard_alt_outlined,
-              tooltip: 'Nhập tay',
-              onPressed: busy ? null : onManual),
+          Expanded(
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                _RoundButton(
+                    icon: Icons.keyboard_alt_outlined,
+                    tooltip: 'Nhập tay',
+                    onPressed: busy ? null : onManual),
+                _RoundButton(
+                    icon: Icons.photo_library_outlined,
+                    tooltip: 'Chọn ảnh',
+                    onPressed: busy ? null : onGallery),
+              ],
+            ),
+          ),
           Semantics(
             button: true,
+            enabled: enabled,
             label: 'Chụp và nhận diện',
             child: GestureDetector(
-              onTap: busy ? null : onCapture,
+              onTap: enabled ? onCapture : null,
               child: AnimatedOpacity(
                 duration: const Duration(milliseconds: 150),
-                opacity: busy ? 0.5 : 1,
+                opacity: enabled ? 1 : 0.5,
                 child: Container(
                   width: 76,
                   height: 76,
@@ -512,16 +745,82 @@ class _ShutterRow extends StatelessWidget {
               ),
             ),
           ),
-          Badge.count(
-            count: trayCount,
-            isLabelVisible: trayCount > 0,
-            child: _RoundButton(
-              icon: Icons.list_alt_rounded,
-              tooltip: 'Danh sách nguyên liệu',
-              onPressed: trayCount > 0 ? onOpenTray : null,
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Badge.count(
+                count: trayCount,
+                isLabelVisible: trayCount > 0,
+                child: _RoundButton(
+                  icon: Icons.list_alt_rounded,
+                  tooltip: 'Danh sách nguyên liệu',
+                  onPressed: trayCount > 0 ? onOpenTray : null,
+                ),
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// No gallery photo: offer the bundled sample fridge (emulators usually have
+/// an empty gallery), the camera, or typing ingredients in.
+class _NoPhotoSheet extends StatelessWidget {
+  const _NoPhotoSheet({this.problem});
+
+  final String? problem;
+
+  static Future<_Fallback?> show(BuildContext context, {String? problem}) =>
+      showModalBottomSheet<_Fallback>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (_) => _NoPhotoSheet(problem: problem),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Chưa có ảnh nào được chọn',
+                style: context.textStyles.titleLarge),
+            const SizedBox(height: 6),
+            Text(
+              problem ??
+                  'Máy ảo thường chưa có ảnh trong thư viện. Bạn có thể thử với ảnh tủ lạnh mẫu.',
+              style: context.textStyles.bodyMedium
+                  ?.copyWith(color: context.vl.muted),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.kitchen_outlined),
+              title: const Text('Dùng ảnh tủ lạnh mẫu'),
+              subtitle: const Text(
+                  'Bông cải, đậu hũ, cà chua, trứng, sữa, cà rốt, rau'),
+              onTap: () => Navigator.of(context).pop(_Fallback.sample),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Chụp bằng camera'),
+              onTap: () => Navigator.of(context).pop(_Fallback.camera),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.keyboard_alt_outlined),
+              title: const Text('Nhập tay'),
+              onTap: () => Navigator.of(context).pop(_Fallback.manual),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -636,11 +935,16 @@ class _AnalyzingOverlayState extends State<_AnalyzingOverlay>
 }
 
 class _PermissionDeniedView extends StatelessWidget {
-  const _PermissionDeniedView(
-      {required this.onRetry, required this.onUseMock, required this.onManual});
+  const _PermissionDeniedView({
+    required this.onRetry,
+    required this.onUseMock,
+    required this.onGallery,
+    required this.onManual,
+  });
 
   final VoidCallback onRetry;
   final VoidCallback onUseMock;
+  final VoidCallback onGallery;
   final VoidCallback onManual;
 
   @override
@@ -648,41 +952,55 @@ class _PermissionDeniedView extends StatelessWidget {
     return ColoredBox(
       color: context.colors.surface,
       child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Align(
-                alignment: Alignment.centerLeft,
-                child: IconButton(
-                  tooltip: 'Đóng',
-                  onPressed: () => Navigator.of(context).maybePop(),
-                  icon: const Icon(Icons.close_rounded),
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints:
+                  BoxConstraints(minHeight: constraints.maxHeight - 48),
+              child: IntrinsicHeight(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: IconButton(
+                        tooltip: 'Đóng',
+                        onPressed: () => Navigator.of(context).maybePop(),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ),
+                    const Spacer(),
+                    Icon(Icons.no_photography_outlined,
+                        size: 48, color: context.colors.primary),
+                    const SizedBox(height: 16),
+                    Text('VeganLife cần quyền camera',
+                        style: context.textStyles.headlineSmall),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Camera chỉ dùng để nhận diện nguyên liệu trong tủ lạnh. Ảnh không được lưu nếu bạn không lưu lần quét. '
+                      'Hãy bật quyền Camera cho VeganLife trong Cài đặt rồi thử lại.',
+                      style: context.textStyles.bodyLarge
+                          ?.copyWith(color: context.vl.muted),
+                    ),
+                    const Spacer(),
+                    FilledButton(
+                        onPressed: onRetry, child: const Text('Thử lại')),
+                    const SizedBox(height: 8),
+                    OutlinedButton(
+                        onPressed: onGallery,
+                        child: const Text('Chọn ảnh từ thư viện')),
+                    const SizedBox(height: 8),
+                    OutlinedButton(
+                        onPressed: onManual,
+                        child: const Text('Nhập nguyên liệu bằng tay')),
+                    TextButton(
+                        onPressed: onUseMock,
+                        child: const Text('Dùng ảnh mô phỏng')),
+                  ],
                 ),
               ),
-              const Spacer(),
-              Icon(Icons.no_photography_outlined,
-                  size: 48, color: context.colors.primary),
-              const SizedBox(height: 16),
-              Text('VeganLife cần quyền camera',
-                  style: context.textStyles.headlineSmall),
-              const SizedBox(height: 8),
-              Text(
-                'Camera chỉ dùng để nhận diện nguyên liệu trong tủ lạnh. Ảnh không được lưu nếu bạn không lưu lần quét. '
-                'Hãy bật quyền Camera cho VeganLife trong Cài đặt rồi thử lại.',
-                style: context.textStyles.bodyLarge
-                    ?.copyWith(color: context.vl.muted),
-              ),
-              const Spacer(),
-              FilledButton(onPressed: onRetry, child: const Text('Thử lại')),
-              const SizedBox(height: 8),
-              OutlinedButton(
-                  onPressed: onManual,
-                  child: const Text('Nhập nguyên liệu bằng tay')),
-              TextButton(
-                  onPressed: onUseMock, child: const Text('Dùng ảnh mô phỏng')),
-            ],
+            ),
           ),
         ),
       ),

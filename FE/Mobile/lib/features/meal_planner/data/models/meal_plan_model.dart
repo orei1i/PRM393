@@ -19,41 +19,58 @@
 //         "lunch": { … }, "dinner": { … } } }
 //   ]
 // }
+//
+// A slot may be missing (a plan the member builds by hand starts empty).
+// Each meal may carry "source": "ai" | "manual" | "user_recipe" | "chef" |
+// "fridge_scan" (meal_plan_recipes.source) and "sourceName" (the chef).
+//
+// POST /meal-plans/current/meals   → 200 MealPlanDayDto (the updated day)
+// { "date": "2026-10-15", "slot": "lunch", "source": "fridge_scan", "sourceId": "menu_1",
+//   "name": "Đậu hũ xào bông cải cà rốt", "calories": 420, "prepMinutes": 20,
+//   "ingredients": ["Đậu hũ", "Bông cải xanh", "Cà rốt", "Tỏi", "Nước tương"],
+//   "allergens": ["soy"] }
 
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/json_helpers.dart';
 import '../../domain/entities/health_profile.dart';
 import '../../domain/entities/meal_plan.dart';
 
+/// kcal + macros. A macro missing (or `null`) on the wire stays `null`: a
+/// dish typed in, written by the member or suggested by a chef without
+/// macros has none, and the app never shows them as 0 g.
 class NutritionDto {
   const NutritionDto({
     required this.calories,
-    required this.proteinG,
-    required this.carbsG,
-    required this.fatG,
-    required this.fiberG,
+    this.proteinG,
+    this.carbsG,
+    this.fatG,
+    this.fiberG,
   });
 
-  factory NutritionDto.fromJson(Map<String, dynamic> json) => NutritionDto(
-        calories: readInt(json['calories']),
-        proteinG: readDouble(json['proteinG']),
-        carbsG: readDouble(json['carbsG']),
-        fatG: readDouble(json['fatG']),
-        fiberG: readDouble(json['fiberG']),
-      );
+  factory NutritionDto.fromJson(Map<String, dynamic> json) {
+    double? grams(String key) =>
+        json[key] == null ? null : readDouble(json[key]);
+    return NutritionDto(
+      calories: readInt(json['calories']),
+      proteinG: grams('proteinG'),
+      carbsG: grams('carbsG'),
+      fatG: grams('fatG'),
+      fiberG: grams('fiberG'),
+    );
+  }
 
   final int calories;
-  final double proteinG;
-  final double carbsG;
-  final double fatG;
-  final double fiberG;
+  final double? proteinG;
+  final double? carbsG;
+  final double? fatG;
+  final double? fiberG;
 
   Map<String, dynamic> toJson() => {
         'calories': calories,
-        'proteinG': proteinG,
-        'carbsG': carbsG,
-        'fatG': fatG,
-        'fiberG': fiberG,
+        if (proteinG != null) 'proteinG': proteinG,
+        if (carbsG != null) 'carbsG': carbsG,
+        if (fatG != null) 'fatG': fatG,
+        if (fiberG != null) 'fiberG': fiberG,
       };
 
   Nutrition toEntity() => Nutrition(
@@ -85,6 +102,8 @@ class SeasonalSwapDto {
 }
 
 /// A recipe as placed in a meal slot. Nutrition is flattened on the wire.
+/// `source` / `sourceName` describe the slot (`meal_plan_recipes.source`);
+/// `createdBy` is set on member-written recipes. All three are optional.
 class RecipeDto {
   const RecipeDto({
     required this.id,
@@ -95,13 +114,20 @@ class RecipeDto {
     this.dietTags = const [],
     this.prepMinutes,
     this.seasonalSwap,
+    this.source,
+    this.sourceName,
+    this.createdBy,
   });
 
   factory RecipeDto.fromJson(Map<String, dynamic> json) => RecipeDto(
-        id: json['id'] as String,
+        id: json['id']?.toString() ?? '',
         name: json['name'] as String? ?? '',
         imageUrl: json['imageUrl'] as String?,
-        nutrition: NutritionDto.fromJson(json),
+        nutrition: NutritionDto.fromJson({
+          ...json,
+          // Catalogue rows carry the recipes.calories_cache column name.
+          if (json['calories'] == null) 'calories': json['caloriesCache'],
+        }),
         allergens: readStringList(json['allergens']),
         dietTags: readStringList(json['dietTags']),
         prepMinutes:
@@ -110,6 +136,9 @@ class RecipeDto {
             ? SeasonalSwapDto.fromJson(
                 json['seasonalSwap'] as Map<String, dynamic>)
             : null,
+        source: json['source'] as String?,
+        sourceName: json['sourceName'] as String?,
+        createdBy: json['createdBy']?.toString(),
       );
 
   final String id;
@@ -121,6 +150,11 @@ class RecipeDto {
   final int? prepMinutes;
   final SeasonalSwapDto? seasonalSwap;
 
+  /// `ai` | `manual` | `user_recipe` | `chef` | `fridge_scan`.
+  final String? source;
+  final String? sourceName;
+  final String? createdBy;
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
@@ -130,7 +164,24 @@ class RecipeDto {
         'dietTags': dietTags,
         if (prepMinutes != null) 'prepMinutes': prepMinutes,
         if (seasonalSwap != null) 'seasonalSwap': seasonalSwap!.toJson(),
+        if (source != null) 'source': source,
+        if (sourceName != null) 'sourceName': sourceName,
+        if (createdBy != null) 'createdBy': createdBy,
       };
+
+  RecipeDto withSource(String source, {String? sourceName}) => RecipeDto(
+        id: id,
+        name: name,
+        nutrition: nutrition,
+        imageUrl: imageUrl,
+        allergens: allergens,
+        dietTags: dietTags,
+        prepMinutes: prepMinutes,
+        seasonalSwap: seasonalSwap,
+        source: source,
+        sourceName: sourceName ?? this.sourceName,
+        createdBy: createdBy,
+      );
 
   Recipe toEntity() => Recipe(
         id: id,
@@ -141,6 +192,9 @@ class RecipeDto {
         dietTags: dietTags,
         prepMinutes: prepMinutes,
         seasonalSwap: seasonalSwap?.toEntity(),
+        source: MealSource.fromApi(source),
+        sourceName: sourceName,
+        createdBy: createdBy,
       );
 }
 
@@ -236,18 +290,190 @@ class MealPlanDto {
   }
 }
 
-/// PATCH /meal-plans/{id}/meals
+/// PATCH /meal-plans/{id}/meals — puts a recipe by id (AI suggestion,
+/// the member's own recipe, a chef suggestion) into a slot.
 class SwapMealRequestDto {
-  const SwapMealRequestDto(
-      {required this.date, required this.slot, required this.recipeId});
+  const SwapMealRequestDto({
+    required this.date,
+    required this.slot,
+    required this.recipeId,
+    this.source,
+  });
 
   final DateTime date;
   final MealSlot slot;
   final String recipeId;
 
+  /// Omitted for plain AI swaps (the server's default).
+  final MealSource? source;
+
   Map<String, dynamic> toJson() => {
         'date': toApiDate(date),
         'slot': slot.apiValue,
         'recipeId': recipeId,
+        if (source != null) 'source': source!.apiValue,
+      };
+}
+
+/// POST /meal-plans/current/meals: puts a dish that is not in the recipe
+/// catalogue (a fridge-scan suggestion, or a dish the member typed in) into
+/// [slot] of [date], replacing that slot's meal. The server resolves
+/// nutrition and allergens from the name and [ingredients]; [allergens] is
+/// what the client already knows. [calories] and macros are optional for
+/// typed-in dishes.
+class AddMealRequestDto {
+  const AddMealRequestDto({
+    required this.date,
+    required this.slot,
+    required this.name,
+    this.calories,
+    this.proteinG,
+    this.carbsG,
+    this.fatG,
+    this.prepMinutes,
+    this.ingredients = const [],
+    this.allergens = const [],
+    this.source = 'fridge_scan',
+    this.sourceId,
+  });
+
+  final DateTime date;
+  final MealSlot slot;
+  final String name;
+  final int? calories;
+  final double? proteinG;
+  final double? carbsG;
+  final double? fatG;
+  final int? prepMinutes;
+  final List<String> ingredients;
+  final List<String> allergens;
+
+  /// `fridge_scan` | `manual`.
+  final String source;
+  final String? sourceId;
+
+  Map<String, dynamic> toJson() => {
+        'date': toApiDate(date),
+        'slot': slot.apiValue,
+        'source': source,
+        if (sourceId != null) 'sourceId': sourceId,
+        'name': name,
+        if (calories != null) 'calories': calories,
+        if (proteinG != null) 'proteinG': proteinG,
+        if (carbsG != null) 'carbsG': carbsG,
+        if (fatG != null) 'fatG': fatG,
+        if (prepMinutes != null) 'prepMinutes': prepMinutes,
+        'ingredients': ingredients,
+        'allergens': allergens,
+      };
+}
+
+/// GET /meal-plans/chef-suggestions
+/// `[{ "id", "chefId", "chefName", "note", "slot", "targetDate": "2026-10-17" | null,
+///     "createdAt", "recipe": RecipeDto }]`
+class ChefSuggestionDto {
+  const ChefSuggestionDto({
+    required this.id,
+    required this.chefId,
+    required this.chefName,
+    required this.recipe,
+    this.note,
+    this.slot,
+    this.targetDate,
+    this.createdAt,
+  });
+
+  factory ChefSuggestionDto.fromJson(Map<String, dynamic> json) =>
+      ChefSuggestionDto(
+        id: json['id']?.toString() ?? '',
+        chefId: json['chefId']?.toString() ?? '',
+        chefName: json['chefName'] as String? ?? 'Chuyên gia',
+        recipe: RecipeDto.fromJson(readMap(json['recipe'])),
+        note: json['note'] as String?,
+        slot: json['slot'] as String?,
+        targetDate: json['targetDate'] is String &&
+                DateTime.tryParse(json['targetDate'] as String) != null
+            ? readDate(json['targetDate'])
+            : null,
+        createdAt: readDateTime(json['createdAt']),
+      );
+
+  final String id;
+  final String chefId;
+  final String chefName;
+  final RecipeDto recipe;
+  final String? note;
+  final String? slot;
+
+  /// Day the chef had in mind (`chef_meal_suggestions.target_date`), date only.
+  final DateTime? targetDate;
+  final DateTime? createdAt;
+
+  ChefSuggestion toEntity() => ChefSuggestion(
+        id: id,
+        chefId: chefId,
+        chefName: chefName,
+        recipe: recipe
+            .withSource(MealSource.chef.apiValue, sourceName: chefName)
+            .toEntity(),
+        note: note,
+        slot: slot == null ? null : MealSlot.fromApi(slot!),
+        targetDate: targetDate,
+        createdAt: createdAt,
+      );
+}
+
+/// One row of a member-written recipe (`recipe_ingredients`).
+class RecipeIngredientInput {
+  const RecipeIngredientInput(
+      {required this.name, required this.quantity, required this.unit});
+
+  final String name;
+  final double quantity;
+  final String unit;
+
+  Map<String, dynamic> toJson() =>
+      {'name': name, 'quantity': quantity, 'unit': unit};
+}
+
+/// POST /recipes — "Công thức của tôi". Saved to `recipes` with
+/// `created_by` = the member; steps are newline-separated `instructions`.
+class CreateRecipeRequestDto {
+  const CreateRecipeRequestDto({
+    required this.name,
+    required this.calories,
+    required this.ingredients,
+    required this.steps,
+    this.proteinG,
+    this.carbsG,
+    this.fatG,
+    this.prepMinutes,
+    this.servings,
+  });
+
+  final String name;
+  final int calories;
+  final List<RecipeIngredientInput> ingredients;
+  final List<String> steps;
+  final double? proteinG;
+  final double? carbsG;
+  final double? fatG;
+  final int? prepMinutes;
+  final int? servings;
+
+  String get instructions => [
+        for (final (i, s) in steps.indexed) '${i + 1}. ${s.trim()}',
+      ].join('\n');
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'caloriesCache': calories,
+        'ingredients': ingredients.map((i) => i.toJson()).toList(),
+        'instructions': instructions,
+        if (proteinG != null) 'proteinG': proteinG,
+        if (carbsG != null) 'carbsG': carbsG,
+        if (fatG != null) 'fatG': fatG,
+        if (prepMinutes != null) 'prepMinutes': prepMinutes,
+        if (servings != null) 'servings': servings,
       };
 }

@@ -18,6 +18,52 @@ enum PostType {
           orElse: () => PostType.discussion);
 }
 
+/// `posts.status`. New and edited posts are published unless the AI
+/// pre-screen flags them; flagged ones wait for an admin decision.
+enum PostStatus {
+  pending('Pending', 'Chờ duyệt'),
+  published('Published', 'Đã đăng'),
+  rejected('Rejected', 'Bị từ chối');
+
+  const PostStatus(this.apiValue, this.label);
+  final String apiValue;
+  final String label;
+
+  /// Case-insensitive; a missing or unknown value is a legacy, live post.
+  static PostStatus fromApi(Object? value) {
+    final raw = value?.toString().trim().toLowerCase();
+    for (final s in values) {
+      if (s.apiValue.toLowerCase() == raw) return s;
+    }
+    return published;
+  }
+}
+
+/// `posts.media_type`. The FE [PostType] stays the category shown in the UI.
+enum PostMediaType {
+  text('Text'),
+  image('Image'),
+  video('Video');
+
+  const PostMediaType(this.apiValue);
+  final String apiValue;
+
+  static PostMediaType? tryParse(Object? value) {
+    final raw = value?.toString().trim().toLowerCase();
+    for (final m in values) {
+      if (m.apiValue.toLowerCase() == raw) return m;
+    }
+    return null;
+  }
+
+  /// What the server would store when the field is missing.
+  static PostMediaType derive({required String type, String? imageUrl}) {
+    if (type == PostType.video.apiValue) return video;
+    if (imageUrl != null) return image;
+    return text;
+  }
+}
+
 /// Reasons map 1:1 to the admin moderation categories on the web console.
 enum ReportReason {
   healthMisinformation('health_misinformation', 'Thông tin sức khoẻ sai lệch'),
@@ -49,7 +95,12 @@ class Post {
     this.videoId,
     this.videoDurationSeconds,
     this.videoStatus,
-  });
+    this.status = PostStatus.published,
+    PostMediaType? mediaType,
+    this.mediaUrl,
+    this.rejectionReason,
+    this.updatedAt,
+  }) : _mediaType = mediaType;
 
   final String id;
   final PostType type;
@@ -74,7 +125,27 @@ class Post {
   final int? videoDurationSeconds;
   final VideoAiStatus? videoStatus;
 
+  /// Only [PostStatus.published] posts reach the feed and search; the author
+  /// still sees the others in "Nội dung của tôi".
+  final PostStatus status;
+
+  final PostMediaType? _mediaType;
+  PostMediaType get mediaType =>
+      _mediaType ??
+      PostMediaType.derive(type: type.apiValue, imageUrl: imageUrl);
+
+  /// Uploaded video / image URL, or the pasted video link.
+  final String? mediaUrl;
+
+  /// The admin's note when [status] is [PostStatus.rejected].
+  final String? rejectionReason;
+  final DateTime? updatedAt;
+
   bool get hasCover => type != PostType.discussion || imageUrl != null;
+
+  bool get isPublished => status == PostStatus.published;
+  bool get isPending => status == PostStatus.pending;
+  bool get isRejected => status == PostStatus.rejected;
 
   Post toggledLike() => copyWith(
         likedByMe: !likedByMe,
@@ -108,6 +179,11 @@ class Post {
       videoId: videoId,
       videoDurationSeconds: videoDurationSeconds,
       videoStatus: videoStatus ?? this.videoStatus,
+      status: status,
+      mediaType: _mediaType,
+      mediaUrl: mediaUrl,
+      rejectionReason: rejectionReason,
+      updatedAt: updatedAt,
     );
   }
 }
@@ -119,6 +195,8 @@ class Comment {
     required this.text,
     required this.createdAt,
     this.pending = false,
+    this.postId,
+    this.updatedAt,
   });
 
   final String id;
@@ -128,6 +206,44 @@ class Comment {
 
   /// Optimistically added, not yet confirmed by the server.
   final bool pending;
+
+  final String? postId;
+  final DateTime? updatedAt;
+
+  /// Shows "(đã sửa)".
+  bool get isEdited => updatedAt != null;
+
+  Comment copyWith({String? text, DateTime? updatedAt, bool? pending}) =>
+      Comment(
+        id: id,
+        author: author,
+        text: text ?? this.text,
+        createdAt: createdAt,
+        pending: pending ?? this.pending,
+        postId: postId,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
+}
+
+/// One of the member's comments, listed under "Nội dung của tôi › Bình luận".
+class MyComment {
+  const MyComment({
+    required this.id,
+    required this.postId,
+    required this.postTitle,
+    required this.text,
+    required this.createdAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String postId;
+  final String postTitle;
+  final String text;
+  final DateTime createdAt;
+  final DateTime? updatedAt;
+
+  bool get isEdited => updatedAt != null;
 }
 
 class FeedPage {

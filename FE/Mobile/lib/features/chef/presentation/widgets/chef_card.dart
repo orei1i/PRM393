@@ -5,6 +5,7 @@ import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/widgets/user_avatar.dart';
 import '../../../../core/widgets/vl_card.dart';
+import '../../../commerce/presentation/widgets/commerce_ui.dart';
 import '../../domain/entities/chef.dart';
 
 class ChefCard extends StatelessWidget {
@@ -40,20 +41,26 @@ class ChefCard extends StatelessWidget {
                   spacing: 6,
                   runSpacing: 6,
                   children: [
-                    for (final s in chef.specialties) VLTag.neutral(context, s)
+                    for (final s in chef.specialties)
+                      StatusPill(
+                        label: s,
+                        background: context.colors.surfaceContainer,
+                        foreground: context.colors.onSurfaceVariant,
+                      ),
                   ],
                 ),
                 const SizedBox(height: 10),
                 Row(
                   children: [
-                    Text(
-                      'Từ ${formatVnd(chef.startingPriceVnd)}',
-                      style: context.textStyles.titleSmall?.copyWith(
-                        color: context.colors.primary,
-                        fontWeight: FontWeight.w800,
+                    Expanded(
+                      child: Text(
+                        'Từ ${formatVnd(chef.startingPriceVnd)}',
+                        style: context.textStyles.titleSmall?.copyWith(
+                          color: context.colors.primary,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
-                    const Spacer(),
                     Icon(Icons.chevron_right_rounded, color: context.vl.muted),
                   ],
                 ),

@@ -71,12 +71,18 @@ class _ChatComposerState extends State<ChatComposer> {
                     separatorBuilder: (_, __) => const SizedBox(width: 8),
                     itemBuilder: (context, i) {
                       final prompt = widget.quickPrompts[i];
-                      return ActionChip(
-                        label: Text(prompt),
-                        avatar:
-                            Icon(Icons.auto_awesome, size: 16, color: vl.ai),
-                        onPressed:
-                            widget.isStreaming ? null : () => _submit(prompt),
+                      // Bounded so the chip measures its label with the
+                      // loaded font, not stale metrics (clipped labels).
+                      return ConstrainedBox(
+                        constraints: BoxConstraints(
+                            maxWidth: MediaQuery.sizeOf(context).width - 32),
+                        child: ActionChip(
+                          label: Text(prompt),
+                          avatar:
+                              Icon(Icons.auto_awesome, size: 16, color: vl.ai),
+                          onPressed:
+                              widget.isStreaming ? null : () => _submit(prompt),
+                        ),
                       );
                     },
                   ),

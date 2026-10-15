@@ -136,6 +136,33 @@ export interface AiLog {
   traceId: string;
   /** Moderation calls only: whether the item was flagged */
   flagged?: boolean;
+  /** What the call was about (ai_logs.ref_type / ref_id), e.g. "post" + post id. */
+  refType: string | null;
+  refId: string | null;
+}
+
+export type AiLogVerdict = "correct" | "incorrect";
+
+/** Admin label on one AI output (proposed ai_log_labels table). */
+export interface AiLogLabel {
+  verdict: AiLogVerdict;
+  note?: string;
+  by: string;
+  at: ISODateString;
+}
+
+/** GET /admin/ai/logs/{id} */
+export interface AiLogDetail extends AiLog {
+  inputText: string;
+  outputText: string;
+  label?: AiLogLabel;
+}
+
+/** POST /admin/ai/logs/{id}/label */
+export interface AiLogLabelInput {
+  logId: string;
+  verdict: AiLogVerdict;
+  note?: string;
 }
 
 export type TelemetryRange = "1h" | "24h" | "7d";

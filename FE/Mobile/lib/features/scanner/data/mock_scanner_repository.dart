@@ -7,7 +7,9 @@ import 'models/scan_result_model.dart';
 import 'scanner_api_service.dart';
 
 /// Fake vision backend. Boxes line up with the built-in mock fridge preview,
-/// so the overlay looks right on emulators without a camera.
+/// so the overlay looks right on emulators without a camera. Like the real
+/// server it says, per item, whether the food is vegan (`isVegan`), and why
+/// not: the eggs and the milk show the "Không thuần chay" path by default.
 ///
 /// `--dart-define=MOCK_SCAN_SCENARIO=empty|error` exercises the edge states.
 class MockScannerRepository implements ScannerApiService {
@@ -20,49 +22,57 @@ class MockScannerRepository implements ScannerApiService {
       'id': 'det_broccoli',
       'label': 'Bông cải xanh',
       'confidence': 0.96,
-      'freshness': 'fresh',
+      'isVegan': true,
       'bbox': {'x': 0.05, 'y': 0.17, 'w': 0.30, 'h': 0.20},
-      'quantity': 1,
-      'unit': 'bông',
     },
     {
       'id': 'det_tofu',
       'label': 'Đậu hũ',
       'confidence': 0.93,
-      'freshness': 'use_soon',
+      'isVegan': true,
       'bbox': {'x': 0.40, 'y': 0.19, 'w': 0.27, 'h': 0.18},
-      'quantity': 300,
-      'unit': 'g',
     },
     {
       'id': 'det_tomato',
       'label': 'Cà chua',
       'confidence': 0.89,
-      'freshness': 'fresh',
+      'isVegan': true,
       'bbox': {'x': 0.71, 'y': 0.21, 'w': 0.25, 'h': 0.15},
-      'quantity': 2,
-      'unit': 'quả',
+    },
+    {
+      'id': 'det_egg',
+      'label': 'Trứng gà',
+      'confidence': 0.94,
+      'isVegan': false,
+      'nonVeganReason': 'Có nguồn gốc động vật: trứng',
+      'veganAlternatives': ['Đậu hũ non'],
+      'bbox': {'x': 0.05, 'y': 0.43, 'w': 0.36, 'h': 0.12},
+    },
+    {
+      'id': 'det_milk',
+      'label': 'Sữa bò',
+      'confidence': 0.88,
+      'isVegan': false,
+      'nonVeganReason': 'Chứa sữa bò',
+      'veganAlternatives': ['Sữa hạt', 'Sữa đậu nành'],
+      'bbox': {'x': 0.45, 'y': 0.40, 'w': 0.17, 'h': 0.15},
     },
     {
       'id': 'det_carrot',
       'label': 'Cà rốt',
       'confidence': 0.91,
-      'freshness': 'fresh',
-      'bbox': {'x': 0.05, 'y': 0.50, 'w': 0.42, 'h': 0.20},
-      'quantity': 3,
-      'unit': 'củ',
+      'isVegan': true,
+      'bbox': {'x': 0.05, 'y': 0.58, 'w': 0.42, 'h': 0.13},
     },
     {
       'id': 'det_leafy',
       'label': 'Rau chân vịt',
       'confidence': 0.58,
-      'freshness': 'fresh',
-      'bbox': {'x': 0.52, 'y': 0.52, 'w': 0.43, 'h': 0.18},
-      'quantity': 1,
-      'unit': 'bó',
+      'isVegan': true,
+      'bbox': {'x': 0.52, 'y': 0.585, 'w': 0.43, 'h': 0.12},
       'alternatives': [
-        {'label': 'Rau muống', 'confidence': 0.21},
-        {'label': 'Cải thìa', 'confidence': 0.12},
+        {'label': 'Rau muống', 'confidence': 0.21, 'isVegan': true},
+        {'label': 'Cải thìa', 'confidence': 0.12, 'isVegan': true},
       ],
     },
   ];
@@ -91,7 +101,11 @@ class MockScannerRepository implements ScannerApiService {
   Future<List<MenuSuggestionDto>> generateMenu(
       GenerateMenuRequestDto request) async {
     await mockDelay(2000);
-    final names = request.ingredients.map((i) => i.name).toList();
+    // Dishes are built from vegan items only.
+    final names = [
+      for (final i in request.ingredients)
+        if (i.isVegan) i.name,
+    ];
     bool has(String n) => names.any((x) => x.toLowerCase() == n.toLowerCase());
 
     final ideas = <Map<String, Object?>>[
@@ -106,6 +120,7 @@ class MockScannerRepository implements ScannerApiService {
           if (has('Cà rốt')) 'Cà rốt'
         ],
         'missingIngredients': ['Tỏi', 'Nước tương'],
+        'allergens': ['soy'],
       },
       {
         'id': 'menu_2',
@@ -117,6 +132,7 @@ class MockScannerRepository implements ScannerApiService {
           if (has('Đậu hũ')) 'Đậu hũ'
         ],
         'missingIngredients': ['Hành lá'],
+        'allergens': ['soy'],
       },
       {
         'id': 'menu_3',
@@ -132,9 +148,12 @@ class MockScannerRepository implements ScannerApiService {
       },
     ];
 
+    // Like the server: never suggest a dish with an excluded allergen.
+    final excluded = request.excludeAllergens.toSet();
     return ideas
         .map(MenuSuggestionDto.fromJson)
         .where((m) => m.usedIngredients.isNotEmpty)
+        .where((m) => !m.allergens.any(excluded.contains))
         .toList();
   }
 }

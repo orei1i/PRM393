@@ -68,6 +68,34 @@ class HealthProfileDto {
       );
 }
 
+/// PUT /health-profile/me → [HealthProfileDto] with the server-recomputed
+/// `bmi` (the `health_profiles.bmi` cache).
+class UpdateHealthProfileRequestDto {
+  const UpdateHealthProfileRequestDto({
+    required this.heightCm,
+    required this.weightKg,
+    required this.goal,
+    required this.allergies,
+    required this.dietaryRestrictions,
+  });
+
+  final double heightCm;
+  final double weightKg;
+  final HealthGoal goal;
+  final List<String> allergies;
+
+  /// Sent back unchanged (not edited on this screen).
+  final List<String> dietaryRestrictions;
+
+  Map<String, dynamic> toJson() => {
+        'heightCm': heightCm,
+        'weightKg': weightKg,
+        'goal': goal.apiValue,
+        'allergies': allergies,
+        'dietaryRestrictions': dietaryRestrictions,
+      };
+}
+
 class HealthSyncDto {
   const HealthSyncDto(
       {required this.provider, required this.status, this.lastSyncedAt});

@@ -1,12 +1,15 @@
 // lib/features/video/data/mock/video_mock_data.dart
 //
-// Seed cooking videos (wire format). Sample clips are public Flutter test
-// videos — swap for Cloudinary URLs once the backend serves real uploads.
+// Seed cooking videos (wire format). Sample clips are public test videos
+// (Flutter's API-doc assets, MDN's CC0 sample) — swap for Cloudinary URLs
+// once the backend serves real uploads.
 
 const sampleVideoUrlA =
     'https://flutter.github.io/assets-for-api-docs/assets/videos/bee.mp4';
 const sampleVideoUrlB =
     'https://flutter.github.io/assets-for-api-docs/assets/videos/butterfly.mp4';
+const sampleVideoUrlC =
+    'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
 
 const chefTam = {
   'id': 'u_chef_tam',
@@ -245,5 +248,169 @@ final List<Map<String, dynamic>> seedVideos = [
     'aiStatus': 'failed',
     'failureReason':
         'Âm thanh quá nhỏ để nhận dạng giọng nói. Thử lại hoặc thêm phụ đề cho video.',
+  },
+  // Short clips (under ~1 minute) that fill the Reels strip.
+  {
+    'id': 'vid_goi_cuon',
+    'title': 'Gỏi cuốn chay 60 giây: cuốn chặt tay mà không rách bánh tráng',
+    'author': chefChau,
+    'coverSeed': 'goi-cuon-chay',
+    'videoUrl': sampleVideoUrlC,
+    'durationSeconds': 58,
+    'aiStatus': 'ready',
+    'summary':
+        'Nhúng bánh tráng thật nhanh, xếp rau và miến trước, đậu hũ chiên sau rồi cuốn chặt tay. '
+            'Chấm tương đậu phộng pha loãng.',
+    'servings': 2,
+    'totalMinutes': 15,
+    'kcalPerServing': 290,
+    'ingredients': [
+      {'name': 'Bánh tráng', 'quantity': '8 lá', 'atSecond': 4},
+      {'name': 'Đậu hũ chiên', 'quantity': '1 bìa', 'atSecond': 12},
+      {'name': 'Xà lách, rau thơm', 'quantity': '1 rổ nhỏ', 'atSecond': 18},
+      {'name': 'Tương đậu phộng', 'quantity': '3 muỗng canh', 'atSecond': 46},
+    ],
+    'steps': [
+      {
+        'index': 1,
+        'text': 'Nhúng bánh tráng qua nước 1 giây rồi trải lên thớt.',
+        'atSecond': 4
+      },
+      {
+        'index': 2,
+        'text': 'Xếp rau trước, đậu hũ sau, gấp hai mép rồi cuốn chặt tay.',
+        'atSecond': 18
+      },
+      {
+        'index': 3,
+        'text': 'Pha tương đậu phộng với chút nước ấm để chấm.',
+        'atSecond': 46
+      },
+    ],
+    'transcript': [
+      {
+        'atSecond': 0,
+        'text': 'Cuốn gỏi cuốn mà không rách, bí quyết là nhúng thật nhanh.'
+      },
+    ],
+  },
+  {
+    'id': 'vid_nam_kho_tieu',
+    'title': 'Nấm kho tiêu kiểu miền Tây, đưa cơm cả nhà',
+    'author': bepNhaMay,
+    'coverSeed': 'nam-kho-tieu',
+    'videoUrl': sampleVideoUrlB,
+    'durationSeconds': 64,
+    'aiStatus': 'ready',
+    'summary':
+        'Nấm bào ngư xé sợi, áp chảo cho se rồi kho với nước dừa, nước tương và tiêu xanh đến khi sệt.',
+    'servings': 3,
+    'totalMinutes': 25,
+    'kcalPerServing': 180,
+    'ingredients': [
+      {'name': 'Nấm bào ngư', 'quantity': '300 g', 'atSecond': 5},
+      {'name': 'Nước dừa tươi', 'quantity': '200 ml', 'atSecond': 30},
+      {'name': 'Nước tương', 'quantity': '2 muỗng canh', 'atSecond': 34},
+      {'name': 'Tiêu xanh', 'quantity': '2 nhánh', 'atSecond': 48},
+    ],
+    'steps': [
+      {
+        'index': 1,
+        'text': 'Xé nấm theo thớ, áp chảo không dầu cho ráo nước.',
+        'atSecond': 5
+      },
+      {
+        'index': 2,
+        'text': 'Thêm nước dừa và nước tương, kho lửa nhỏ 15 phút.',
+        'atSecond': 30
+      },
+      {
+        'index': 3,
+        'text': 'Cho tiêu xanh vào, kho thêm 3 phút đến khi nước sệt.',
+        'atSecond': 48
+      },
+    ],
+    'transcript': [
+      {'atSecond': 0, 'text': 'Nồi nấm kho này ăn với cơm trắng là hết sạch.'},
+    ],
+  },
+  {
+    'id': 'vid_che_dau_xanh',
+    'title': 'Chè đậu xanh nước cốt dừa, nấu bằng nồi cơm điện',
+    'author': thaoVy,
+    'coverSeed': 'che-dau-xanh',
+    'videoUrl': sampleVideoUrlA,
+    'durationSeconds': 45,
+    'aiStatus': 'ready',
+    'summary':
+        'Đậu xanh cà vỏ ngâm 2 tiếng, nấu trong nồi cơm điện 40 phút, thêm đường phèn và nước cốt dừa.',
+    'servings': 4,
+    'totalMinutes': 45,
+    'kcalPerServing': 240,
+    'ingredients': [
+      {'name': 'Đậu xanh cà vỏ', 'quantity': '200 g', 'atSecond': 6},
+      {'name': 'Đường phèn', 'quantity': '80 g', 'atSecond': 25},
+      {'name': 'Nước cốt dừa', 'quantity': '150 ml', 'atSecond': 36},
+    ],
+    'steps': [
+      {
+        'index': 1,
+        'text': 'Ngâm đậu 2 tiếng, cho vào nồi cơm điện với 1 lít nước.',
+        'atSecond': 6
+      },
+      {
+        'index': 2,
+        'text': 'Nấu 40 phút đến khi đậu bở, thêm đường phèn.',
+        'atSecond': 25
+      },
+      {
+        'index': 3,
+        'text': 'Múc ra chén, rưới nước cốt dừa khi ăn.',
+        'atSecond': 36
+      },
+    ],
+    'transcript': [
+      {'atSecond': 0, 'text': 'Không cần canh bếp, nồi cơm điện lo hết.'},
+    ],
+  },
+  {
+    'id': 'vid_salad_tempeh',
+    'title': 'Salad tempeh áp chảo sốt mè rang cho bữa trưa văn phòng',
+    'author': chefTam,
+    'coverSeed': 'salad-tempeh',
+    'videoUrl': sampleVideoUrlC,
+    'durationSeconds': 52,
+    'aiStatus': 'ready',
+    'summary':
+        'Tempeh áp chảo 4 phút mỗi mặt, trộn rau mầm, dưa leo và sốt mè rang. Khoảng 22 g đạm mỗi hộp.',
+    'servings': 1,
+    'totalMinutes': 15,
+    'kcalPerServing': 430,
+    'ingredients': [
+      {'name': 'Tempeh', 'quantity': '120 g', 'atSecond': 5},
+      {'name': 'Rau mầm', 'quantity': '1 nắm', 'atSecond': 22},
+      {'name': 'Dưa leo', 'quantity': '1 quả', 'atSecond': 26},
+      {'name': 'Sốt mè rang', 'quantity': '2 muỗng canh', 'atSecond': 40},
+    ],
+    'steps': [
+      {
+        'index': 1,
+        'text': 'Cắt tempeh lát mỏng, áp chảo 4 phút mỗi mặt.',
+        'atSecond': 5
+      },
+      {
+        'index': 2,
+        'text': 'Trộn rau mầm và dưa leo, xếp tempeh lên trên.',
+        'atSecond': 22
+      },
+      {
+        'index': 3,
+        'text': 'Để sốt mè riêng, rưới khi ăn cho rau không bị úng.',
+        'atSecond': 40
+      },
+    ],
+    'transcript': [
+      {'atSecond': 0, 'text': 'Hộp salad này mang đi làm vẫn giòn tới trưa.'},
+    ],
   },
 ];

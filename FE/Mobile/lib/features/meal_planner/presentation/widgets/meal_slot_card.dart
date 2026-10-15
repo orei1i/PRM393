@@ -8,7 +8,8 @@ import '../../../../core/utils/labels.dart';
 import '../../../../core/widgets/vl_card.dart';
 import '../../domain/entities/meal_plan.dart';
 
-/// One meal slot: recipe, calories/macros, allergy chips, seasonal swap, swap action.
+/// One meal slot: recipe, calories/macros, source badge, allergy chips,
+/// seasonal swap, swap action. [onOpen] opens the recipe.
 class MealSlotCard extends StatelessWidget {
   const MealSlotCard({
     super.key,
@@ -18,6 +19,7 @@ class MealSlotCard extends StatelessWidget {
     required this.isSwapping,
     required this.onSwap,
     this.onSeasonalSwap,
+    this.onOpen,
   });
 
   final MealSlot slot;
@@ -26,6 +28,7 @@ class MealSlotCard extends StatelessWidget {
   final bool isSwapping;
   final VoidCallback onSwap;
   final VoidCallback? onSeasonalSwap;
+  final VoidCallback? onOpen;
 
   IconData get _slotIcon => switch (slot) {
         MealSlot.breakfast => Icons.wb_twilight_rounded,
@@ -43,6 +46,7 @@ class MealSlotCard extends StatelessWidget {
     return VLCard(
       padding: EdgeInsets.zero,
       borderColor: conflicts.isNotEmpty ? vl.cautionBorder : null,
+      onTap: onOpen,
       child: Column(
         children: [
           Padding(
@@ -63,7 +67,9 @@ class MealSlotCard extends StatelessWidget {
                               style: context.textStyles.bodySmall
                                   ?.copyWith(color: vl.muted)),
                           TextSpan(
-                              text: '${formatInt(n.calories)} kcal',
+                              text: recipe.hasNutrition
+                                  ? '${formatInt(n.calories)} kcal'
+                                  : 'Chưa rõ kcal',
                               style: AppTypography.mono(
                                   size: 12,
                                   weight: FontWeight.w600,
@@ -82,34 +88,36 @@ class MealSlotCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        'Đạm ${n.proteinG.round()} g · Tinh bột ${n.carbsG.round()} g · Béo ${n.fatG.round()} g'
-                        '${recipe.prepMinutes == null ? '' : ' · ${recipe.prepMinutes} phút'}',
-                        style: context.textStyles.bodySmall
-                            ?.copyWith(color: vl.muted),
-                      ),
-                      if (conflicts.isNotEmpty ||
-                          recipe.dietTags.isNotEmpty ||
-                          seasonal != null) ...[
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: [
-                            for (final a in conflicts)
-                              VLTag.caution(context,
-                                  'Chứa ${allergenLabel(a).toLowerCase()}'),
-                            for (final t in recipe.dietTags.take(2))
-                              VLTag.neutral(context, dietTagLabel(t)),
-                            if (seasonal != null && onSeasonalSwap != null)
-                              _SeasonalChip(
-                                label:
-                                    'Đổi sang ${seasonal.ingredient} đang mùa',
-                                onTap: isSwapping ? null : onSeasonalSwap,
-                              ),
-                          ],
+                      // Only the macros the dish really has: a typed-in dish
+                      // with just "Đạm" shows just "Đạm".
+                      if (n.summary() != null || recipe.prepMinutes != null)
+                        Text(
+                          [
+                            if (n.summary() case final macros?) macros,
+                            if (recipe.prepMinutes != null)
+                              '${recipe.prepMinutes} phút',
+                          ].join(' · '),
+                          style: context.textStyles.bodySmall
+                              ?.copyWith(color: vl.muted),
                         ),
-                      ],
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          MealSourceBadge(recipe: recipe),
+                          for (final a in conflicts)
+                            VLTag.caution(context,
+                                'Chứa ${allergenLabel(a).toLowerCase()}'),
+                          for (final t in recipe.dietTags.take(2))
+                            VLTag.neutral(context, dietTagLabel(t)),
+                          if (seasonal != null && onSeasonalSwap != null)
+                            _SeasonalChip(
+                              label: 'Đổi sang ${seasonal.ingredient} đang mùa',
+                              onTap: isSwapping ? null : onSeasonalSwap,
+                            ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -190,12 +198,140 @@ class _SeasonalChip extends StatelessWidget {
             children: [
               Icon(Icons.eco_outlined, size: 14, color: vl.onSuccessContainer),
               const SizedBox(width: 4),
-              Text(label,
-                  style: context.textStyles.labelMedium
-                      ?.copyWith(color: vl.onSuccessContainer)),
+              Flexible(
+                child: Text(label,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.textStyles.labelMedium
+                        ?.copyWith(color: vl.onSuccessContainer)),
+              ),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Where the dish came from: AI, typed in, own recipe, a chef, the fridge.
+class MealSourceBadge extends StatelessWidget {
+  const MealSourceBadge({super.key, required this.recipe});
+
+  final Recipe recipe;
+
+  @override
+  Widget build(BuildContext context) {
+    final vl = context.vl;
+    final cs = context.colors;
+    final (IconData icon, String label, Color bg, Color fg) =
+        switch (recipe.source) {
+      MealSource.ai => (
+          Icons.auto_awesome,
+          MealSource.ai.label,
+          vl.aiContainer,
+          vl.onAiContainer
+        ),
+      MealSource.chef => (
+          Icons.verified_outlined,
+          recipe.sourceName == null
+              ? 'Chuyên gia đề xuất'
+              : 'Chuyên gia · ${recipe.sourceName}',
+          vl.successContainer,
+          vl.onSuccessContainer
+        ),
+      MealSource.userRecipe => (
+          Icons.menu_book_outlined,
+          MealSource.userRecipe.label,
+          cs.secondaryContainer,
+          cs.onSecondaryContainer
+        ),
+      MealSource.manual => (
+          Icons.edit_note_rounded,
+          MealSource.manual.label,
+          cs.surfaceContainer,
+          cs.onSurfaceVariant
+        ),
+      MealSource.fridgeScan => (
+          Icons.kitchen_outlined,
+          MealSource.fridgeScan.label,
+          cs.surfaceContainer,
+          cs.onSurfaceVariant
+        ),
+    };
+    // Like VLTag, but the label shrinks (ellipsis) on narrow cards and at
+    // large text sizes instead of overflowing.
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration:
+          BoxDecoration(color: bg, borderRadius: BorderRadius.circular(999)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: fg),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(label,
+                overflow: TextOverflow.ellipsis,
+                style: context.textStyles.labelMedium?.copyWith(color: fg)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A slot with no dish yet (a plan built by hand): "Thêm món".
+class EmptyMealSlotCard extends StatelessWidget {
+  const EmptyMealSlotCard(
+      {super.key, required this.slot, required this.onAdd, this.busy = false});
+
+  final MealSlot slot;
+  final VoidCallback onAdd;
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context) {
+    final vl = context.vl;
+    return VLCard(
+      onTap: busy ? null : onAdd,
+      padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+      child: Row(
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              border: Border.all(color: vl.border),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(Icons.add_rounded, color: vl.muted),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(slot.label,
+                    style: context.textStyles.bodySmall
+                        ?.copyWith(color: vl.muted)),
+                Text('Chưa có món', style: context.textStyles.titleSmall),
+              ],
+            ),
+          ),
+          if (busy)
+            const Padding(
+              padding: EdgeInsets.all(12),
+              child: SizedBox.square(
+                  dimension: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2)),
+            )
+          else
+            IconButton.filledTonal(
+              tooltip: 'Thêm ${slot.label.toLowerCase()}',
+              onPressed: onAdd,
+              style: IconButton.styleFrom(minimumSize: const Size(44, 44)),
+              icon: const Icon(Icons.add_rounded),
+            ),
+        ],
       ),
     );
   }

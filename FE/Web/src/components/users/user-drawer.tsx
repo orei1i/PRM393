@@ -2,11 +2,11 @@
 "use client";
 
 import * as React from "react";
-import { BadgeCheck, Ban, Lock, LockOpen, ShieldCheck, Trash2, UserRound } from "lucide-react";
+import Link from "next/link";
+import { Ban, FileText, Lock, LockOpen, MessageSquare, ShieldCheck, Trash2, UserRound } from "lucide-react";
 import { toast } from "sonner";
 
 import { InitialsAvatar } from "@/components/admin/initials-avatar";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
 import { Input, Label, Textarea } from "@/components/ui/form-controls";
@@ -15,9 +15,9 @@ import { describeError } from "@/lib/api_error";
 import { readSession } from "@/lib/auth";
 import { useDeleteUser, useSetUserRole, useSetUserStatus } from "@/lib/hooks/use-admin";
 import { formatAge, formatNumber } from "@/lib/utils";
-import { USER_ROLE_LABEL, USER_STATUS_LABEL, type AdminUser, type UserRole, type UserStatus } from "@/types/admin";
+import { USER_ROLE_LABEL, USER_STATUS_LABEL, type AdminUser, type AssignableRole, type UserStatus } from "@/types/admin";
 
-import { UserStatusBadge } from "./status-badge";
+import { UserRoleBadges, UserStatusBadge } from "./status-badge";
 
 const MIN_REASON = 10;
 const dateVi = new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
@@ -43,7 +43,8 @@ function UserDetail({ user, onClose }: { user: AdminUser; onClose: () => void })
 
   const [pendingStatus, setPendingStatus] = React.useState<UserStatus | null>(null);
   const [reason, setReason] = React.useState("");
-  const [confirmRole, setConfirmRole] = React.useState<UserRole | null>(null);
+  const [confirmRole, setConfirmRole] = React.useState<AssignableRole | null>(null);
+  const isChef = user.role === "Chef";
   const [confirmDelete, setConfirmDelete] = React.useState(false);
   const [deleteText, setDeleteText] = React.useState("");
 
@@ -65,7 +66,7 @@ function UserDetail({ user, onClose }: { user: AdminUser; onClose: () => void })
     );
   }
 
-  function applyRole(role: UserRole) {
+  function applyRole(role: AssignableRole) {
     setRole.mutate(
       { userId: user.id, role },
       {
@@ -106,14 +107,8 @@ function UserDetail({ user, onClose }: { user: AdminUser; onClose: () => void })
           </div>
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
-          <Badge variant={user.role === "Admin" ? "default" : "secondary"}>{USER_ROLE_LABEL[user.role]}</Badge>
+          <UserRoleBadges user={user} />
           <UserStatusBadge status={user.status} />
-          {user.isVerifiedChef && (
-            <Badge variant="sprout">
-              <BadgeCheck aria-hidden />
-              Chuyên gia đã xác minh
-            </Badge>
-          )}
         </div>
       </SheetHeader>
 
@@ -134,16 +129,34 @@ function UserDetail({ user, onClose }: { user: AdminUser; onClose: () => void })
         )}
 
         <section className="flex flex-col gap-2">
+          <h3 className="text-sm font-bold">Nội dung</h3>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/content?author=${encodeURIComponent(user.id)}`}>
+                <FileText aria-hidden />
+                Bài viết & video ({formatNumber(user.postCount)})
+              </Link>
+            </Button>
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/comments?author=${encodeURIComponent(user.id)}`}>
+                <MessageSquare aria-hidden />
+                Bình luận
+              </Link>
+            </Button>
+          </div>
+        </section>
+
+        <section className="flex flex-col gap-2">
           <h3 className="text-sm font-bold">Vai trò</h3>
-          <div className="flex gap-2" role="radiogroup" aria-label="Vai trò">
-            {(["Member", "Admin"] as const).map((role) => (
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Vai trò" aria-describedby="role-hint">
+            {(["User", "Admin"] as const).map((role) => (
               <Button
                 key={role}
                 role="radio"
                 aria-checked={user.role === role}
                 variant={user.role === role ? "secondary" : "outline"}
                 size="sm"
-                disabled={isSelf || setRole.isPending || user.role === role}
+                disabled={isSelf || isChef || setRole.isPending || user.role === role}
                 onClick={() => setConfirmRole(role)}
               >
                 {role === "Admin" ? <ShieldCheck aria-hidden /> : <UserRound aria-hidden />}
@@ -151,7 +164,11 @@ function UserDetail({ user, onClose }: { user: AdminUser; onClose: () => void })
               </Button>
             ))}
           </div>
-          <p className="text-xs text-muted-foreground">Quản trị viên đăng nhập được trang web này; thành viên chỉ dùng ứng dụng di động.</p>
+          <p id="role-hint" className="text-xs text-muted-foreground">
+            {isChef
+              ? "Vai trò Chuyên gia được cấp khi duyệt hồ sơ chuyên gia."
+              : "Quản trị viên đăng nhập được trang web này; thành viên chỉ dùng ứng dụng di động."}
+          </p>
         </section>
 
         <section className="flex flex-col gap-2">

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/session/session_controller.dart';
 import '../../../community/data/community_api_service.dart';
 import '../../../community/domain/entities/post.dart';
+import '../../../community/presentation/controllers/feed_controller.dart';
 import '../../../meal_planner/data/meal_planner_api_service.dart';
 import '../../../meal_planner/domain/entities/health_profile.dart';
 import '../../data/models/user_profile_model.dart';
@@ -45,12 +46,32 @@ final profileHealthProvider = FutureProvider<HealthProfile>((ref) async {
 
 final myPostsProvider = FutureProvider<List<Post>>((ref) async {
   ref.watch(sessionControllerProvider.select((s) => s.accessToken));
+  ref.watch(communityRevisionProvider);
   final list = await ref.watch(communityApiProvider).getMyPosts();
   return list.map((p) => p.toEntity()).toList();
 });
 
 final savedPostsProvider = FutureProvider<List<Post>>((ref) async {
   ref.watch(sessionControllerProvider.select((s) => s.accessToken));
+  ref.watch(communityRevisionProvider);
   final list = await ref.watch(communityApiProvider).getSavedPosts();
   return list.map((p) => p.toEntity()).toList();
+});
+
+typedef ProfileStats = ({int posts, int likesReceived, int saved});
+
+/// Counts on the "Tôi" tab, taken from the same lists as "Bài viết của tôi" /
+/// "Đã lưu" so they follow new posts, likes and saves in this session.
+/// `null` until both lists have loaded once (the screen then falls back to
+/// the stats in `GET /users/me`).
+final profileStatsProvider = Provider<ProfileStats?>((ref) {
+  final mine = ref.watch(myPostsProvider);
+  final saved = ref.watch(savedPostsProvider);
+  if (!mine.hasValue || !saved.hasValue) return null;
+  final posts = mine.requireValue;
+  return (
+    posts: posts.length,
+    likesReceived: posts.fold(0, (sum, p) => sum + p.likeCount),
+    saved: saved.requireValue.length,
+  );
 });

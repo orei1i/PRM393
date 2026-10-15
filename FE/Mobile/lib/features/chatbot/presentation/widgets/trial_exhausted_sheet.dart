@@ -1,28 +1,47 @@
 // lib/features/chatbot/presentation/widgets/trial_exhausted_sheet.dart
 import 'package:flutter/material.dart';
 
+import '../../../../core/config/env.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/widgets/google_sign_in_button.dart';
 
-/// Shown on the 4th guest question (never on a timer). The held question is
-/// sent automatically after sign-in.
+/// Shown on the guest question after the free ones run out (never on a
+/// timer); the held question is sent automatically after sign-in. Also opened
+/// from the trial banner's "Đăng nhập" while questions remain — the copy then
+/// invites instead of saying the trial is over.
 class TrialExhaustedSheet extends StatelessWidget {
-  const TrialExhaustedSheet({super.key, this.pendingPrompt});
+  const TrialExhaustedSheet({
+    super.key,
+    this.pendingPrompt,
+    this.remaining = 0,
+    this.limit = Env.guestTrialLimit,
+  });
 
   final String? pendingPrompt;
 
-  static Future<void> show(BuildContext context, {String? pendingPrompt}) {
+  /// Free questions the guest still has; `0` = exhausted.
+  final int remaining;
+  final int limit;
+
+  static Future<void> show(
+    BuildContext context, {
+    String? pendingPrompt,
+    int remaining = 0,
+    int limit = Env.guestTrialLimit,
+  }) {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => TrialExhaustedSheet(pendingPrompt: pendingPrompt),
+      builder: (_) => TrialExhaustedSheet(
+          pendingPrompt: pendingPrompt, remaining: remaining, limit: limit),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final vl = context.vl;
+    final exhausted = remaining <= 0;
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
       child: Column(
@@ -36,11 +55,15 @@ class TrialExhaustedSheet extends StatelessWidget {
             child: Icon(Icons.auto_awesome, color: vl.ai),
           ),
           const SizedBox(height: 16),
-          Text('Tiếp tục trò chuyện', style: context.textStyles.headlineSmall),
+          Text(exhausted ? 'Tiếp tục trò chuyện' : 'Hỏi AI không giới hạn',
+              style: context.textStyles.headlineSmall),
           const SizedBox(height: 6),
           Text(
-            'Bạn đã dùng hết 3 lượt hỏi miễn phí. Đăng nhập miễn phí để hỏi tiếp, '
-            'với câu trả lời dựa trên cơ thể và tủ lạnh của chính bạn.',
+            exhausted
+                ? 'Bạn đã dùng hết $limit lượt hỏi miễn phí. Đăng nhập miễn phí để hỏi tiếp, '
+                    'với câu trả lời dựa trên cơ thể và tủ lạnh của chính bạn.'
+                : 'Bạn vẫn còn $remaining/$limit lượt hỏi miễn phí. Đăng nhập miễn phí để hỏi '
+                    'không giới hạn, với câu trả lời dựa trên cơ thể và tủ lạnh của chính bạn.',
             style: context.textStyles.bodyLarge?.copyWith(color: vl.muted),
           ),
           const SizedBox(height: 18),

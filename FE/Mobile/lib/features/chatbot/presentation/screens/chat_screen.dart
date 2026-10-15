@@ -73,8 +73,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     ref.listen(chatControllerProvider.select((s) => s.showTrialExhausted),
         (previous, show) {
       if (!show) return;
-      final pending = ref.read(chatControllerProvider).pendingPrompt;
-      TrialExhaustedSheet.show(context, pendingPrompt: pending)
+      final current = ref.read(chatControllerProvider);
+      TrialExhaustedSheet.show(context,
+              pendingPrompt: current.pendingPrompt,
+              remaining: current.trialRemaining ?? 0,
+              limit: current.trialLimit)
           .whenComplete(controller.consumeTrialExhaustedEvent);
     });
 
@@ -88,7 +91,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        // Opened from the global "Hỏi AI" button → show a back arrow.
+        // Opened from the "Hỏi AI" bubble (a pushed route) → back arrow.
         leading: Navigator.of(context).canPop()
             ? const BackButton()
             : Padding(
@@ -130,7 +133,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               remaining: remaining,
               limit: chat.trialLimit,
               onSignIn: () => TrialExhaustedSheet.show(context,
-                  pendingPrompt: chat.pendingPrompt),
+                  pendingPrompt: chat.pendingPrompt,
+                  remaining: remaining,
+                  limit: chat.trialLimit),
             ),
           Expanded(
             child: Stack(

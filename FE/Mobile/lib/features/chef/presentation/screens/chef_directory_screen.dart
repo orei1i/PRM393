@@ -1,14 +1,19 @@
 // lib/features/chef/presentation/screens/chef_directory_screen.dart
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
+import '../../../../core/widgets/floating_bar_clearance.dart';
 import '../../../../core/widgets/shimmer.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/vl_card.dart';
+import '../../../commerce/data/models/consultation_model.dart';
+import '../../../commerce/presentation/controllers/commerce_controllers.dart';
+import '../../../commerce/presentation/widgets/commerce_ui.dart';
 import '../../domain/chef_specialties.dart';
 import '../../domain/entities/chef.dart';
 import '../controllers/chef_controllers.dart';
@@ -104,24 +109,13 @@ class _ChefDirectoryScreenState extends ConsumerState<ChefDirectoryScreen> {
             ),
           ),
           SliverToBoxAdapter(
-            child: SizedBox(
-              height: 50,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                itemCount: chefSpecialties.length + 1,
-                separatorBuilder: (_, __) => const SizedBox(width: 8),
-                itemBuilder: (context, i) {
-                  final value = i == 0 ? null : chefSpecialties[i - 1];
-                  return ChoiceChip(
-                    label: Text(value ?? 'Tất cả'),
-                    selected: specialty == value,
-                    onSelected: (_) => ref
-                        .read(chefDirectoryProvider.notifier)
-                        .setSpecialty(value),
-                  );
-                },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: _SpecialtyChips(
+                selected: specialty,
+                onSelected: (value) => ref
+                    .read(chefDirectoryProvider.notifier)
+                    .setSpecialty(value),
               ),
             ),
           ),
@@ -151,7 +145,8 @@ class _ChefDirectoryScreenState extends ConsumerState<ChefDirectoryScreen> {
               ],
             AsyncData(:final value) => [
                 SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
+                  padding: EdgeInsets.fromLTRB(
+                      16, 4, 16, floatingBarClearance(context)),
                   sliver: SliverList(
                     delegate: SliverChildBuilderDelegate(
                       (context, i) => Padding(
@@ -183,18 +178,60 @@ class _ChefDirectoryScreenState extends ConsumerState<ChefDirectoryScreen> {
   }
 }
 
-/// "Lịch sắp tới" shortcut when the member has an upcoming consultation.
+/// "Tất cả" + [chefSpecialties]. Scrolls sideways; each chip gets a finite
+/// max width so its label is laid out again once the Google font arrives
+/// (same fix as FeedFilterChips: no clipped "Ẩm thực chay Hu").
+class _SpecialtyChips extends StatelessWidget {
+  const _SpecialtyChips({required this.selected, required this.onSelected});
+
+  /// `null` = Tất cả.
+  final String? selected;
+  final ValueChanged<String?> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, constraints) {
+      final available = constraints.hasBoundedWidth
+          ? constraints.maxWidth
+          : MediaQuery.sizeOf(context).width;
+      final maxChipWidth = math.max(0.0, available - 32);
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: [
+            for (final (i, value)
+                in <String?>[null, ...chefSpecialties].indexed) ...[
+              if (i > 0) const SizedBox(width: 8),
+              ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxChipWidth),
+                child: ChoiceChip(
+                  label: Text(value ?? 'Tất cả'),
+                  selected: selected == value,
+                  onSelected: (_) => onSelected(value),
+                ),
+              ),
+            ],
+          ],
+        ),
+      );
+    });
+  }
+}
+
+/// "Lịch sắp tới" shortcut when the member has an upcoming consultation
+/// (including one still waiting for payment).
 class _UpcomingBanner extends ConsumerWidget {
   const _UpcomingBanner();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(myConsultationsProvider);
-    final items = (async.hasValue ? async.requireValue : const <Consultation>[])
-        .where(
-            (c) => c.status.isUpcoming && c.scheduledAt.isAfter(DateTime.now()))
+    final now = DateTime.now();
+    final items = (ref.watch(myConsultationsProvider).valueOrNull ??
+            const <ConsultationDto>[])
+        .where((c) => c.isUpcoming(now))
         .toList()
-      ..sort((a, b) => a.scheduledAt.compareTo(b.scheduledAt));
+      ..sort((a, b) => a.startAt.compareTo(b.startAt));
     final upcoming = items.isEmpty ? null : items.first;
 
     if (upcoming == null) {
@@ -220,7 +257,7 @@ class _UpcomingBanner extends ConsumerWidget {
       );
     }
 
-    final t = upcoming.scheduledAt;
+    final t = upcoming.startAt;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
       child: VLCard(
@@ -242,8 +279,7 @@ class _UpcomingBanner extends ConsumerWidget {
                         ?.copyWith(color: context.vl.onSuccessContainer),
                   ),
                   Text(
-                    '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')} '
-                    '${formatLongDate(t)} với ${upcoming.chefName}',
+                    '${formatClock(t)} ${formatLongDate(t)} với ${upcoming.chefName}',
                     style: context.textStyles.bodyMedium
                         ?.copyWith(color: context.vl.onSuccessContainer),
                   ),

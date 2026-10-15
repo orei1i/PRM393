@@ -2,8 +2,10 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import { Activity, Flag, Gauge, Pause, Play, TriangleAlert } from "lucide-react";
 
+import { AiLogDrawer } from "@/components/telemetry/ai-log-drawer";
 import { LiveLogTable } from "@/components/telemetry/live-log-table";
 import { MetricCard } from "@/components/telemetry/metric-card";
 import { TaskFilter } from "@/components/telemetry/task-filter";
@@ -14,17 +16,35 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { describeError } from "@/lib/api_error";
 import { useAiLogs, useTelemetrySummary } from "@/lib/hooks/use-telemetry";
 import { cn, formatNumber, formatPercent } from "@/lib/utils";
-import { TASK_LABEL, type AiTaskType, type TelemetryRange } from "@/types/moderation";
+import { TASK_LABEL, type AiLog, type AiTaskType, type TelemetryRange } from "@/types/moderation";
 
 const RANGE_LABEL: Record<TelemetryRange, string> = { "1h": "1 giờ qua", "24h": "24 giờ qua", "7d": "7 ngày qua" };
 
 /** Error-rate SLO per task; rows above it are highlighted. */
 const ERROR_SLO = 0.02;
 
+const isTask = (v: string | null): v is AiTaskType => v !== null && v in TASK_LABEL;
+
 export default function TelemetryPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <TelemetryScreen />
+    </React.Suspense>
+  );
+}
+
+function TelemetryScreen() {
+  const params = useSearchParams();
+  const taskParam = params.get("task");
   const [range, setRange] = React.useState<TelemetryRange>("24h");
-  const [task, setTask] = React.useState<AiTaskType | "all">("all");
+  const [task, setTask] = React.useState<AiTaskType | "all">(() => (isTask(taskParam) ? taskParam : "all"));
   const [live, setLive] = React.useState(true);
+  const [selected, setSelected] = React.useState<AiLog | null>(null);
+
+  // "Gắn nhãn thêm" on /ai-models links here with ?task=.
+  React.useEffect(() => {
+    if (isTask(taskParam)) setTask(taskParam);
+  }, [taskParam]);
 
   const summary = useTelemetrySummary(range);
   const logQuery = React.useMemo(() => ({ task, limit: 50 }), [task]);
@@ -159,10 +179,17 @@ export default function TelemetryPage() {
           <p role="alert" className="p-6 text-sm text-ochre-text">
             Mất kết nối luồng nhật ký: {describeError(logs.error)}. Hệ thống sẽ thử lại tự động.
           </p>
+        ) : logs.data?.length === 0 ? (
+          <p className="p-6 text-center text-sm text-muted-foreground">
+            Chưa có lượt gọi nào{task === "all" ? "" : ` cho tác vụ ${TASK_LABEL[task]}`}. Nếu mô hình đang tắt ở trang Mô hình AI, nhật ký sẽ dừng.
+          </p>
         ) : (
-          <LiveLogTable logs={logs.data} isLoading={logs.isLoading} />
+          <LiveLogTable logs={logs.data} isLoading={logs.isLoading} selectedId={selected?.id ?? null} onSelect={setSelected} />
         )}
+        <p className="border-t px-5 py-3 text-xs text-muted-foreground">Chọn một dòng để xem đầu vào, đầu ra và đánh giá kết quả của AI.</p>
       </Card>
+
+      <AiLogDrawer log={selected} onOpenChange={(open) => !open && setSelected(null)} />
     </div>
   );
 }

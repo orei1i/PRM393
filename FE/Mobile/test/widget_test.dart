@@ -71,10 +71,11 @@ void main() {
         'id': 'd1',
         'label': 'Rau chân vịt',
         'confidence': 0.58,
-        'freshness': 'fresh',
+        'isVegan': true,
         'bbox': {'x': 0.5, 'y': 0.5, 'w': 0.2, 'h': 0.2},
       });
       expect(dto.toEntity().confirmed, isFalse);
+      expect(dto.toEntity().isVegan, isTrue);
     });
   });
 }
