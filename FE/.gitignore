@@ -1,2 +1,5 @@
 # Logs from run_checks.bat
 _logs/
+# Local screenshots and Kotlin daemon error logs
+_screenshots/
+.kotlin/
