@@ -33,9 +33,16 @@ class HealthHeaderCard extends StatelessWidget {
                   padding: const EdgeInsets.only(top: 4),
                   child: Column(
                     children: [
-                      _StatRow(label: 'Chiều cao', value: '${profile.heightCm.round()} cm'),
-                      _StatRow(label: 'Cân nặng', value: '${formatDecimal(profile.weightKg)} kg'),
-                      _StatRow(label: 'Mục tiêu', value: profile.goal.label, mono: false),
+                      _StatRow(
+                          label: 'Chiều cao',
+                          value: '${profile.heightCm.round()} cm'),
+                      _StatRow(
+                          label: 'Cân nặng',
+                          value: '${formatDecimal(profile.weightKg)} kg'),
+                      _StatRow(
+                          label: 'Mục tiêu',
+                          value: profile.goal.label,
+                          mono: false),
                     ],
                   ),
                 ),
@@ -47,8 +54,10 @@ class HealthHeaderCard extends StatelessWidget {
             spacing: 6,
             runSpacing: 6,
             children: [
-              for (final a in profile.allergies) VLTag.caution(context, 'Dị ứng: ${allergenLabel(a)}'),
-              for (final r in profile.dietaryRestrictions) VLTag.neutral(context, dietTagLabel(r)),
+              for (final a in profile.allergies)
+                VLTag.caution(context, 'Dị ứng: ${allergenLabel(a)}'),
+              for (final r in profile.dietaryRestrictions)
+                VLTag.neutral(context, dietTagLabel(r)),
               HealthSyncBadge(sync: profile.healthSync),
             ],
           ),
@@ -71,7 +80,9 @@ class _StatRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
         children: [
-          Text(label, style: context.textStyles.bodySmall?.copyWith(color: context.vl.muted)),
+          Text(label,
+              style: context.textStyles.bodySmall
+                  ?.copyWith(color: context.vl.muted)),
           const Spacer(),
           Text(
             value,
@@ -99,7 +110,8 @@ class HealthSyncBadge extends StatelessWidget {
       return VLTag.neutral(context, 'Chưa kết nối thiết bị sức khoẻ');
     }
 
-    final (String text, Color bg, Color fg, Widget leading) = switch (sync.state) {
+    final (String text, Color bg, Color fg, Widget leading) =
+        switch (sync.state) {
       HealthSyncState.synced => (
           '${sync.provider.label} · ${sync.lastSyncedAt == null ? 'đã đồng bộ' : relativeTime(sync.lastSyncedAt!)}',
           context.colors.secondaryContainer,
@@ -110,7 +122,9 @@ class HealthSyncBadge extends StatelessWidget {
           'Đang đồng bộ ${sync.provider.label}…',
           context.colors.secondaryContainer,
           context.colors.onSecondaryContainer,
-          const SizedBox.square(dimension: 10, child: CircularProgressIndicator(strokeWidth: 1.5)),
+          const SizedBox.square(
+              dimension: 10,
+              child: CircularProgressIndicator(strokeWidth: 1.5)),
         ),
       HealthSyncState.paused => (
           '${sync.provider.label} tạm dừng · chạm để kết nối',
@@ -128,13 +142,15 @@ class HealthSyncBadge extends StatelessWidget {
         onTap: sync.state == HealthSyncState.paused ? onReconnect : null,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(999)),
+          decoration: BoxDecoration(
+              color: bg, borderRadius: BorderRadius.circular(999)),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               leading,
               const SizedBox(width: 6),
-              Text(text, style: context.textStyles.labelMedium?.copyWith(color: fg)),
+              Text(text,
+                  style: context.textStyles.labelMedium?.copyWith(color: fg)),
             ],
           ),
         ),
@@ -149,6 +165,8 @@ class _Dot extends StatelessWidget {
   final Color color;
 
   @override
-  Widget build(BuildContext context) =>
-      Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle));
+  Widget build(BuildContext context) => Container(
+      width: 8,
+      height: 8,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle));
 }

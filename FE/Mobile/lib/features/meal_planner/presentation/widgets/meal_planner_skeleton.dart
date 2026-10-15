@@ -18,7 +18,8 @@ class MealPlannerSkeleton extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
             color: context.colors.surface,
           ),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
+          child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start, children: children),
         );
 
     return SafeArea(
@@ -75,11 +76,13 @@ class MealPlannerSkeleton extends StatelessWidget {
                   SkeletonBox(width: 52, height: 52, radius: 12),
                   SizedBox(width: 12),
                   Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      SkeletonBox(width: 120, height: 12),
-                      SizedBox(height: 8),
-                      SkeletonBox(height: 16),
-                    ]),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SkeletonBox(width: 120, height: 12),
+                          SizedBox(height: 8),
+                          SkeletonBox(height: 16),
+                        ]),
                   ),
                 ]),
               ]),

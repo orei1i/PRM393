@@ -37,7 +37,9 @@ class BmiGauge extends StatelessWidget {
           children: [
             TweenAnimationBuilder<double>(
               tween: Tween(begin: 0, end: Bmi.gaugePosition(bmi)),
-              duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 700),
+              duration: reduceMotion
+                  ? Duration.zero
+                  : const Duration(milliseconds: 700),
               curve: Curves.easeOutCubic,
               builder: (context, position, _) => CustomPaint(
                 size: Size(width, width / 2 + 8),
@@ -54,10 +56,15 @@ class BmiGauge extends StatelessWidget {
               offset: const Offset(0, -30),
               child: Column(
                 children: [
-                  Text(formatDecimal(bmi), style: AppTypography.mono(size: 22, weight: FontWeight.w700, color: context.colors.onSurface)),
+                  Text(formatDecimal(bmi),
+                      style: AppTypography.mono(
+                          size: 22,
+                          weight: FontWeight.w700,
+                          color: context.colors.onSurface)),
                   Text(
                     category.label,
-                    style: context.textStyles.labelMedium?.copyWith(color: _categoryTextColor(context, category)),
+                    style: context.textStyles.labelMedium?.copyWith(
+                        color: _categoryTextColor(context, category)),
                   ),
                 ],
               ),
@@ -71,7 +78,9 @@ class BmiGauge extends StatelessWidget {
   Color _categoryTextColor(BuildContext context, BmiCategory c) => switch (c) {
         BmiCategory.normal => context.vl.onSuccessContainer,
         BmiCategory.underweight => context.vl.muted,
-        BmiCategory.overweight || BmiCategory.obese => context.vl.onCautionContainer,
+        BmiCategory.overweight ||
+        BmiCategory.obese =>
+          context.vl.onCautionContainer,
       };
 }
 
@@ -99,11 +108,20 @@ class _GaugePainter extends CustomPainter {
     final center = Offset(size.width / 2, size.height - 8);
     final rect = Rect.fromCircle(center: center, radius: radius);
 
-    double toPos(double v) => (v - Bmi.gaugeMin) / (Bmi.gaugeMax - Bmi.gaugeMin);
+    double toPos(double v) =>
+        (v - Bmi.gaugeMin) / (Bmi.gaugeMax - Bmi.gaugeMin);
     final bands = <(double, double, Color)>[
       (0.0, toPos(thresholds.underweightBelow), AppColors.gray300),
-      (toPos(thresholds.underweightBelow), toPos(thresholds.overweightFrom), AppColors.sprout500),
-      (toPos(thresholds.overweightFrom), toPos(thresholds.obeseFrom), AppColors.ochre300),
+      (
+        toPos(thresholds.underweightBelow),
+        toPos(thresholds.overweightFrom),
+        AppColors.sprout500
+      ),
+      (
+        toPos(thresholds.overweightFrom),
+        toPos(thresholds.obeseFrom),
+        AppColors.ochre300
+      ),
       (toPos(thresholds.obeseFrom), 1.0, AppColors.ochre500),
     ];
 
@@ -121,8 +139,10 @@ class _GaugePainter extends CustomPainter {
 
     // Needle
     final angle = math.pi + math.pi * position;
-    final tip = center + Offset(math.cos(angle), math.sin(angle)) * (radius + 2);
-    final base = center + Offset(math.cos(angle), math.sin(angle)) * (radius - 22);
+    final tip =
+        center + Offset(math.cos(angle), math.sin(angle)) * (radius + 2);
+    final base =
+        center + Offset(math.cos(angle), math.sin(angle)) * (radius - 22);
     canvas.drawLine(
       base,
       tip,

@@ -16,7 +16,8 @@ void main() {
     test('uses Asia-Pacific cut-offs by default', () {
       expect(Bmi.categorize(22.3), BmiCategory.normal);
       expect(Bmi.categorize(23.5), BmiCategory.overweight);
-      expect(Bmi.categorize(23.5, standard: BmiStandard.who), BmiCategory.normal);
+      expect(
+          Bmi.categorize(23.5, standard: BmiStandard.who), BmiCategory.normal);
       expect(Bmi.categorize(17), BmiCategory.underweight);
     });
   });
@@ -38,13 +39,17 @@ void main() {
     test('round-trips JSON and maps slots', () {
       final json = {
         'id': 'mp_test',
-        'start_date': '2026-10-12',
+        'startDate': '2026-10-12',
         'goal': 'lean_muscle',
-        'daily_targets': mockDailyTargets,
+        'dailyTargets': mockDailyTargets,
         'days': [
           {
             'date': '2026-10-12',
-            'meals': {'breakfast': mockBreakfasts[0], 'lunch': mockLunches[5], 'dinner': mockDinners[0]},
+            'meals': {
+              'breakfast': mockBreakfasts[0],
+              'lunch': mockLunches[5],
+              'dinner': mockDinners[0]
+            },
           },
         ],
       };

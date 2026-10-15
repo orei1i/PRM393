@@ -38,11 +38,14 @@ class EmptyStateView extends StatelessWidget {
             child: Icon(icon, size: 30, color: context.colors.primary),
           ),
           const SizedBox(height: 16),
-          Text(title, style: context.textStyles.titleMedium, textAlign: TextAlign.center),
+          Text(title,
+              style: context.textStyles.titleMedium,
+              textAlign: TextAlign.center),
           const SizedBox(height: 6),
           Text(
             message,
-            style: context.textStyles.bodyMedium?.copyWith(color: context.vl.muted),
+            style: context.textStyles.bodyMedium
+                ?.copyWith(color: context.vl.muted),
             textAlign: TextAlign.center,
           ),
           if (actionLabel != null && onAction != null) ...[
@@ -64,7 +67,8 @@ class ErrorStateView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isNetwork = error is ApiException && (error as ApiException).isNetwork;
+    final isNetwork =
+        error is ApiException && (error as ApiException).isNetwork;
     return EmptyStateView(
       icon: isNetwork ? Icons.wifi_off_rounded : Icons.error_outline_rounded,
       title: isNetwork ? 'Mất kết nối' : 'Chưa tải được dữ liệu',

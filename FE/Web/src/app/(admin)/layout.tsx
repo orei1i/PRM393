@@ -1,5 +1,6 @@
 // src/app/(admin)/layout.tsx
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
+import { UserMenu } from "@/components/admin/user-menu";
 import { USE_MOCK_DATA } from "@/lib/api_client";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -17,12 +18,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           >
             {USE_MOCK_DATA ? "Dữ liệu mô phỏng" : "Production"}
           </span>
-          <span
-            aria-label="Quản trị viên"
-            className="flex size-8 items-center justify-center rounded-full bg-secondary text-xs font-extrabold text-secondary-foreground"
-          >
-            QT
-          </span>
+          <UserMenu />
         </header>
         <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 md:px-8">{children}</main>
       </div>

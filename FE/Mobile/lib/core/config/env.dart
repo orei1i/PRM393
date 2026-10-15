@@ -15,7 +15,7 @@ abstract final class Env {
   /// ASP.NET Core API root. 10.0.2.2 is the host machine from the Android emulator.
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://10.0.2.2:5080/api/v1',
+    defaultValue: 'http://10.0.2.2:5001/api/v1',
   );
 
   /// Free AI questions for guests (the server is the source of truth).

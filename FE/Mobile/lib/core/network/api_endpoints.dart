@@ -22,4 +22,32 @@ abstract final class ApiEndpoints {
   static const String guestTrial = '/chat/guest-trial';
   static String chatMessages(String sessionId) =>
       '/chat/sessions/$sessionId/messages';
+
+  // Community feed
+  static const String feed = '/posts';
+  static const String posts = '/posts';
+  static String post(String id) => '/posts/$id';
+  static String postLike(String id) => '/posts/$id/like';
+  static String postSave(String id) => '/posts/$id/save';
+  static String postComments(String id) => '/posts/$id/comments';
+  static String postReport(String id) => '/posts/$id/reports';
+
+  // Cooking videos + AI (speech-to-text → recipe extraction)
+  static String video(String id) => '/videos/$id';
+  static String videoRetryExtraction(String id) => '/videos/$id/extraction';
+
+  // Chefs & consultations
+  static const String chefs = '/chefs';
+  static String chef(String id) => '/chefs/$id';
+  static const String consultations = '/consultations';
+  static const String myConsultations = '/consultations/me';
+  static String cancelConsultation(String id) => '/consultations/$id/cancel';
+
+  // Current user (BE: UsersController) + chef application
+  static const String me = '/users/me';
+  static String user(String id) => '/users/$id';
+  static const String myPosts = '/users/me/posts';
+  static const String mySavedPosts = '/users/me/saved-posts';
+  static const String chefApplications = '/chef-applications';
+  static const String myChefApplication = '/chef-applications/me';
 }

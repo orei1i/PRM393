@@ -44,7 +44,8 @@ class MealPlannerState {
 }
 
 final mealPlanControllerProvider =
-    AsyncNotifierProvider<MealPlanController, MealPlannerState>(MealPlanController.new);
+    AsyncNotifierProvider<MealPlanController, MealPlannerState>(
+        MealPlanController.new);
 
 class MealPlanController extends AsyncNotifier<MealPlannerState> {
   MealPlannerApiService get _api => ref.read(mealPlannerApiProvider);
@@ -70,7 +71,8 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
   void selectDate(DateTime date) {
     final current = state;
     if (!current.hasValue) return;
-    state = AsyncData(current.requireValue.copyWith(selectedDate: dateOnly(date)));
+    state =
+        AsyncData(current.requireValue.copyWith(selectedDate: dateOnly(date)));
   }
 
   /// Empty state → "Tạo thực đơn". Keeps the profile visible while generating.
@@ -78,7 +80,8 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     final previous = state.requireValue;
     state = const AsyncLoading<MealPlannerState>();
     state = await AsyncValue.guard(() async {
-      final dto = await _api.generateMealPlan(startDate: startOfWeek(DateTime.now()));
+      final dto =
+          await _api.generateMealPlan(startDate: startOfWeek(DateTime.now()));
       final plan = dto.toEntity();
       return previous.copyWith(plan: plan, selectedDate: _initialDate(plan));
     });
@@ -90,7 +93,8 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     final s = state.requireValue;
     final plan = s.plan;
     if (plan == null) return const [];
-    final dtos = await _api.getSwapSuggestions(planId: plan.id, date: s.selectedDate, slot: slot);
+    final dtos = await _api.getSwapSuggestions(
+        planId: plan.id, date: s.selectedDate, slot: slot);
     return dtos
         .map((d) => d.toEntity())
         .where((r) => r.allergenConflicts(s.profile.allergies).isEmpty)
@@ -113,7 +117,8 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     try {
       final serverDay = await _api.swapMeal(
         planId: plan.id,
-        request: SwapMealRequestDto(date: day.date, slot: slot, recipeId: replacement.id),
+        request: SwapMealRequestDto(
+            date: day.date, slot: slot, recipeId: replacement.id),
       );
       _applyServerDay(serverDay.toEntity());
       return previous;
@@ -136,7 +141,8 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     try {
       final serverDay = await _api.swapMeal(
         planId: plan.id,
-        request: SwapMealRequestDto(date: day.date, slot: slot, recipeId: seasonal.recipeId),
+        request: SwapMealRequestDto(
+            date: day.date, slot: slot, recipeId: seasonal.recipeId),
       );
       _applyServerDay(serverDay.toEntity());
       return previous;
@@ -152,7 +158,8 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     final latest = state.requireValue;
     final plan = latest.plan;
     if (plan == null) return;
-    state = AsyncData(latest.copyWith(plan: plan.replaceDay(day), clearSwapping: true));
+    state = AsyncData(
+        latest.copyWith(plan: plan.replaceDay(day), clearSwapping: true));
   }
 
   static DateTime _initialDate(MealPlan? plan) {

@@ -30,9 +30,12 @@ class AccountButton extends ConsumerWidget {
       },
       itemBuilder: (context) => [
         if (session.isGuest)
-          const PopupMenuItem(value: 'sign_in', child: Text('Đăng nhập với Google'))
+          const PopupMenuItem(
+              value: 'sign_in', child: Text('Đăng nhập với Google'))
         else ...[
-          PopupMenuItem(enabled: false, child: Text('Xin chào, ${session.displayName ?? 'bạn'}')),
+          PopupMenuItem(
+              enabled: false,
+              child: Text('Xin chào, ${session.displayName ?? 'bạn'}')),
           const PopupMenuItem(value: 'sign_out', child: Text('Đăng xuất')),
         ],
       ],
@@ -44,7 +47,8 @@ class AccountButton extends ConsumerWidget {
           foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
           child: initial == null
               ? const Icon(Icons.person_outline_rounded, size: 20)
-              : Text(initial, style: const TextStyle(fontWeight: FontWeight.w800)),
+              : Text(initial,
+                  style: const TextStyle(fontWeight: FontWeight.w800)),
         ),
       ),
     );

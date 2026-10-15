@@ -20,7 +20,15 @@ String formatDecimal(double value, {int digits = 1}) =>
 String formatPercent(double ratio) => '${(ratio * 100).round()}%';
 
 const _weekdayShort = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
-const _weekdayLong = ['Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy', 'Chủ Nhật'];
+const _weekdayLong = [
+  'Thứ Hai',
+  'Thứ Ba',
+  'Thứ Tư',
+  'Thứ Năm',
+  'Thứ Sáu',
+  'Thứ Bảy',
+  'Chủ Nhật'
+];
 
 String weekdayShort(DateTime d) => _weekdayShort[d.weekday - 1];
 String weekdayLong(DateTime d) => _weekdayLong[d.weekday - 1];
@@ -42,7 +50,8 @@ bool isSameDay(DateTime a, DateTime b) =>
     a.year == b.year && a.month == b.month && a.day == b.day;
 
 /// Monday of the week containing [d].
-DateTime startOfWeek(DateTime d) => dateOnly(d).subtract(Duration(days: d.weekday - 1));
+DateTime startOfWeek(DateTime d) =>
+    dateOnly(d).subtract(Duration(days: d.weekday - 1));
 
 /// "vừa xong", "4 phút trước", "2 giờ trước", "3 ngày trước"
 String relativeTime(DateTime time, {DateTime? now}) {
@@ -52,3 +61,14 @@ String relativeTime(DateTime time, {DateTime? now}) {
   if (diff.inDays < 1) return '${diff.inHours} giờ trước';
   return '${diff.inDays} ngày trước';
 }
+
+/// 724 → "12:04", 3725 → "1:02:05"
+String formatDuration(int totalSeconds) {
+  final h = totalSeconds ~/ 3600;
+  final m = (totalSeconds % 3600) ~/ 60;
+  final s = totalSeconds % 60;
+  return h > 0 ? '$h:${_two(m)}:${_two(s)}' : '$m:${_two(s)}';
+}
+
+/// 350000 → "350.000đ"
+String formatVnd(num amount) => '${formatInt(amount)}đ';

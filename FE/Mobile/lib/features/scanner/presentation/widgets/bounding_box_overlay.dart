@@ -28,7 +28,8 @@ class BoundingBoxOverlay extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final viewport = constraints.biggest;
-        final scale = math.max(viewport.width / frameSize.width, viewport.height / frameSize.height);
+        final scale = math.max(viewport.width / frameSize.width,
+            viewport.height / frameSize.height);
         final dx = (viewport.width - frameSize.width * scale) / 2;
         final dy = (viewport.height - frameSize.height * scale) / 2;
 
@@ -83,9 +84,13 @@ class _AnimatedBox extends StatelessWidget {
       rect: rect,
       child: TweenAnimationBuilder<double>(
         tween: Tween(begin: 0, end: 1),
-        duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 240) + delay,
+        duration: reduceMotion
+            ? Duration.zero
+            : const Duration(milliseconds: 240) + delay,
         curve: Interval(
-          reduceMotion ? 0 : delay.inMilliseconds / (240 + delay.inMilliseconds),
+          reduceMotion
+              ? 0
+              : delay.inMilliseconds / (240 + delay.inMilliseconds),
           1,
           curve: Curves.easeOutBack,
         ),
@@ -126,7 +131,9 @@ class _AnimatedBox extends StatelessWidget {
                   child: Container(
                     height: 22,
                     padding: const EdgeInsets.symmetric(horizontal: 8),
-                    decoration: BoxDecoration(color: boxColor, borderRadius: BorderRadius.circular(6)),
+                    decoration: BoxDecoration(
+                        color: boxColor,
+                        borderRadius: BorderRadius.circular(6)),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -139,13 +146,20 @@ class _AnimatedBox extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 6),
-                        Text(percent, style: AppTypography.mono(size: 11, weight: FontWeight.w700, color: const Color(0xFF111827))),
+                        Text(percent,
+                            style: AppTypography.mono(
+                                size: 11,
+                                weight: FontWeight.w700,
+                                color: const Color(0xFF111827))),
                       ],
                     ),
                   ),
                 ),
                 if (confident && item.freshness != Freshness.unknown)
-                  Positioned(right: 4, bottom: 4, child: FreshnessBadge(freshness: item.freshness)),
+                  Positioned(
+                      right: 4,
+                      bottom: 4,
+                      child: FreshnessBadge(freshness: item.freshness)),
               ],
             ),
           ),
@@ -157,7 +171,8 @@ class _AnimatedBox extends StatelessWidget {
 
 /// "Tươi" / "Dùng sớm" / "Kém tươi" pill. Visual estimate only.
 class FreshnessBadge extends StatelessWidget {
-  const FreshnessBadge({super.key, required this.freshness, this.onDark = true});
+  const FreshnessBadge(
+      {super.key, required this.freshness, this.onDark = true});
 
   final Freshness freshness;
   final bool onDark;
@@ -183,15 +198,23 @@ class FreshnessBadge extends StatelessWidget {
       height: 20,
       padding: const EdgeInsets.symmetric(horizontal: 7),
       decoration: BoxDecoration(
-        color: onDark ? const Color(0x99000000) : Theme.of(context).colorScheme.surfaceContainer,
+        color: onDark
+            ? const Color(0x99000000)
+            : Theme.of(context).colorScheme.surfaceContainer,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(width: 6, height: 6, decoration: BoxDecoration(color: dotColor(freshness), shape: BoxShape.circle)),
+          Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(
+                  color: dotColor(freshness), shape: BoxShape.circle)),
           const SizedBox(width: 4),
-          Text(freshness.label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: textColor)),
+          Text(freshness.label,
+              style: TextStyle(
+                  fontSize: 10, fontWeight: FontWeight.w700, color: textColor)),
         ],
       ),
     );

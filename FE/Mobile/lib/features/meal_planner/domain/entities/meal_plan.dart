@@ -28,7 +28,8 @@ class Nutrition {
     required this.fiberG,
   });
 
-  static const zero = Nutrition(calories: 0, proteinG: 0, carbsG: 0, fatG: 0, fiberG: 0);
+  static const zero =
+      Nutrition(calories: 0, proteinG: 0, carbsG: 0, fatG: 0, fiberG: 0);
 
   final int calories;
   final double proteinG;
@@ -86,14 +87,15 @@ class MealPlanDay {
   final DateTime date;
   final Map<MealSlot, Recipe> meals;
 
-  Nutrition get totals =>
-      meals.values.fold(Nutrition.zero, (sum, recipe) => sum + recipe.nutrition);
+  Nutrition get totals => meals.values
+      .fold(Nutrition.zero, (sum, recipe) => sum + recipe.nutrition);
 
   MealPlanDay replaceMeal(MealSlot slot, Recipe recipe) =>
       MealPlanDay(date: date, meals: {...meals, slot: recipe});
 
-  int conflictCount(Iterable<String> userAllergies) =>
-      meals.values.where((r) => r.allergenConflicts(userAllergies).isNotEmpty).length;
+  int conflictCount(Iterable<String> userAllergies) => meals.values
+      .where((r) => r.allergenConflicts(userAllergies).isNotEmpty)
+      .length;
 }
 
 class MealPlan {
@@ -123,6 +125,8 @@ class MealPlan {
         startDate: startDate,
         goal: goal,
         dailyTargets: dailyTargets,
-        days: [for (final d in days) isSameDay(d.date, updated.date) ? updated : d],
+        days: [
+          for (final d in days) isSameDay(d.date, updated.date) ? updated : d
+        ],
       );
 }

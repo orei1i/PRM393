@@ -42,14 +42,16 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
 
   @override
   Future<HealthProfileDto> getHealthProfile() => guardApi(() async {
-        final res = await _dio.get<Map<String, dynamic>>(ApiEndpoints.healthProfile);
+        final res =
+            await _dio.get<Map<String, dynamic>>(ApiEndpoints.healthProfile);
         return HealthProfileDto.fromJson(res.data!);
       });
 
   @override
   Future<MealPlanDto?> getCurrentMealPlan() => guardApi(() async {
         try {
-          final res = await _dio.get<Map<String, dynamic>>(ApiEndpoints.currentMealPlan);
+          final res = await _dio
+              .get<Map<String, dynamic>>(ApiEndpoints.currentMealPlan);
           return MealPlanDto.fromJson(res.data!);
         } on DioException catch (e) {
           if (e.response?.statusCode == 404) return null;
@@ -58,10 +60,11 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
       });
 
   @override
-  Future<MealPlanDto> generateMealPlan({required DateTime startDate}) => guardApi(() async {
+  Future<MealPlanDto> generateMealPlan({required DateTime startDate}) =>
+      guardApi(() async {
         final res = await _dio.post<Map<String, dynamic>>(
           ApiEndpoints.generateMealPlan,
-          data: {'start_date': toApiDate(startDate)},
+          data: {'startDate': toApiDate(startDate)},
           // Generation can take 10–20 s on the server.
           options: Options(receiveTimeout: const Duration(seconds: 60)),
         );
@@ -77,7 +80,11 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
       guardApi(() async {
         final res = await _dio.get<List<dynamic>>(
           ApiEndpoints.swapSuggestions(planId),
-          queryParameters: {'date': toApiDate(date), 'slot': slot.apiValue, 'limit': 3},
+          queryParameters: {
+            'date': toApiDate(date),
+            'slot': slot.apiValue,
+            'limit': 3
+          },
         );
         return (res.data ?? const [])
             .whereType<Map<String, dynamic>>()

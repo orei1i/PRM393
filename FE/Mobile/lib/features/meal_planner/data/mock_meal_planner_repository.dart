@@ -20,7 +20,9 @@ class MockMealPlannerRepository implements MealPlannerApiService {
 
   HealthProfileDto get _healthProfile => _profile ??= HealthProfileDto.fromJson(
         mockHealthProfileJson(
-          syncProvider: defaultTargetPlatform == TargetPlatform.iOS ? 'apple_health' : 'health_connect',
+          syncProvider: defaultTargetPlatform == TargetPlatform.iOS
+              ? 'apple_health'
+              : 'health_connect',
         ),
       );
 
@@ -63,7 +65,8 @@ class MockMealPlannerRepository implements MealPlannerApiService {
     final suggestions = pool
         .where((r) => r.id != current?.id)
         .where((r) => !r.allergens.any(allergies.contains))
-        .where((r) => (r.nutrition.calories - targetKcal).abs() <= targetKcal * 0.1)
+        .where((r) =>
+            (r.nutrition.calories - targetKcal).abs() <= targetKcal * 0.1)
         .toList()
       ..sort((a, b) => (a.nutrition.calories - targetKcal)
           .abs()
@@ -80,7 +83,8 @@ class MockMealPlannerRepository implements MealPlannerApiService {
     final plan = _requirePlan(planId);
     final recipe = _findRecipe(request.recipeId);
     if (recipe == null) {
-      throw const ApiException(message: 'Món ăn không còn khả dụng.', statusCode: 404);
+      throw const ApiException(
+          message: 'Món ăn không còn khả dụng.', statusCode: 404);
     }
     final day = plan.days.firstWhere((d) => isSameDay(d.date, request.date));
     final updated = MealPlanDayDto(
@@ -96,7 +100,8 @@ class MockMealPlannerRepository implements MealPlannerApiService {
   MealPlanDto _requirePlan(String planId) {
     final plan = _plan;
     if (plan == null || plan.id != planId) {
-      throw const ApiException(message: 'Không tìm thấy thực đơn.', statusCode: 404);
+      throw const ApiException(
+          message: 'Không tìm thấy thực đơn.', statusCode: 404);
     }
     return plan;
   }
@@ -134,9 +139,9 @@ class MockMealPlannerRepository implements MealPlannerApiService {
     });
     return MealPlanDto.fromJson({
       'id': 'mp_${toApiDate(monday)}',
-      'start_date': toApiDate(monday),
+      'startDate': toApiDate(monday),
       'goal': 'lean_muscle',
-      'daily_targets': mockDailyTargets,
+      'dailyTargets': mockDailyTargets,
       'days': days,
     });
   }

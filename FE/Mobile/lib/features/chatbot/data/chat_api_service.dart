@@ -33,7 +33,8 @@ class RemoteChatApiService implements ChatApiService {
 
   @override
   Future<TrialStatusDto> getGuestTrialStatus() => guardApi(() async {
-        final res = await _dio.get<Map<String, dynamic>>(ApiEndpoints.guestTrial);
+        final res =
+            await _dio.get<Map<String, dynamic>>(ApiEndpoints.guestTrial);
         return TrialStatusDto.fromJson(res.data!);
       });
 
@@ -88,7 +89,8 @@ class RemoteChatApiService implements ChatApiService {
     } on DioException catch (e) {
       throw mapDioException(e);
     } on FormatException {
-      throw const ApiException(message: 'Phản hồi từ máy chủ không hợp lệ.', code: 'bad_stream');
+      throw const ApiException(
+          message: 'Phản hồi từ máy chủ không hợp lệ.', code: 'bad_stream');
     }
   }
 }

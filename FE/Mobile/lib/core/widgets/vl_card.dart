@@ -85,7 +85,8 @@ class VLTag extends StatelessWidget {
             Icon(icon, size: 14, color: fg),
             const SizedBox(width: 4),
           ],
-          Text(label, style: context.textStyles.labelMedium?.copyWith(color: fg)),
+          Text(label,
+              style: context.textStyles.labelMedium?.copyWith(color: fg)),
         ],
       ),
     );

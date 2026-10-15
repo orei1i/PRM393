@@ -62,7 +62,8 @@ class _SlideGradient extends GradientTransform {
 
 /// A grey placeholder block. Wrap groups of these in a single [Shimmer].
 class SkeletonBox extends StatelessWidget {
-  const SkeletonBox({super.key, this.width, required this.height, this.radius = 8});
+  const SkeletonBox(
+      {super.key, this.width, required this.height, this.radius = 8});
 
   final double? width;
   final double height;

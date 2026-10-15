@@ -7,7 +7,8 @@ import '../../../../core/utils/labels.dart';
 /// Always shown on AI-generated plans. Neutral when clear; ochre alert when a
 /// meal of the selected day contains one of the user's allergens.
 class AllergyGuardBanner extends StatelessWidget {
-  const AllergyGuardBanner({super.key, required this.allergies, required this.conflictCount});
+  const AllergyGuardBanner(
+      {super.key, required this.allergies, required this.conflictCount});
 
   final List<String> allergies;
   final int conflictCount;
@@ -30,7 +31,9 @@ class AllergyGuardBanner extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: hasConflict ? vl.cautionContainer : context.colors.surfaceContainerLow,
+          color: hasConflict
+              ? vl.cautionContainer
+              : context.colors.surfaceContainerLow,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: hasConflict ? vl.cautionBorder : vl.border),
         ),

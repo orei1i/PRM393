@@ -1,13 +1,13 @@
 // lib/features/chatbot/data/models/chat_models.dart
 //
 // POST /chat/sessions/{id}/messages   (Accept: text/event-stream)
-// request:  { "message": "…", "resume_from": 0,
-//             "context": { "include_meal_plan": true, "include_health_profile": true } }
+// request:  { "message": "…", "resumeFrom": 0,
+//             "context": { "includeMealPlan": true, "includeHealthProfile": true } }
 // response (SSE):
 //   event: token     data: {"text":"Thực đơn "}
-//   event: citation  data: {"index":1,"title":"…","publisher":"NIH ODS","source_type":"scientific",
-//                           "passage":"…","url":"https://…","published_at":"2025-03-01","verified":true}
-//   event: done      data: {"message_id":"msg_91","trial_remaining":1}
+//   event: citation  data: {"index":1,"title":"…","publisher":"NIH ODS","sourceType":"scientific",
+//                           "passage":"…","url":"https://…","publishedAt":"2025-03-01","verified":true}
+//   event: done      data: {"messageId":"msg_91","trialRemaining":1}
 //   event: error     data: {"code":"model_unavailable","message":"…"}
 //
 // GET /chat/guest-trial  → { "limit": 3, "used": 1, "remaining": 2 }
@@ -31,10 +31,10 @@ class CitationDto {
         index: readInt(json['index']),
         title: json['title'] as String? ?? '',
         publisher: json['publisher'] as String? ?? '',
-        sourceType: json['source_type'] as String? ?? 'scientific',
+        sourceType: json['sourceType'] as String? ?? 'scientific',
         passage: json['passage'] as String? ?? '',
         url: json['url'] as String?,
-        publishedAt: readDateTime(json['published_at']),
+        publishedAt: readDateTime(json['publishedAt']),
         verified: json['verified'] as bool? ?? false,
       );
 
@@ -51,10 +51,10 @@ class CitationDto {
         'index': index,
         'title': title,
         'publisher': publisher,
-        'source_type': sourceType,
+        'sourceType': sourceType,
         'passage': passage,
         if (url != null) 'url': url,
-        if (publishedAt != null) 'published_at': publishedAt!.toIso8601String(),
+        if (publishedAt != null) 'publishedAt': publishedAt!.toIso8601String(),
         'verified': verified,
       };
 
@@ -83,7 +83,8 @@ class TrialStatusDto {
 
   int get remaining => (limit - used).clamp(0, limit).toInt();
 
-  Map<String, dynamic> toJson() => {'limit': limit, 'used': used, 'remaining': remaining};
+  Map<String, dynamic> toJson() =>
+      {'limit': limit, 'used': used, 'remaining': remaining};
 }
 
 class ChatRequestDto {
@@ -103,10 +104,10 @@ class ChatRequestDto {
 
   Map<String, dynamic> toJson() => {
         'message': message,
-        if (resumeFrom > 0) 'resume_from': resumeFrom,
+        if (resumeFrom > 0) 'resumeFrom': resumeFrom,
         'context': {
-          'include_meal_plan': includeMealPlan,
-          'include_health_profile': includeHealthProfile,
+          'includeMealPlan': includeMealPlan,
+          'includeHealthProfile': includeHealthProfile,
         },
       };
 }
@@ -115,12 +116,15 @@ class ChatRequestDto {
 sealed class ChatStreamEvent {
   const ChatStreamEvent();
 
-  static ChatStreamEvent? fromSse(String? event, Map<String, dynamic> data) => switch (event) {
+  static ChatStreamEvent? fromSse(String? event, Map<String, dynamic> data) =>
+      switch (event) {
         'token' => ChatTokenEvent(data['text'] as String? ?? ''),
         'citation' => ChatCitationEvent(CitationDto.fromJson(data)),
         'done' => ChatDoneEvent(
-            messageId: data['message_id'] as String?,
-            trialRemaining: data['trial_remaining'] == null ? null : readInt(data['trial_remaining']),
+            messageId: data['messageId'] as String?,
+            trialRemaining: data['trialRemaining'] == null
+                ? null
+                : readInt(data['trialRemaining']),
           ),
         'error' => ChatErrorEvent(
             code: data['code'] as String? ?? 'unknown',

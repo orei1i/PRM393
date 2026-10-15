@@ -12,8 +12,8 @@ class AuthResult {
   const AuthResult({required this.accessToken, required this.displayName});
 
   factory AuthResult.fromJson(Map<String, dynamic> json) => AuthResult(
-        accessToken: json['access_token'] as String,
-        displayName: (json['display_name'] as String?) ?? 'Bạn',
+        accessToken: json['accessToken'] as String,
+        displayName: (json['displayName'] as String?) ?? 'Bạn',
       );
 
   final String accessToken;
@@ -49,7 +49,7 @@ class RemoteAuthApiService implements AuthApiService {
       guardApi(() async {
         final res = await _dio.post<Map<String, dynamic>>(
           ApiEndpoints.authGoogle,
-          data: {'id_token': idToken, 'guest_token': guestToken},
+          data: {'idToken': idToken, 'guestToken': guestToken},
         );
         return AuthResult.fromJson(res.data!);
       });
@@ -61,7 +61,7 @@ class MockAuthApiService implements AuthApiService {
     await mockDelay(900);
     return AuthResult(
       accessToken: 'mock.jwt.${DateTime.now().millisecondsSinceEpoch}',
-      displayName: 'Bạn',
+      displayName: 'Minh Anh',
     );
   }
 }

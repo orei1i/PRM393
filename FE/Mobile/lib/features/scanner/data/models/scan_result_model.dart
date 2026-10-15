@@ -2,7 +2,7 @@
 //
 // POST /vision/scan  (multipart: image)
 // {
-//   "scan_id": "scn_7f3c",
+//   "scanId": "scn_7f3c",
 //   "items": [
 //     { "id": "det_1", "label": "Bông cải xanh", "confidence": 0.96, "freshness": "fresh",
 //       "bbox": { "x": 0.06, "y": 0.18, "w": 0.30, "h": 0.22 },
@@ -15,7 +15,8 @@ import '../../../../core/utils/json_helpers.dart';
 import '../../domain/entities/detected_ingredient.dart';
 
 class BoundingBoxDto {
-  const BoundingBoxDto({required this.x, required this.y, required this.w, required this.h});
+  const BoundingBoxDto(
+      {required this.x, required this.y, required this.w, required this.h});
 
   factory BoundingBoxDto.fromJson(Map<String, dynamic> json) => BoundingBoxDto(
         x: readDouble(json['x']),
@@ -31,7 +32,8 @@ class BoundingBoxDto {
 
   Map<String, dynamic> toJson() => {'x': x, 'y': y, 'w': w, 'h': h};
 
-  NormalizedBox toEntity() => NormalizedBox(left: x, top: y, width: w, height: h);
+  NormalizedBox toEntity() =>
+      NormalizedBox(left: x, top: y, width: w, height: h);
 }
 
 class DetectedIngredientDto {
@@ -46,7 +48,8 @@ class DetectedIngredientDto {
     this.alternatives = const [],
   });
 
-  factory DetectedIngredientDto.fromJson(Map<String, dynamic> json) => DetectedIngredientDto(
+  factory DetectedIngredientDto.fromJson(Map<String, dynamic> json) =>
+      DetectedIngredientDto(
         id: json['id'] as String,
         label: json['label'] as String? ?? '',
         confidence: readDouble(json['confidence']),
@@ -59,7 +62,10 @@ class DetectedIngredientDto {
         alternatives: (json['alternatives'] is List<Object?>)
             ? (json['alternatives'] as List<Object?>)
                 .whereType<Map<String, dynamic>>()
-                .map((a) => (label: a['label'] as String? ?? '', confidence: readDouble(a['confidence'])))
+                .map((a) => (
+                      label: a['label'] as String? ?? '',
+                      confidence: readDouble(a['confidence'])
+                    ))
                 .toList()
             : const [],
       );
@@ -82,7 +88,8 @@ class DetectedIngredientDto {
         'quantity': quantity,
         'unit': unit,
         'alternatives': [
-          for (final a in alternatives) {'label': a.label, 'confidence': a.confidence},
+          for (final a in alternatives)
+            {'label': a.label, 'confidence': a.confidence},
         ],
       };
 
@@ -95,7 +102,8 @@ class DetectedIngredientDto {
         quantity: quantity,
         unit: unit,
         alternatives: [
-          for (final a in alternatives) IngredientAlternative(name: a.label, confidence: a.confidence),
+          for (final a in alternatives)
+            IngredientAlternative(name: a.label, confidence: a.confidence),
         ],
         confirmed: confidence >= DetectedIngredient.confirmThreshold,
       );
@@ -105,7 +113,7 @@ class ScanResultDto {
   const ScanResultDto({required this.scanId, required this.items});
 
   factory ScanResultDto.fromJson(Map<String, dynamic> json) => ScanResultDto(
-        scanId: json['scan_id'] as String? ?? '',
+        scanId: json['scanId'] as String? ?? '',
         items: (json['items'] is List<Object?>)
             ? (json['items'] as List<Object?>)
                 .whereType<Map<String, dynamic>>()
@@ -118,14 +126,15 @@ class ScanResultDto {
   final List<DetectedIngredientDto> items;
 
   Map<String, dynamic> toJson() => {
-        'scan_id': scanId,
+        'scanId': scanId,
         'items': items.map((i) => i.toJson()).toList(),
       };
 }
 
 /// POST /meal-plans/from-ingredients
 class GenerateMenuRequestDto {
-  const GenerateMenuRequestDto({required this.ingredients, required this.excludeAllergens});
+  const GenerateMenuRequestDto(
+      {required this.ingredients, required this.excludeAllergens});
 
   final List<DetectedIngredient> ingredients;
   final List<String> excludeAllergens;
@@ -133,10 +142,15 @@ class GenerateMenuRequestDto {
   Map<String, dynamic> toJson() => {
         'ingredients': [
           for (final i in ingredients)
-            {'name': i.name, 'quantity': i.quantity, 'unit': i.unit, 'freshness': i.freshness.apiValue},
+            {
+              'name': i.name,
+              'quantity': i.quantity,
+              'unit': i.unit,
+              'freshness': i.freshness.apiValue
+            },
         ],
-        'exclude_allergens': excludeAllergens,
-        'prefer_use_soon': true,
+        'excludeAllergens': excludeAllergens,
+        'preferUseSoon': true,
       };
 }
 
@@ -150,13 +164,14 @@ class MenuSuggestionDto {
     required this.missingIngredients,
   });
 
-  factory MenuSuggestionDto.fromJson(Map<String, dynamic> json) => MenuSuggestionDto(
+  factory MenuSuggestionDto.fromJson(Map<String, dynamic> json) =>
+      MenuSuggestionDto(
         id: json['id'] as String,
         name: json['name'] as String? ?? '',
         calories: readInt(json['calories']),
-        prepMinutes: readInt(json['prep_minutes']),
-        usedIngredients: readStringList(json['used_ingredients']),
-        missingIngredients: readStringList(json['missing_ingredients']),
+        prepMinutes: readInt(json['prepMinutes']),
+        usedIngredients: readStringList(json['usedIngredients']),
+        missingIngredients: readStringList(json['missingIngredients']),
       );
 
   final String id;
@@ -170,9 +185,9 @@ class MenuSuggestionDto {
         'id': id,
         'name': name,
         'calories': calories,
-        'prep_minutes': prepMinutes,
-        'used_ingredients': usedIngredients,
-        'missing_ingredients': missingIngredients,
+        'prepMinutes': prepMinutes,
+        'usedIngredients': usedIngredients,
+        'missingIngredients': missingIngredients,
       };
 
   MenuSuggestion toEntity() => MenuSuggestion(

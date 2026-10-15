@@ -81,14 +81,15 @@ class MockScannerRepository implements ScannerApiService {
         );
       default:
         return ScanResultDto.fromJson({
-          'scan_id': 'scn_${DateTime.now().millisecondsSinceEpoch}',
+          'scanId': 'scn_${DateTime.now().millisecondsSinceEpoch}',
           'items': _items,
         });
     }
   }
 
   @override
-  Future<List<MenuSuggestionDto>> generateMenu(GenerateMenuRequestDto request) async {
+  Future<List<MenuSuggestionDto>> generateMenu(
+      GenerateMenuRequestDto request) async {
     await mockDelay(2000);
     final names = request.ingredients.map((i) => i.name).toList();
     bool has(String n) => names.any((x) => x.toLowerCase() == n.toLowerCase());
@@ -98,25 +99,36 @@ class MockScannerRepository implements ScannerApiService {
         'id': 'menu_1',
         'name': 'Đậu hũ xào bông cải cà rốt',
         'calories': 420,
-        'prep_minutes': 20,
-        'used_ingredients': [if (has('Đậu hũ')) 'Đậu hũ', if (has('Bông cải xanh')) 'Bông cải xanh', if (has('Cà rốt')) 'Cà rốt'],
-        'missing_ingredients': ['Tỏi', 'Nước tương'],
+        'prepMinutes': 20,
+        'usedIngredients': [
+          if (has('Đậu hũ')) 'Đậu hũ',
+          if (has('Bông cải xanh')) 'Bông cải xanh',
+          if (has('Cà rốt')) 'Cà rốt'
+        ],
+        'missingIngredients': ['Tỏi', 'Nước tương'],
       },
       {
         'id': 'menu_2',
         'name': 'Canh cà chua đậu hũ rau thơm',
         'calories': 260,
-        'prep_minutes': 15,
-        'used_ingredients': [if (has('Cà chua')) 'Cà chua', if (has('Đậu hũ')) 'Đậu hũ'],
-        'missing_ingredients': ['Hành lá'],
+        'prepMinutes': 15,
+        'usedIngredients': [
+          if (has('Cà chua')) 'Cà chua',
+          if (has('Đậu hũ')) 'Đậu hũ'
+        ],
+        'missingIngredients': ['Hành lá'],
       },
       {
         'id': 'menu_3',
         'name': 'Cơm chiên rau củ kiểu Việt',
         'calories': 540,
-        'prep_minutes': 25,
-        'used_ingredients': [if (has('Cà rốt')) 'Cà rốt', if (has('Bông cải xanh')) 'Bông cải xanh', if (has('Rau chân vịt')) 'Rau chân vịt'],
-        'missing_ingredients': ['Cơm nguội'],
+        'prepMinutes': 25,
+        'usedIngredients': [
+          if (has('Cà rốt')) 'Cà rốt',
+          if (has('Bông cải xanh')) 'Bông cải xanh',
+          if (has('Rau chân vịt')) 'Rau chân vịt'
+        ],
+        'missingIngredients': ['Cơm nguội'],
       },
     ];
 

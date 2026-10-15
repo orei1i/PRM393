@@ -25,6 +25,10 @@ echo [mobile] flutter pub get
 call flutter pub get > "%LOGS%\02_pub_get.log" 2>&1
 >> "%LOGS%\02_pub_get.log" echo EXIT=%ERRORLEVEL%
 
+echo [mobile] dart format
+call dart format lib test > "%LOGS%\02b_format.log" 2>&1
+>> "%LOGS%\02b_format.log" echo EXIT=%ERRORLEVEL%
+
 echo [mobile] flutter analyze
 call flutter analyze > "%LOGS%\03_analyze.log" 2>&1
 >> "%LOGS%\03_analyze.log" echo EXIT=%ERRORLEVEL%

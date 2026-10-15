@@ -29,12 +29,16 @@ class _FridgePainter extends CustomPainter {
     canvas.drawRect(Rect.fromLTWH(0, 0.12 * h, w, 0.68 * h), fill(0xFF1B2722));
 
     // Shelves
-    canvas.drawRect(Rect.fromLTWH(0, 0.385 * h, w, 0.008 * h), fill(0xFF2E3E36));
-    canvas.drawRect(Rect.fromLTWH(0, 0.715 * h, w, 0.008 * h), fill(0xFF2E3E36));
+    canvas.drawRect(
+        Rect.fromLTWH(0, 0.385 * h, w, 0.008 * h), fill(0xFF2E3E36));
+    canvas.drawRect(
+        Rect.fromLTWH(0, 0.715 * h, w, 0.008 * h), fill(0xFF2E3E36));
 
     // Broccoli (box 0.05, 0.17, 0.30 × 0.20)
     canvas.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromLTWH(0.18 * w, 0.28 * h, 0.04 * w, 0.09 * h), const Radius.circular(6)),
+      RRect.fromRectAndRadius(
+          Rect.fromLTWH(0.18 * w, 0.28 * h, 0.04 * w, 0.09 * h),
+          const Radius.circular(6)),
       fill(0xFF6E8F5E),
     );
     for (final (x, y, r, c) in const [
@@ -49,11 +53,15 @@ class _FridgePainter extends CustomPainter {
 
     // Tofu block (box 0.40, 0.19, 0.27 × 0.18)
     canvas.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromLTWH(0.42 * w, 0.24 * h, 0.23 * w, 0.13 * h), const Radius.circular(8)),
+      RRect.fromRectAndRadius(
+          Rect.fromLTWH(0.42 * w, 0.24 * h, 0.23 * w, 0.13 * h),
+          const Radius.circular(8)),
       fill(0xFFD6CFBA),
     );
     canvas.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromLTWH(0.42 * w, 0.24 * h, 0.23 * w, 0.025 * h), const Radius.circular(8)),
+      RRect.fromRectAndRadius(
+          Rect.fromLTWH(0.42 * w, 0.24 * h, 0.23 * w, 0.025 * h),
+          const Radius.circular(8)),
       fill(0xFFE6E0CC),
     );
 
@@ -70,10 +78,13 @@ class _FridgePainter extends CustomPainter {
         ..lineTo(0.08 * w, (y + 0.02) * h)
         ..close();
       canvas.drawPath(path, carrot);
-      canvas.drawLine(p(0.08, y), p(0.05, y - 0.025), Paint()
-        ..color = const Color(0xFF4F7A3F)
-        ..strokeWidth = 0.012 * w
-        ..strokeCap = StrokeCap.round);
+      canvas.drawLine(
+          p(0.08, y),
+          p(0.05, y - 0.025),
+          Paint()
+            ..color = const Color(0xFF4F7A3F)
+            ..strokeWidth = 0.012 * w
+            ..strokeCap = StrokeCap.round);
     }
 
     // Leafy greens (box 0.52, 0.52, 0.43 × 0.18)
@@ -83,7 +94,10 @@ class _FridgePainter extends CustomPainter {
       (0.85, 0.61, 0.08, 0.035, 0xFF2A4F33),
       (0.73, 0.655, 0.18, 0.03, 0xFF305A38),
     ]) {
-      canvas.drawOval(Rect.fromCenter(center: p(x, y), width: rx * 2 * w, height: ry * 2 * h), fill(c));
+      canvas.drawOval(
+          Rect.fromCenter(
+              center: p(x, y), width: rx * 2 * w, height: ry * 2 * h),
+          fill(c));
     }
   }
 

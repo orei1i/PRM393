@@ -26,7 +26,8 @@ class GuestGate extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isGuest = ref.watch(sessionControllerProvider.select((s) => s.isGuest));
+    final isGuest =
+        ref.watch(sessionControllerProvider.select((s) => s.isGuest));
     if (!isGuest) return child;
 
     return SafeArea(
@@ -50,7 +51,9 @@ class GuestGate extends ConsumerWidget {
                 const SizedBox(height: 16),
                 Text(title, style: context.textStyles.headlineSmall),
                 const SizedBox(height: 8),
-                Text(message, style: context.textStyles.bodyLarge?.copyWith(color: context.vl.muted)),
+                Text(message,
+                    style: context.textStyles.bodyLarge
+                        ?.copyWith(color: context.vl.muted)),
                 const SizedBox(height: 20),
                 for (final b in benefits)
                   Padding(
@@ -58,9 +61,12 @@ class GuestGate extends ConsumerWidget {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(Icons.check_circle_rounded, size: 20, color: context.vl.success),
+                        Icon(Icons.check_circle_rounded,
+                            size: 20, color: context.vl.success),
                         const SizedBox(width: 10),
-                        Expanded(child: Text(b, style: context.textStyles.bodyMedium)),
+                        Expanded(
+                            child:
+                                Text(b, style: context.textStyles.bodyMedium)),
                       ],
                     ),
                   ),
@@ -69,7 +75,8 @@ class GuestGate extends ConsumerWidget {
                 const SizedBox(height: 12),
                 Text(
                   'Bạn vẫn xem công thức và hỏi AI 3 lần miễn phí mà không cần tài khoản.',
-                  style: context.textStyles.bodySmall?.copyWith(color: context.vl.muted),
+                  style: context.textStyles.bodySmall
+                      ?.copyWith(color: context.vl.muted),
                 ),
               ],
             ),

@@ -23,6 +23,7 @@ final dioProvider = Provider<Dio>((ref) {
 
   dio.interceptors.addAll([
     CorrelationIdInterceptor(),
+    EnvelopeInterceptor(),
     AuthInterceptor(() => ref.read(sessionControllerProvider).authHeaders),
     ErrorMappingInterceptor(),
     if (kDebugMode)

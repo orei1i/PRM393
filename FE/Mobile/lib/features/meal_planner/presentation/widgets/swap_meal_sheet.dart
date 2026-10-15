@@ -19,7 +19,8 @@ class SwapMealSheet extends ConsumerStatefulWidget {
   final MealSlot slot;
   final Recipe current;
 
-  static Future<Recipe?> show(BuildContext context, {required MealSlot slot, required Recipe current}) {
+  static Future<Recipe?> show(BuildContext context,
+      {required MealSlot slot, required Recipe current}) {
     return showModalBottomSheet<Recipe>(
       context: context,
       isScrollControlled: true,
@@ -42,7 +43,9 @@ class _SwapMealSheetState extends ConsumerState<SwapMealSheet> {
   }
 
   void _load() {
-    _suggestions = ref.read(mealPlanControllerProvider.notifier).fetchSwapSuggestions(widget.slot);
+    _suggestions = ref
+        .read(mealPlanControllerProvider.notifier)
+        .fetchSwapSuggestions(widget.slot);
   }
 
   @override
@@ -56,7 +59,9 @@ class _SwapMealSheetState extends ConsumerState<SwapMealSheet> {
         children: [
           Row(
             children: [
-              Expanded(child: Text('Đổi ${widget.slot.label.toLowerCase()}', style: context.textStyles.titleLarge)),
+              Expanded(
+                  child: Text('Đổi ${widget.slot.label.toLowerCase()}',
+                      style: context.textStyles.titleLarge)),
               const AiBadge(label: 'AI gợi ý'),
             ],
           ),
@@ -83,7 +88,8 @@ class _SwapMealSheetState extends ConsumerState<SwapMealSheet> {
                 return const EmptyStateView(
                   icon: Icons.search_off_rounded,
                   title: 'Chưa có món thay thế phù hợp',
-                  message: 'Không tìm được món cùng mức năng lượng mà tránh được dị ứng của bạn. Thử lại vào lúc khác nhé.',
+                  message:
+                      'Không tìm được món cùng mức năng lượng mà tránh được dị ứng của bạn. Thử lại vào lúc khác nhé.',
                 );
               }
               return Column(
@@ -93,7 +99,8 @@ class _SwapMealSheetState extends ConsumerState<SwapMealSheet> {
                       padding: const EdgeInsets.only(bottom: 10),
                       child: _SuggestionTile(
                         recipe: r,
-                        kcalDelta: r.nutrition.calories - widget.current.nutrition.calories,
+                        kcalDelta: r.nutrition.calories -
+                            widget.current.nutrition.calories,
                         onTap: () => Navigator.of(context).pop(r),
                       ),
                     ),
@@ -108,7 +115,8 @@ class _SwapMealSheetState extends ConsumerState<SwapMealSheet> {
 }
 
 class _SuggestionTile extends StatelessWidget {
-  const _SuggestionTile({required this.recipe, required this.kcalDelta, required this.onTap});
+  const _SuggestionTile(
+      {required this.recipe, required this.kcalDelta, required this.onTap});
 
   final Recipe recipe;
   final int kcalDelta;
@@ -118,7 +126,8 @@ class _SuggestionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final vl = context.vl;
     final n = recipe.nutrition;
-    final delta = kcalDelta == 0 ? '±0' : (kcalDelta > 0 ? '+$kcalDelta' : '$kcalDelta');
+    final delta =
+        kcalDelta == 0 ? '±0' : (kcalDelta > 0 ? '+$kcalDelta' : '$kcalDelta');
 
     return VLCard(
       onTap: onTap,
@@ -132,9 +141,18 @@ class _SuggestionTile extends StatelessWidget {
                 Text(recipe.name, style: context.textStyles.titleSmall),
                 const SizedBox(height: 4),
                 Text.rich(TextSpan(children: [
-                  TextSpan(text: '${formatInt(n.calories)} kcal ', style: AppTypography.mono(size: 12, color: context.colors.onSurface)),
-                  TextSpan(text: '($delta)', style: AppTypography.mono(size: 12, weight: FontWeight.w500, color: vl.muted)),
-                  TextSpan(text: ' · Đạm ${n.proteinG.round()} g', style: context.textStyles.bodySmall?.copyWith(color: vl.muted)),
+                  TextSpan(
+                      text: '${formatInt(n.calories)} kcal ',
+                      style: AppTypography.mono(
+                          size: 12, color: context.colors.onSurface)),
+                  TextSpan(
+                      text: '($delta)',
+                      style: AppTypography.mono(
+                          size: 12, weight: FontWeight.w500, color: vl.muted)),
+                  TextSpan(
+                      text: ' · Đạm ${n.proteinG.round()} g',
+                      style: context.textStyles.bodySmall
+                          ?.copyWith(color: vl.muted)),
                 ])),
                 const SizedBox(height: 8),
                 Wrap(
@@ -147,7 +165,8 @@ class _SuggestionTile extends StatelessWidget {
                       background: vl.successContainer,
                       foreground: vl.onSuccessContainer,
                     ),
-                    for (final t in recipe.dietTags.take(2)) VLTag.neutral(context, dietTagLabel(t)),
+                    for (final t in recipe.dietTags.take(2))
+                      VLTag.neutral(context, dietTagLabel(t)),
                   ],
                 ),
               ],

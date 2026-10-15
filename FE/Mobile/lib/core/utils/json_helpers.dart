@@ -13,8 +13,9 @@ int readInt(Object? value) => switch (value) {
       _ => 0,
     };
 
-List<String> readStringList(Object? value) =>
-    value is List<Object?> ? value.map((e) => e.toString()).toList(growable: false) : const [];
+List<String> readStringList(Object? value) => value is List<Object?>
+    ? value.map((e) => e.toString()).toList(growable: false)
+    : const [];
 
 DateTime? readDateTime(Object? value) =>
     value is String ? DateTime.tryParse(value)?.toLocal() : null;

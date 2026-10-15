@@ -12,7 +12,8 @@ enum HealthGoal {
   final String label;
 
   static HealthGoal fromApi(String? value) =>
-      values.firstWhere((g) => g.apiValue == value, orElse: () => HealthGoal.maintain);
+      values.firstWhere((g) => g.apiValue == value,
+          orElse: () => HealthGoal.maintain);
 }
 
 enum HealthSyncProvider {
@@ -27,7 +28,8 @@ enum HealthSyncProvider {
   final String label;
 
   static HealthSyncProvider fromApi(String? value) =>
-      values.firstWhere((p) => p.apiValue == value, orElse: () => HealthSyncProvider.none);
+      values.firstWhere((p) => p.apiValue == value,
+          orElse: () => HealthSyncProvider.none);
 }
 
 enum HealthSyncState {
@@ -39,11 +41,13 @@ enum HealthSyncState {
   final String apiValue;
 
   static HealthSyncState fromApi(String? value) =>
-      values.firstWhere((s) => s.apiValue == value, orElse: () => HealthSyncState.paused);
+      values.firstWhere((s) => s.apiValue == value,
+          orElse: () => HealthSyncState.paused);
 }
 
 class HealthSync {
-  const HealthSync({required this.provider, required this.state, this.lastSyncedAt});
+  const HealthSync(
+      {required this.provider, required this.state, this.lastSyncedAt});
 
   final HealthSyncProvider provider;
   final HealthSyncState state;
@@ -58,7 +62,8 @@ class HealthProfile {
     required this.goal,
     this.allergies = const [],
     this.dietaryRestrictions = const [],
-    this.healthSync = const HealthSync(provider: HealthSyncProvider.none, state: HealthSyncState.paused),
+    this.healthSync = const HealthSync(
+        provider: HealthSyncProvider.none, state: HealthSyncState.paused),
   });
 
   final double heightCm;

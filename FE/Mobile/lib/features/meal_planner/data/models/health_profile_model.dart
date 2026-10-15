@@ -6,10 +6,10 @@ import '../../../../core/utils/json_helpers.dart';
 /// GET /health-profile/me
 /// ```json
 /// {
-///   "height_cm": 172, "weight_kg": 66, "bmi": 22.3,
+///   "heightCm": 172, "weightKg": 66, "bmi": 22.3,
 ///   "goal": "lean_muscle",
-///   "allergies": ["peanut"], "dietary_restrictions": ["low_sodium"],
-///   "health_sync": { "provider": "apple_health", "status": "synced", "last_synced_at": "2026-10-14T03:10:00Z" }
+///   "allergies": ["peanut"], "dietaryRestrictions": ["low_sodium"],
+///   "healthSync": { "provider": "apple_health", "status": "synced", "lastSyncedAt": "2026-10-14T03:10:00Z" }
 /// }
 /// ```
 class HealthProfileDto {
@@ -23,15 +23,16 @@ class HealthProfileDto {
     this.healthSync,
   });
 
-  factory HealthProfileDto.fromJson(Map<String, dynamic> json) => HealthProfileDto(
-        heightCm: readDouble(json['height_cm']),
-        weightKg: readDouble(json['weight_kg']),
+  factory HealthProfileDto.fromJson(Map<String, dynamic> json) =>
+      HealthProfileDto(
+        heightCm: readDouble(json['heightCm']),
+        weightKg: readDouble(json['weightKg']),
         bmi: json['bmi'] == null ? null : readDouble(json['bmi']),
         goal: json['goal'] as String? ?? HealthGoal.maintain.apiValue,
         allergies: readStringList(json['allergies']),
-        dietaryRestrictions: readStringList(json['dietary_restrictions']),
-        healthSync: json['health_sync'] is Map<String, dynamic>
-            ? HealthSyncDto.fromJson(json['health_sync'] as Map<String, dynamic>)
+        dietaryRestrictions: readStringList(json['dietaryRestrictions']),
+        healthSync: json['healthSync'] is Map<String, dynamic>
+            ? HealthSyncDto.fromJson(json['healthSync'] as Map<String, dynamic>)
             : null,
       );
 
@@ -44,13 +45,13 @@ class HealthProfileDto {
   final HealthSyncDto? healthSync;
 
   Map<String, dynamic> toJson() => {
-        'height_cm': heightCm,
-        'weight_kg': weightKg,
+        'heightCm': heightCm,
+        'weightKg': weightKg,
         if (bmi != null) 'bmi': bmi,
         'goal': goal,
         'allergies': allergies,
-        'dietary_restrictions': dietaryRestrictions,
-        if (healthSync != null) 'health_sync': healthSync!.toJson(),
+        'dietaryRestrictions': dietaryRestrictions,
+        if (healthSync != null) 'healthSync': healthSync!.toJson(),
       };
 
   HealthProfile toEntity() => HealthProfile(
@@ -61,17 +62,20 @@ class HealthProfileDto {
         allergies: allergies,
         dietaryRestrictions: dietaryRestrictions,
         healthSync: healthSync?.toEntity() ??
-            const HealthSync(provider: HealthSyncProvider.none, state: HealthSyncState.paused),
+            const HealthSync(
+                provider: HealthSyncProvider.none,
+                state: HealthSyncState.paused),
       );
 }
 
 class HealthSyncDto {
-  const HealthSyncDto({required this.provider, required this.status, this.lastSyncedAt});
+  const HealthSyncDto(
+      {required this.provider, required this.status, this.lastSyncedAt});
 
   factory HealthSyncDto.fromJson(Map<String, dynamic> json) => HealthSyncDto(
         provider: json['provider'] as String? ?? 'none',
         status: json['status'] as String? ?? 'paused',
-        lastSyncedAt: readDateTime(json['last_synced_at']),
+        lastSyncedAt: readDateTime(json['lastSyncedAt']),
       );
 
   final String provider;
@@ -81,7 +85,8 @@ class HealthSyncDto {
   Map<String, dynamic> toJson() => {
         'provider': provider,
         'status': status,
-        if (lastSyncedAt != null) 'last_synced_at': lastSyncedAt!.toUtc().toIso8601String(),
+        if (lastSyncedAt != null)
+          'lastSyncedAt': lastSyncedAt!.toUtc().toIso8601String(),
       };
 
   HealthSync toEntity() => HealthSync(

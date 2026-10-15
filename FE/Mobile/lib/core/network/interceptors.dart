@@ -1,6 +1,7 @@
 // lib/core/network/interceptors.dart
 import 'package:dio/dio.dart';
 
+import 'api_envelope.dart';
 import 'api_exception.dart';
 
 typedef AuthHeadersReader = Map<String, String> Function();
@@ -34,8 +35,36 @@ class CorrelationIdInterceptor extends Interceptor {
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
     _counter++;
-    final id = '${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}-$_counter';
+    final id =
+        '${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}-$_counter';
     options.headers['X-Correlation-Id'] = id;
     handler.next(options);
+  }
+}
+
+/// Unwraps the backend `ApiResponse<T>` envelope so services read `data` directly
+/// (see [unwrapEnvelope]). `success: false` with HTTP 200 becomes an error.
+class EnvelopeInterceptor extends Interceptor {
+  @override
+  void onResponse(
+      Response<dynamic> response, ResponseInterceptorHandler handler) {
+    if (response.requestOptions.responseType == ResponseType.stream) {
+      handler.next(response);
+      return;
+    }
+    try {
+      response.data = unwrapEnvelope(response.data);
+      handler.next(response);
+    } on ApiException catch (e) {
+      handler.reject(
+        DioException(
+          requestOptions: response.requestOptions,
+          response: response,
+          type: DioExceptionType.badResponse,
+          error: e,
+        ),
+        true,
+      );
+    }
   }
 }

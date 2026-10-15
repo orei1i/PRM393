@@ -24,7 +24,8 @@ class ScannedIngredientsSheet extends ConsumerStatefulWidget {
   final VoidCallback onRescan;
 
   /// Opens the low-confidence confirmation and applies the decision.
-  static Future<void> reviewItem(BuildContext context, WidgetRef ref, DetectedIngredient item) async {
+  static Future<void> reviewItem(
+      BuildContext context, WidgetRef ref, DetectedIngredient item) async {
     final decision = await ConfirmIngredientSheet.show(context, item);
     final notifier = ref.read(scannerControllerProvider.notifier);
     switch (decision) {
@@ -38,10 +39,12 @@ class ScannedIngredientsSheet extends ConsumerStatefulWidget {
   }
 
   @override
-  ConsumerState<ScannedIngredientsSheet> createState() => _ScannedIngredientsSheetState();
+  ConsumerState<ScannedIngredientsSheet> createState() =>
+      _ScannedIngredientsSheetState();
 }
 
-class _ScannedIngredientsSheetState extends ConsumerState<ScannedIngredientsSheet> {
+class _ScannedIngredientsSheetState
+    extends ConsumerState<ScannedIngredientsSheet> {
   final _addController = TextEditingController();
 
   @override
@@ -56,7 +59,8 @@ class _ScannedIngredientsSheetState extends ConsumerState<ScannedIngredientsShee
   }
 
   void _remove(DetectedIngredient item) {
-    final removed = ref.read(scannerControllerProvider.notifier).remove(item.id);
+    final removed =
+        ref.read(scannerControllerProvider.notifier).remove(item.id);
     if (removed == null) return;
     final (removedItem, index) = removed;
     ScaffoldMessenger.of(context)
@@ -65,7 +69,9 @@ class _ScannedIngredientsSheetState extends ConsumerState<ScannedIngredientsShee
         content: Text('Đã bỏ ${removedItem.name.toLowerCase()}'),
         action: SnackBarAction(
           label: 'Hoàn tác',
-          onPressed: () => ref.read(scannerControllerProvider.notifier).restore(removedItem, index),
+          onPressed: () => ref
+              .read(scannerControllerProvider.notifier)
+              .restore(removedItem, index),
         ),
       ));
   }
@@ -90,7 +96,12 @@ class _ScannedIngredientsSheetState extends ConsumerState<ScannedIngredientsShee
           decoration: BoxDecoration(
             color: cs.surface,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            boxShadow: const [BoxShadow(color: Color(0x4D000000), blurRadius: 32, offset: Offset(0, -8))],
+            boxShadow: const [
+              BoxShadow(
+                  color: Color(0x4D000000),
+                  blurRadius: 32,
+                  offset: Offset(0, -8))
+            ],
           ),
           child: ListView(
             controller: scrollController,
@@ -100,7 +111,9 @@ class _ScannedIngredientsSheetState extends ConsumerState<ScannedIngredientsShee
                 child: Container(
                   width: 40,
                   height: 5,
-                  decoration: BoxDecoration(color: cs.outline, borderRadius: BorderRadius.circular(999)),
+                  decoration: BoxDecoration(
+                      color: cs.outline,
+                      borderRadius: BorderRadius.circular(999)),
                 ),
               ),
               const SizedBox(height: 12),
@@ -110,20 +123,23 @@ class _ScannedIngredientsSheetState extends ConsumerState<ScannedIngredientsShee
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Nguyên liệu trong tủ', style: context.textStyles.titleMedium),
+                        Text('Nguyên liệu trong tủ',
+                            style: context.textStyles.titleMedium),
                         Text(
                           state.items.isEmpty
                               ? 'Chưa có nguyên liệu nào'
                               : '${state.items.length} món'
                                   '${state.pendingCount > 0 ? ' · ${state.pendingCount} cần xác nhận' : ''}',
-                          style: context.textStyles.bodySmall?.copyWith(color: vl.muted),
+                          style: context.textStyles.bodySmall
+                              ?.copyWith(color: vl.muted),
                         ),
                       ],
                     ),
                   ),
                   TextButton.icon(
                     onPressed: state.isBusy ? null : widget.onRescan,
-                    icon: const Icon(Icons.center_focus_strong_outlined, size: 18),
+                    icon: const Icon(Icons.center_focus_strong_outlined,
+                        size: 18),
                     label: const Text('Quét lại'),
                   ),
                 ],
@@ -134,7 +150,8 @@ class _ScannedIngredientsSheetState extends ConsumerState<ScannedIngredientsShee
                   padding: const EdgeInsets.only(bottom: 8),
                   child: _IngredientTile(
                     item: item,
-                    onReview: () => ScannedIngredientsSheet.reviewItem(context, ref, item),
+                    onReview: () =>
+                        ScannedIngredientsSheet.reviewItem(context, ref, item),
                     onRemove: () => _remove(item),
                     onQuantity: (q) => notifier.updateQuantity(item.id, q),
                   ),
@@ -151,7 +168,8 @@ class _ScannedIngredientsSheetState extends ConsumerState<ScannedIngredientsShee
                         labelText: 'Thêm nguyên liệu',
                         hintText: 'Ví dụ: nấm rơm',
                         isDense: true,
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
                   ),
@@ -159,7 +177,8 @@ class _ScannedIngredientsSheetState extends ConsumerState<ScannedIngredientsShee
                   IconButton.filledTonal(
                     tooltip: 'Thêm',
                     onPressed: _add,
-                    style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+                    style:
+                        IconButton.styleFrom(minimumSize: const Size(48, 48)),
                     icon: const Icon(Icons.add_rounded),
                   ),
                 ],
@@ -182,7 +201,9 @@ class _ScannedIngredientsSheetState extends ConsumerState<ScannedIngredientsShee
               },
               if (state.menuError != null) ...[
                 const SizedBox(height: 8),
-                Text(state.menuError!, style: context.textStyles.bodySmall?.copyWith(color: vl.onCautionContainer)),
+                Text(state.menuError!,
+                    style: context.textStyles.bodySmall
+                        ?.copyWith(color: vl.onCautionContainer)),
               ],
               const SizedBox(height: 12),
               FilledButton.icon(
@@ -200,7 +221,8 @@ class _ScannedIngredientsSheetState extends ConsumerState<ScannedIngredientsShee
                 icon: generating
                     ? SizedBox.square(
                         dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: cs.onTertiary),
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: cs.onTertiary),
                       )
                     : const Icon(Icons.auto_awesome),
                 label: Text(
@@ -214,7 +236,8 @@ class _ScannedIngredientsSheetState extends ConsumerState<ScannedIngredientsShee
                 Text(
                   'Nguyên liệu chưa xác nhận sẽ không được dùng.',
                   textAlign: TextAlign.center,
-                  style: context.textStyles.bodySmall?.copyWith(color: vl.muted),
+                  style:
+                      context.textStyles.bodySmall?.copyWith(color: vl.muted),
                 ),
               ],
               const SizedBox(height: 16),
@@ -231,7 +254,8 @@ class _ScannedIngredientsSheetState extends ConsumerState<ScannedIngredientsShee
                 if (state.menu.isEmpty)
                   Text(
                     'Chưa ghép được món nào từ các nguyên liệu này. Thêm 1–2 nguyên liệu rồi thử lại nhé.',
-                    style: context.textStyles.bodyMedium?.copyWith(color: vl.muted),
+                    style: context.textStyles.bodyMedium
+                        ?.copyWith(color: vl.muted),
                   ),
                 for (final m in state.menu)
                   Padding(
@@ -264,7 +288,9 @@ class _IngredientTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final vl = context.vl;
     final pending = !item.confirmed;
-    final qty = item.quantity % 1 == 0 ? item.quantity.toInt().toString() : formatDecimal(item.quantity);
+    final qty = item.quantity % 1 == 0
+        ? item.quantity.toInt().toString()
+        : formatDecimal(item.quantity);
     final step = item.unit == 'g' || item.unit == 'ml' ? 50.0 : 1.0;
 
     final content = Padding(
@@ -275,7 +301,9 @@ class _IngredientTile extends StatelessWidget {
             width: 10,
             height: 10,
             decoration: BoxDecoration(
-              color: pending ? Colors.transparent : FreshnessBadge.dotColor(item.freshness),
+              color: pending
+                  ? Colors.transparent
+                  : FreshnessBadge.dotColor(item.freshness),
               border: pending ? Border.all(color: vl.caution, width: 2) : null,
               shape: BoxShape.circle,
             ),
@@ -285,13 +313,16 @@ class _IngredientTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(pending ? '${item.name}?' : item.name, style: context.textStyles.titleSmall),
+                Text(pending ? '${item.name}?' : item.name,
+                    style: context.textStyles.titleSmall),
                 Text.rich(
                   TextSpan(children: [
                     TextSpan(
                       text: pending
                           ? 'Chạm để xác nhận · '
-                          : (item.manual ? 'Thêm thủ công' : '${item.freshness.label} · '),
+                          : (item.manual
+                              ? 'Thêm thủ công'
+                              : '${item.freshness.label} · '),
                       style: context.textStyles.bodySmall?.copyWith(
                         color: pending ? vl.onCautionContainer : vl.muted,
                         fontWeight: pending ? FontWeight.w700 : FontWeight.w500,
@@ -310,12 +341,16 @@ class _IngredientTile extends StatelessWidget {
           if (!pending) ...[
             IconButton(
               tooltip: 'Giảm',
-              onPressed: item.quantity > step ? () => onQuantity(item.quantity - step) : null,
+              onPressed: item.quantity > step
+                  ? () => onQuantity(item.quantity - step)
+                  : null,
               icon: const Icon(Icons.remove_rounded, size: 18),
             ),
             Semantics(
               label: 'Số lượng $qty ${item.unit}',
-              child: Text('$qty ${item.unit}', style: AppTypography.mono(size: 13, color: context.colors.onSurface)),
+              child: Text('$qty ${item.unit}',
+                  style: AppTypography.mono(
+                      size: 13, color: context.colors.onSurface)),
             ),
             IconButton(
               tooltip: 'Tăng',
@@ -339,7 +374,10 @@ class _IngredientTile extends StatelessWidget {
         child: Material(
           color: vl.cautionContainer,
           borderRadius: BorderRadius.circular(12),
-          child: InkWell(borderRadius: BorderRadius.circular(12), onTap: onReview, child: content),
+          child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: onReview,
+              child: content),
         ),
       );
     }
@@ -366,8 +404,11 @@ class _MenuTile extends StatelessWidget {
         children: [
           Row(
             children: [
-              Expanded(child: Text(suggestion.name, style: context.textStyles.titleSmall)),
-              Text('${formatInt(suggestion.calories)} kcal', style: AppTypography.mono(size: 12, color: vl.muted)),
+              Expanded(
+                  child: Text(suggestion.name,
+                      style: context.textStyles.titleSmall)),
+              Text('${formatInt(suggestion.calories)} kcal',
+                  style: AppTypography.mono(size: 12, color: vl.muted)),
             ],
           ),
           const SizedBox(height: 4),
@@ -385,7 +426,9 @@ class _MenuTile extends StatelessWidget {
             child: TextButton(
               // TODO(api): POST /meal-plans/current/meals with this suggestion.
               onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Đã thêm "${suggestion.name}" vào thực đơn hôm nay')),
+                SnackBar(
+                    content: Text(
+                        'Đã thêm "${suggestion.name}" vào thực đơn hôm nay')),
               ),
               child: const Text('Thêm vào thực đơn'),
             ),

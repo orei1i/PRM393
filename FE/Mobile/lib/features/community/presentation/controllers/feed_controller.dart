@@ -1,0 +1,176 @@
+// lib/features/community/presentation/controllers/feed_controller.dart
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../../core/session/session_controller.dart';
+import '../../data/community_api_service.dart';
+import '../../../video/domain/entities/video_recipe.dart';
+import '../../domain/entities/post.dart';
+
+class FeedState {
+  const FeedState({
+    required this.posts,
+    this.filter,
+    this.nextCursor,
+    this.loadingMore = false,
+    this.loadMoreError,
+  });
+
+  final List<Post> posts;
+
+  /// `null` = Tất cả.
+  final PostType? filter;
+  final String? nextCursor;
+  final bool loadingMore;
+  final Object? loadMoreError;
+
+  bool get hasMore => nextCursor != null;
+
+  Post? byId(String id) {
+    for (final p in posts) {
+      if (p.id == id) return p;
+    }
+    return null;
+  }
+
+  FeedState copyWith({
+    List<Post>? posts,
+    String? nextCursor,
+    bool clearCursor = false,
+    bool? loadingMore,
+    Object? loadMoreError,
+    bool clearLoadMoreError = false,
+  }) {
+    return FeedState(
+      posts: posts ?? this.posts,
+      filter: filter,
+      nextCursor: clearCursor ? null : (nextCursor ?? this.nextCursor),
+      loadingMore: loadingMore ?? this.loadingMore,
+      loadMoreError:
+          clearLoadMoreError ? null : (loadMoreError ?? this.loadMoreError),
+    );
+  }
+}
+
+final feedControllerProvider =
+    AsyncNotifierProvider<FeedController, FeedState>(FeedController.new);
+
+class FeedController extends AsyncNotifier<FeedState> {
+  CommunityApiService get _api => ref.read(communityApiProvider);
+  PostType? _filter;
+
+  @override
+  Future<FeedState> build() async {
+    // Re-fetch on sign-in/out: likedByMe / savedByMe are per user.
+    ref.watch(sessionControllerProvider.select((s) => s.accessToken));
+    return _fetchFirstPage(ref.watch(communityApiProvider));
+  }
+
+  Future<FeedState> _fetchFirstPage(CommunityApiService api) async {
+    final page = (await api.getFeed(type: _filter)).toEntity();
+    return FeedState(
+        posts: page.items, filter: _filter, nextCursor: page.nextCursor);
+  }
+
+  FeedState? get _current => state.hasValue ? state.requireValue : null;
+
+  Future<void> setFilter(PostType? type) async {
+    if (type == _filter && state.hasValue) return;
+    _filter = type;
+    state = const AsyncLoading<FeedState>();
+    state = await AsyncValue.guard(() => _fetchFirstPage(_api));
+  }
+
+  /// Pull-to-refresh. Keeps the current list on failure and rethrows so the
+  /// screen can show a snackbar.
+  Future<void> refresh() async {
+    final fresh = await _fetchFirstPage(_api);
+    state = AsyncData(fresh);
+  }
+
+  Future<void> loadMore() async {
+    final current = _current;
+    if (current == null || !current.hasMore || current.loadingMore) return;
+    state = AsyncData(
+        current.copyWith(loadingMore: true, clearLoadMoreError: true));
+    try {
+      final page =
+          (await _api.getFeed(type: current.filter, cursor: current.nextCursor))
+              .toEntity();
+      final latest = _current ?? current;
+      final known = latest.posts.map((p) => p.id).toSet();
+      state = AsyncData(latest.copyWith(
+        posts: [
+          ...latest.posts,
+          ...page.items.where((p) => !known.contains(p.id))
+        ],
+        nextCursor: page.nextCursor,
+        clearCursor: page.nextCursor == null,
+        loadingMore: false,
+      ));
+    } catch (e) {
+      final latest = _current ?? current;
+      state = AsyncData(latest.copyWith(loadingMore: false, loadMoreError: e));
+    }
+  }
+
+  // ------------------------------------------------------------ mutations --
+
+  void _replace(Post post) {
+    final current = _current;
+    if (current == null || current.byId(post.id) == null) return;
+    state = AsyncData(current.copyWith(
+      posts: [for (final p in current.posts) p.id == post.id ? post : p],
+    ));
+  }
+
+  /// Optimistic like; rolls back and rethrows on failure.
+  Future<void> setLiked(Post post, {required bool liked}) async {
+    if (post.likedByMe == liked) return;
+    _replace(post.toggledLike());
+    try {
+      await _api.setLiked(post.id, liked: liked);
+    } catch (_) {
+      _replace(post);
+      rethrow;
+    }
+  }
+
+  Future<void> setSaved(Post post, {required bool saved}) async {
+    if (post.savedByMe == saved) return;
+    _replace(post.toggledSave());
+    try {
+      await _api.setSaved(post.id, saved: saved);
+    } catch (_) {
+      _replace(post);
+      rethrow;
+    }
+  }
+
+  void commentAdded(String postId) {
+    final post = _current?.byId(postId);
+    if (post != null) {
+      _replace(post.copyWith(commentCount: post.commentCount + 1));
+    }
+  }
+
+  /// New post from the composer goes to the top (below pinned posts).
+  void prepend(Post post) {
+    final current = _current;
+    if (current == null) return;
+    if (current.filter != null && current.filter != post.type) return;
+    final pinned = current.posts.where((p) => p.isPinned).toList();
+    final rest = current.posts.where((p) => !p.isPinned).toList();
+    state = AsyncData(current.copyWith(posts: [...pinned, post, ...rest]));
+  }
+
+  /// Called by the video screen while it polls the AI pipeline.
+  void videoStatusChanged(String videoId, VideoAiStatus status) {
+    final current = _current;
+    if (current == null) return;
+    for (final p in current.posts) {
+      if (p.videoId == videoId && p.videoStatus != status) {
+        _replace(p.copyWith(videoStatus: status));
+      }
+    }
+  }
+}

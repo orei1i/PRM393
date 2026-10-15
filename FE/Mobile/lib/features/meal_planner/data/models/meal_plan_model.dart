@@ -1,21 +1,21 @@
 // lib/features/meal_planner/data/models/meal_plan_model.dart
 //
-// Wire format (snake_case) for the meal planner. DTOs are dumb data + JSON;
+// Wire format (camelCase, ASP.NET default) for the meal planner. DTOs are dumb data + JSON;
 // `toEntity()` maps them into the domain layer used by the UI.
 //
 // GET /meal-plans/current
 // {
 //   "id": "mp_2026_w42",
-//   "start_date": "2026-10-12",
+//   "startDate": "2026-10-12",
 //   "goal": "lean_muscle",
-//   "daily_targets": { "calories": 1850, "protein_g": 90, "carbs_g": 240, "fat_g": 60, "fiber_g": 32 },
+//   "dailyTargets": { "calories": 1850, "proteinG": 90, "carbsG": 240, "fatG": 60, "fiberG": 32 },
 //   "days": [
 //     { "date": "2026-10-12",
 //       "meals": {
-//         "breakfast": { "id": "b1", "name": "…", "calories": 420, "protein_g": 18, "carbs_g": 62,
-//                        "fat_g": 12, "fiber_g": 11, "allergens": [], "diet_tags": ["whole_food"],
-//                        "prep_minutes": 5, "image_url": null,
-//                        "seasonal_swap": { "ingredient": "Bí đỏ", "recipe_id": "ls_pumpkin" } },
+//         "breakfast": { "id": "b1", "name": "…", "calories": 420, "proteinG": 18, "carbsG": 62,
+//                        "fatG": 12, "fiberG": 11, "allergens": [], "dietTags": ["whole_food"],
+//                        "prepMinutes": 5, "imageUrl": null,
+//                        "seasonalSwap": { "ingredient": "Bí đỏ", "recipeId": "ls_pumpkin" } },
 //         "lunch": { … }, "dinner": { … } } }
 //   ]
 // }
@@ -36,10 +36,10 @@ class NutritionDto {
 
   factory NutritionDto.fromJson(Map<String, dynamic> json) => NutritionDto(
         calories: readInt(json['calories']),
-        proteinG: readDouble(json['protein_g']),
-        carbsG: readDouble(json['carbs_g']),
-        fatG: readDouble(json['fat_g']),
-        fiberG: readDouble(json['fiber_g']),
+        proteinG: readDouble(json['proteinG']),
+        carbsG: readDouble(json['carbsG']),
+        fatG: readDouble(json['fatG']),
+        fiberG: readDouble(json['fiberG']),
       );
 
   final int calories;
@@ -50,10 +50,10 @@ class NutritionDto {
 
   Map<String, dynamic> toJson() => {
         'calories': calories,
-        'protein_g': proteinG,
-        'carbs_g': carbsG,
-        'fat_g': fatG,
-        'fiber_g': fiberG,
+        'proteinG': proteinG,
+        'carbsG': carbsG,
+        'fatG': fatG,
+        'fiberG': fiberG,
       };
 
   Nutrition toEntity() => Nutrition(
@@ -68,17 +68,20 @@ class NutritionDto {
 class SeasonalSwapDto {
   const SeasonalSwapDto({required this.ingredient, required this.recipeId});
 
-  factory SeasonalSwapDto.fromJson(Map<String, dynamic> json) => SeasonalSwapDto(
+  factory SeasonalSwapDto.fromJson(Map<String, dynamic> json) =>
+      SeasonalSwapDto(
         ingredient: json['ingredient'] as String? ?? '',
-        recipeId: json['recipe_id'] as String? ?? '',
+        recipeId: json['recipeId'] as String? ?? '',
       );
 
   final String ingredient;
   final String recipeId;
 
-  Map<String, dynamic> toJson() => {'ingredient': ingredient, 'recipe_id': recipeId};
+  Map<String, dynamic> toJson() =>
+      {'ingredient': ingredient, 'recipeId': recipeId};
 
-  SeasonalSwap toEntity() => SeasonalSwap(ingredient: ingredient, recipeId: recipeId);
+  SeasonalSwap toEntity() =>
+      SeasonalSwap(ingredient: ingredient, recipeId: recipeId);
 }
 
 /// A recipe as placed in a meal slot. Nutrition is flattened on the wire.
@@ -97,13 +100,15 @@ class RecipeDto {
   factory RecipeDto.fromJson(Map<String, dynamic> json) => RecipeDto(
         id: json['id'] as String,
         name: json['name'] as String? ?? '',
-        imageUrl: json['image_url'] as String?,
+        imageUrl: json['imageUrl'] as String?,
         nutrition: NutritionDto.fromJson(json),
         allergens: readStringList(json['allergens']),
-        dietTags: readStringList(json['diet_tags']),
-        prepMinutes: json['prep_minutes'] == null ? null : readInt(json['prep_minutes']),
-        seasonalSwap: json['seasonal_swap'] is Map<String, dynamic>
-            ? SeasonalSwapDto.fromJson(json['seasonal_swap'] as Map<String, dynamic>)
+        dietTags: readStringList(json['dietTags']),
+        prepMinutes:
+            json['prepMinutes'] == null ? null : readInt(json['prepMinutes']),
+        seasonalSwap: json['seasonalSwap'] is Map<String, dynamic>
+            ? SeasonalSwapDto.fromJson(
+                json['seasonalSwap'] as Map<String, dynamic>)
             : null,
       );
 
@@ -119,12 +124,12 @@ class RecipeDto {
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
-        'image_url': imageUrl,
+        'imageUrl': imageUrl,
         ...nutrition.toJson(),
         'allergens': allergens,
-        'diet_tags': dietTags,
-        if (prepMinutes != null) 'prep_minutes': prepMinutes,
-        if (seasonalSwap != null) 'seasonal_swap': seasonalSwap!.toJson(),
+        'dietTags': dietTags,
+        if (prepMinutes != null) 'prepMinutes': prepMinutes,
+        if (seasonalSwap != null) 'seasonalSwap': seasonalSwap!.toJson(),
       };
 
   Recipe toEntity() => Recipe(
@@ -185,9 +190,9 @@ class MealPlanDto {
 
   factory MealPlanDto.fromJson(Map<String, dynamic> json) => MealPlanDto(
         id: json['id'] as String,
-        startDate: readDate(json['start_date']),
+        startDate: readDate(json['startDate']),
         goal: json['goal'] as String? ?? HealthGoal.maintain.apiValue,
-        dailyTargets: NutritionDto.fromJson(readMap(json['daily_targets'])),
+        dailyTargets: NutritionDto.fromJson(readMap(json['dailyTargets'])),
         days: (json['days'] is List<Object?>)
             ? (json['days'] as List<Object?>)
                 .whereType<Map<String, dynamic>>()
@@ -204,9 +209,9 @@ class MealPlanDto {
 
   Map<String, dynamic> toJson() => {
         'id': id,
-        'start_date': toApiDate(startDate),
+        'startDate': toApiDate(startDate),
         'goal': goal,
-        'daily_targets': dailyTargets.toJson(),
+        'dailyTargets': dailyTargets.toJson(),
         'days': days.map((d) => d.toJson()).toList(),
       };
 
@@ -233,7 +238,8 @@ class MealPlanDto {
 
 /// PATCH /meal-plans/{id}/meals
 class SwapMealRequestDto {
-  const SwapMealRequestDto({required this.date, required this.slot, required this.recipeId});
+  const SwapMealRequestDto(
+      {required this.date, required this.slot, required this.recipeId});
 
   final DateTime date;
   final MealSlot slot;
@@ -242,6 +248,6 @@ class SwapMealRequestDto {
   Map<String, dynamic> toJson() => {
         'date': toApiDate(date),
         'slot': slot.apiValue,
-        'recipe_id': recipeId,
+        'recipeId': recipeId,
       };
 }

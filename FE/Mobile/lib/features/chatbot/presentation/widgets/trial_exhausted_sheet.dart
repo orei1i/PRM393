@@ -31,7 +31,8 @@ class TrialExhaustedSheet extends StatelessWidget {
           Container(
             width: 48,
             height: 48,
-            decoration: BoxDecoration(color: vl.aiContainer, borderRadius: BorderRadius.circular(14)),
+            decoration: BoxDecoration(
+                color: vl.aiContainer, borderRadius: BorderRadius.circular(14)),
             child: Icon(Icons.auto_awesome, color: vl.ai),
           ),
           const SizedBox(height: 16),
@@ -43,11 +44,19 @@ class TrialExhaustedSheet extends StatelessWidget {
             style: context.textStyles.bodyLarge?.copyWith(color: vl.muted),
           ),
           const SizedBox(height: 18),
-          const _Benefit(icon: Icons.calendar_month_rounded, text: 'Thực đơn 7 ngày theo chiều cao, cân nặng, mục tiêu và dị ứng'),
-          const _Benefit(icon: Icons.document_scanner_outlined, text: 'Quét tủ lạnh, AI gợi ý món từ nguyên liệu bạn có'),
-          const _Benefit(icon: Icons.forum_outlined, text: 'Hỏi không giới hạn, mọi câu trả lời đều có nguồn'),
+          const _Benefit(
+              icon: Icons.calendar_month_rounded,
+              text:
+                  'Thực đơn 7 ngày theo chiều cao, cân nặng, mục tiêu và dị ứng'),
+          const _Benefit(
+              icon: Icons.document_scanner_outlined,
+              text: 'Quét tủ lạnh, AI gợi ý món từ nguyên liệu bạn có'),
+          const _Benefit(
+              icon: Icons.forum_outlined,
+              text: 'Hỏi không giới hạn, mọi câu trả lời đều có nguồn'),
           const SizedBox(height: 16),
-          GoogleSignInButton(onSignedIn: () => Navigator.of(context).maybePop()),
+          GoogleSignInButton(
+              onSignedIn: () => Navigator.of(context).maybePop()),
           const SizedBox(height: 4),
           SizedBox(
             width: double.infinity,

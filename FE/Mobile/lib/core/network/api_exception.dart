@@ -13,7 +13,8 @@ class ApiException implements Exception {
   bool get isUnauthorized => statusCode == 401;
 
   @override
-  String toString() => 'ApiException(status: $statusCode, code: $code): $message';
+  String toString() =>
+      'ApiException(status: $statusCode, code: $code): $message';
 }
 
 /// Guest has used every free AI question (HTTP 402 / code `trial_exhausted`).
@@ -38,9 +39,11 @@ ApiException mapDioException(DioException err) {
         code: 'network',
       );
     case DioExceptionType.cancel:
-      return const ApiException(message: 'Yêu cầu đã bị huỷ.', code: 'cancelled');
+      return const ApiException(
+          message: 'Yêu cầu đã bị huỷ.', code: 'cancelled');
     case DioExceptionType.badCertificate:
-      return const ApiException(message: 'Kết nối không an toàn.', code: 'bad_certificate');
+      return const ApiException(
+          message: 'Kết nối không an toàn.', code: 'bad_certificate');
     case DioExceptionType.badResponse:
     case DioExceptionType.unknown:
       return _fromResponse(err);
@@ -81,7 +84,8 @@ String _fallbackMessage(int? status) => switch (status) {
       403 => 'Bạn không có quyền thực hiện thao tác này.',
       404 => 'Không tìm thấy dữ liệu.',
       429 => 'Bạn thao tác quá nhanh. Thử lại sau ít phút.',
-      final int s when s >= 500 => 'Máy chủ đang gặp sự cố. Vui lòng thử lại sau.',
+      final int s when s >= 500 =>
+        'Máy chủ đang gặp sự cố. Vui lòng thử lại sau.',
       _ => 'Đã có lỗi xảy ra. Vui lòng thử lại.',
     };
 

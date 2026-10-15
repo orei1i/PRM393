@@ -111,7 +111,8 @@ class _DayPill extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     '${day.date.day}',
-                    style: AppTypography.mono(size: 16, weight: FontWeight.w700, color: fg),
+                    style: AppTypography.mono(
+                        size: 16, weight: FontWeight.w700, color: fg),
                   ),
                   const SizedBox(height: 6),
                   Container(

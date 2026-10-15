@@ -6,7 +6,11 @@ import '../../../../core/theme/vl_colors.dart';
 
 /// "Bạn còn 2/3 lượt hỏi miễn phí" + sign-in shortcut. Announced on change.
 class GuestTrialBanner extends StatelessWidget {
-  const GuestTrialBanner({super.key, required this.remaining, required this.limit, required this.onSignIn});
+  const GuestTrialBanner(
+      {super.key,
+      required this.remaining,
+      required this.limit,
+      required this.onSignIn});
 
   final int remaining;
   final int limit;
@@ -32,13 +36,16 @@ class GuestTrialBanner extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(Icons.auto_awesome, size: 18, color: exhausted ? vl.onCautionContainer : vl.onAiContainer),
+            Icon(Icons.auto_awesome,
+                size: 18,
+                color: exhausted ? vl.onCautionContainer : vl.onAiContainer),
             const SizedBox(width: 10),
             Expanded(
               child: ExcludeSemantics(
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 240),
-                  transitionBuilder: (child, animation) => ScaleTransition(scale: animation, child: child),
+                  transitionBuilder: (child, animation) =>
+                      ScaleTransition(scale: animation, child: child),
                   child: Text.rich(
                     key: ValueKey(remaining),
                     TextSpan(
@@ -49,7 +56,10 @@ class GuestTrialBanner extends StatelessWidget {
                               const TextSpan(text: 'Còn '),
                               TextSpan(
                                 text: '$remaining/$limit',
-                                style: AppTypography.mono(size: 14, weight: FontWeight.w700, color: vl.onAiContainer),
+                                style: AppTypography.mono(
+                                    size: 14,
+                                    weight: FontWeight.w700,
+                                    color: vl.onAiContainer),
                               ),
                               const TextSpan(text: ' lượt hỏi miễn phí'),
                             ],

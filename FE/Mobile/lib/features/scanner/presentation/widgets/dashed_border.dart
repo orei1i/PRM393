@@ -24,7 +24,12 @@ class DashedBorder extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      painter: _DashedRRectPainter(color: color, radius: radius, strokeWidth: strokeWidth, dash: dash, gap: gap),
+      painter: _DashedRRectPainter(
+          color: color,
+          radius: radius,
+          strokeWidth: strokeWidth,
+          dash: dash,
+          gap: gap),
       child: child,
     );
   }
@@ -49,7 +54,8 @@ class _DashedRRectPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
     final path = Path()
-      ..addRRect(RRect.fromRectAndRadius(rect.deflate(strokeWidth / 2), Radius.circular(radius)));
+      ..addRRect(RRect.fromRectAndRadius(
+          rect.deflate(strokeWidth / 2), Radius.circular(radius)));
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
@@ -67,5 +73,7 @@ class _DashedRRectPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_DashedRRectPainter old) =>
-      old.color != color || old.radius != radius || old.strokeWidth != strokeWidth;
+      old.color != color ||
+      old.radius != radius ||
+      old.strokeWidth != strokeWidth;
 }

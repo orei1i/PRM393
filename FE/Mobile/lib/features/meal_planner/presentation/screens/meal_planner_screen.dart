@@ -27,7 +27,8 @@ class MealPlannerScreen extends StatelessWidget {
       body: GuestGate(
         icon: Icons.calendar_month_rounded,
         title: 'Thực đơn 7 ngày của riêng bạn',
-        message: 'Đăng nhập để AI lên thực đơn theo chiều cao, cân nặng, mục tiêu và dị ứng của bạn.',
+        message:
+            'Đăng nhập để AI lên thực đơn theo chiều cao, cân nặng, mục tiêu và dị ứng của bạn.',
         benefits: [
           'Thực đơn thuần chay 7 ngày, đổi món chỉ với 1 chạm',
           'Theo dõi đạm, tinh bột, chất béo, chất xơ mỗi ngày',
@@ -50,7 +51,9 @@ class _MealPlannerBody extends ConsumerWidget {
     ref.listen(mealPlanControllerProvider, (previous, next) {
       if (next is AsyncError<MealPlannerState> && next.hasValue) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Chưa cập nhật được. ${describeError(next.error)}')),
+          SnackBar(
+              content:
+                  Text('Chưa cập nhật được. ${describeError(next.error)}')),
         );
       }
     });
@@ -99,7 +102,7 @@ class _Loaded extends ConsumerWidget {
             actions: [AccountButton()],
           ),
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
             sliver: SliverList.list(
               children: [
                 HealthHeaderCard(profile: state.profile),
@@ -109,7 +112,8 @@ class _Loaded extends ConsumerWidget {
                     child: EmptyStateView(
                       icon: Icons.auto_awesome,
                       title: 'Chưa có thực đơn tuần này',
-                      message: 'AI sẽ tạo 7 ngày thực đơn thuần chay phù hợp mục tiêu "${state.profile.goal.label}" và loại trừ món bạn dị ứng.',
+                      message:
+                          'AI sẽ tạo 7 ngày thực đơn thuần chay phù hợp mục tiêu "${state.profile.goal.label}" và loại trừ món bạn dị ứng.',
                       actionLabel: 'Tạo thực đơn',
                       onAction: controller.generatePlan,
                     ),
@@ -123,9 +127,14 @@ class _Loaded extends ConsumerWidget {
                     onSelected: controller.selectDate,
                   ),
                   const SizedBox(height: 12),
-                  DailyMacroCard(date: day.date, totals: day.totals, targets: plan.dailyTargets),
+                  DailyMacroCard(
+                      date: day.date,
+                      totals: day.totals,
+                      targets: plan.dailyTargets),
                   const SizedBox(height: 12),
-                  AllergyGuardBanner(allergies: allergies, conflictCount: day.conflictCount(allergies)),
+                  AllergyGuardBanner(
+                      allergies: allergies,
+                      conflictCount: day.conflictCount(allergies)),
                   const SizedBox(height: 12),
                   for (final slot in MealSlot.values)
                     if (day.meals[slot] case final recipe?)
@@ -136,10 +145,12 @@ class _Loaded extends ConsumerWidget {
                           recipe: recipe,
                           userAllergies: allergies,
                           isSwapping: state.swappingSlot == slot,
-                          onSwap: () => _openSwapSheet(context, ref, slot, recipe),
+                          onSwap: () =>
+                              _openSwapSheet(context, ref, slot, recipe),
                           onSeasonalSwap: recipe.seasonalSwap == null
                               ? null
-                              : () => _run(context, ref, slot, recipe, seasonal: true),
+                              : () => _run(context, ref, slot, recipe,
+                                  seasonal: true),
                         ),
                       ),
                   Padding(
@@ -147,7 +158,8 @@ class _Loaded extends ConsumerWidget {
                     child: Text(
                       'Thông tin chỉ mang tính tham khảo, không thay thế tư vấn y tế.',
                       textAlign: TextAlign.center,
-                      style: context.textStyles.bodySmall?.copyWith(color: context.vl.muted),
+                      style: context.textStyles.bodySmall
+                          ?.copyWith(color: context.vl.muted),
                     ),
                   ),
                 ],
@@ -159,14 +171,18 @@ class _Loaded extends ConsumerWidget {
     );
   }
 
-  Future<void> _openSwapSheet(BuildContext context, WidgetRef ref, MealSlot slot, Recipe current) async {
-    final picked = await SwapMealSheet.show(context, slot: slot, current: current);
+  Future<void> _openSwapSheet(BuildContext context, WidgetRef ref,
+      MealSlot slot, Recipe current) async {
+    final picked =
+        await SwapMealSheet.show(context, slot: slot, current: current);
     if (picked == null || !context.mounted) return;
     await _run(context, ref, slot, picked);
   }
 
   /// Performs the swap and offers Undo for 5 s.
-  Future<void> _run(BuildContext context, WidgetRef ref, MealSlot slot, Recipe recipe, {bool seasonal = false}) async {
+  Future<void> _run(
+      BuildContext context, WidgetRef ref, MealSlot slot, Recipe recipe,
+      {bool seasonal = false}) async {
     final messenger = ScaffoldMessenger.of(context);
     final notifier = ref.read(mealPlanControllerProvider.notifier);
     try {
@@ -188,7 +204,8 @@ class _Loaded extends ConsumerWidget {
                     label: 'Hoàn tác',
                     onPressed: () {
                       notifier.swapMeal(slot, previous).catchError((Object e) {
-                        messenger.showSnackBar(SnackBar(content: Text(describeError(e))));
+                        messenger.showSnackBar(
+                            SnackBar(content: Text(describeError(e))));
                         return null;
                       });
                     },
@@ -196,7 +213,8 @@ class _Loaded extends ConsumerWidget {
           ),
         );
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('Chưa đổi được món. ${describeError(e)}')));
+      messenger.showSnackBar(
+          SnackBar(content: Text('Chưa đổi được món. ${describeError(e)}')));
     }
   }
 }

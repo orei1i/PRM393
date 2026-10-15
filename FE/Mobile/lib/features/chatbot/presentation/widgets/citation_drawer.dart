@@ -31,9 +31,11 @@ class _CitationDrawer extends StatelessWidget {
   Future<void> _open(BuildContext context) async {
     final url = citation.url;
     if (url == null) return;
-    final ok = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    final ok =
+        await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
     if (!ok && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Không mở được liên kết.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không mở được liên kết.')));
     }
   }
 
@@ -51,18 +53,27 @@ class _CitationDrawer extends StatelessWidget {
                 width: 28,
                 height: 28,
                 alignment: Alignment.center,
-                decoration: BoxDecoration(color: vl.aiContainer, shape: BoxShape.circle),
-                child: Text('${citation.index}', style: AppTypography.mono(size: 13, color: vl.onAiContainer)),
+                decoration: BoxDecoration(
+                    color: vl.aiContainer, shape: BoxShape.circle),
+                child: Text('${citation.index}',
+                    style:
+                        AppTypography.mono(size: 13, color: vl.onAiContainer)),
               ),
               const SizedBox(width: 10),
-              Icon(citationIcon(citation.sourceType), size: 18, color: vl.muted),
+              Icon(citationIcon(citation.sourceType),
+                  size: 18, color: vl.muted),
               const SizedBox(width: 6),
-              Text(citation.sourceType.label, style: context.textStyles.labelMedium?.copyWith(color: vl.muted)),
+              Text(citation.sourceType.label,
+                  style: context.textStyles.labelMedium
+                      ?.copyWith(color: vl.muted)),
               if (citation.verified) ...[
                 const SizedBox(width: 8),
-                Icon(Icons.verified_rounded, size: 16, color: context.colors.primary),
+                Icon(Icons.verified_rounded,
+                    size: 16, color: context.colors.primary),
                 const SizedBox(width: 4),
-                Text('Đã xác minh', style: context.textStyles.labelMedium?.copyWith(color: context.colors.primary)),
+                Text('Đã xác minh',
+                    style: context.textStyles.labelMedium
+                        ?.copyWith(color: context.colors.primary)),
               ],
             ],
           ),
@@ -90,7 +101,9 @@ class _CitationDrawer extends StatelessWidget {
               children: [
                 Icon(Icons.format_quote_rounded, color: vl.onAiContainer),
                 const SizedBox(width: 8),
-                Expanded(child: SelectableText(citation.passage, style: context.textStyles.bodyLarge)),
+                Expanded(
+                    child: SelectableText(citation.passage,
+                        style: context.textStyles.bodyLarge)),
               ],
             ),
           ),
@@ -105,7 +118,8 @@ class _CitationDrawer extends StatelessWidget {
             const SizedBox(height: 20),
             FilledButton.tonalIcon(
               onPressed: () => _open(context),
-              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+              style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48)),
               icon: const Icon(Icons.open_in_new_rounded),
               label: const Text('Mở nguồn gốc'),
             ),

@@ -24,7 +24,8 @@ class ConfirmIngredientSheet extends StatefulWidget {
 
   final DetectedIngredient item;
 
-  static Future<IngredientDecision?> show(BuildContext context, DetectedIngredient item) {
+  static Future<IngredientDecision?> show(
+      BuildContext context, DetectedIngredient item) {
     return showModalBottomSheet<IngredientDecision>(
       context: context,
       isScrollControlled: true,
@@ -48,7 +49,8 @@ class _ConfirmIngredientSheetState extends State<ConfirmIngredientSheet> {
     super.dispose();
   }
 
-  String? get _resolvedName => _other ? _otherController.text.trim() : _selected;
+  String? get _resolvedName =>
+      _other ? _otherController.text.trim() : _selected;
 
   @override
   Widget build(BuildContext context) {
@@ -61,12 +63,14 @@ class _ConfirmIngredientSheetState extends State<ConfirmIngredientSheet> {
     final canConfirm = (_resolvedName ?? '').isNotEmpty;
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(20, 0, 20, 20 + MediaQuery.viewInsetsOf(context).bottom),
+      padding: EdgeInsets.fromLTRB(
+          20, 0, 20, 20 + MediaQuery.viewInsetsOf(context).bottom),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Đây có phải ${item.name.toLowerCase()}?', style: context.textStyles.titleLarge),
+          Text('Đây có phải ${item.name.toLowerCase()}?',
+              style: context.textStyles.titleLarge),
           const SizedBox(height: 6),
           Text.rich(
             TextSpan(
@@ -75,9 +79,12 @@ class _ConfirmIngredientSheetState extends State<ConfirmIngredientSheet> {
                 const TextSpan(text: 'Mình chỉ chắc '),
                 TextSpan(
                   text: '${(item.confidence * 100).round()}%',
-                  style: AppTypography.mono(size: 14, color: context.colors.onSurface),
+                  style: AppTypography.mono(
+                      size: 14, color: context.colors.onSurface),
                 ),
-                const TextSpan(text: '. Nhiều nguyên liệu trông khá giống nhau nên mình hỏi lại cho chắc.'),
+                const TextSpan(
+                    text:
+                        '. Nhiều nguyên liệu trông khá giống nhau nên mình hỏi lại cho chắc.'),
               ],
             ),
           ),
@@ -108,7 +115,8 @@ class _ConfirmIngredientSheetState extends State<ConfirmIngredientSheet> {
               decoration: InputDecoration(
                 labelText: 'Tên nguyên liệu',
                 hintText: 'Ví dụ: cải bó xôi',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
           ],
@@ -116,14 +124,20 @@ class _ConfirmIngredientSheetState extends State<ConfirmIngredientSheet> {
           Row(
             children: [
               OutlinedButton(
-                onPressed: () => Navigator.of(context).pop(const RemoveIngredient()),
+                onPressed: () =>
+                    Navigator.of(context).pop(const RemoveIngredient()),
                 child: const Text('Bỏ món này'),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: FilledButton(
-                  onPressed: canConfirm ? () => Navigator.of(context).pop(ConfirmAs(_resolvedName!)) : null,
-                  child: Text(canConfirm ? 'Xác nhận ${_resolvedName!.toLowerCase()}' : 'Xác nhận'),
+                  onPressed: canConfirm
+                      ? () =>
+                          Navigator.of(context).pop(ConfirmAs(_resolvedName!))
+                      : null,
+                  child: Text(canConfirm
+                      ? 'Xác nhận ${_resolvedName!.toLowerCase()}'
+                      : 'Xác nhận'),
                 ),
               ),
             ],
@@ -135,7 +149,12 @@ class _ConfirmIngredientSheetState extends State<ConfirmIngredientSheet> {
 }
 
 class _OptionTile extends StatelessWidget {
-  const _OptionTile({required this.label, required this.selected, required this.onTap, this.trailing, this.icon});
+  const _OptionTile(
+      {required this.label,
+      required this.selected,
+      required this.onTap,
+      this.trailing,
+      this.icon});
 
   final String label;
   final String? trailing;
@@ -155,7 +174,9 @@ class _OptionTile extends StatelessWidget {
           color: selected ? cs.secondaryContainer : Colors.transparent,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: selected ? cs.primary : context.vl.border, width: selected ? 2 : 1),
+            side: BorderSide(
+                color: selected ? cs.primary : context.vl.border,
+                width: selected ? 2 : 1),
           ),
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
@@ -167,14 +188,21 @@ class _OptionTile extends StatelessWidget {
                 child: Row(
                   children: [
                     Icon(
-                      icon ?? (selected ? Icons.radio_button_checked : Icons.radio_button_unchecked),
+                      icon ??
+                          (selected
+                              ? Icons.radio_button_checked
+                              : Icons.radio_button_unchecked),
                       color: selected ? cs.primary : context.vl.muted,
                       size: 20,
                     ),
                     const SizedBox(width: 10),
-                    Expanded(child: Text(label, style: context.textStyles.titleSmall)),
+                    Expanded(
+                        child:
+                            Text(label, style: context.textStyles.titleSmall)),
                     if (trailing != null)
-                      Text(trailing!, style: AppTypography.mono(size: 12, color: context.vl.muted)),
+                      Text(trailing!,
+                          style: AppTypography.mono(
+                              size: 12, color: context.vl.muted)),
                   ],
                 ),
               ),

@@ -40,11 +40,15 @@ class CitationPill extends StatelessWidget {
                     width: 24,
                     height: 24,
                     alignment: Alignment.center,
-                    decoration: BoxDecoration(color: vl.aiContainer, shape: BoxShape.circle),
-                    child: Text('${citation.index}', style: AppTypography.mono(size: 11, color: vl.onAiContainer)),
+                    decoration: BoxDecoration(
+                        color: vl.aiContainer, shape: BoxShape.circle),
+                    child: Text('${citation.index}',
+                        style: AppTypography.mono(
+                            size: 11, color: vl.onAiContainer)),
                   ),
                   const SizedBox(width: 6),
-                  Icon(citationIcon(citation.sourceType), size: 14, color: vl.muted),
+                  Icon(citationIcon(citation.sourceType),
+                      size: 14, color: vl.muted),
                   const SizedBox(width: 4),
                   Flexible(
                     child: Text(
@@ -54,9 +58,12 @@ class CitationPill extends StatelessWidget {
                       style: context.textStyles.labelMedium,
                     ),
                   ),
-                  if (citation.verified && citation.sourceType == CitationSourceType.chefDocument) ...[
+                  if (citation.verified &&
+                      citation.sourceType ==
+                          CitationSourceType.chefDocument) ...[
                     const SizedBox(width: 4),
-                    Icon(Icons.verified_rounded, size: 14, color: context.colors.primary),
+                    Icon(Icons.verified_rounded,
+                        size: 14, color: context.colors.primary),
                   ],
                 ],
               ),

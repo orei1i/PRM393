@@ -32,7 +32,8 @@ class MacroProgressBar extends StatelessWidget {
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
 
     return Semantics(
-      label: '$label ${value.round()} trên ${target.round()} $unit${over ? ', vượt mục tiêu' : ''}',
+      label:
+          '$label ${value.round()} trên ${target.round()} $unit${over ? ', vượt mục tiêu' : ''}',
       excludeSemantics: true,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -44,12 +45,21 @@ class MacroProgressBar extends StatelessWidget {
               Text.rich(
                 TextSpan(
                   children: [
-                    TextSpan(text: '${value.round()}', style: AppTypography.mono(size: 12, color: context.colors.onSurface)),
-                    TextSpan(text: '/${target.round()} $unit', style: AppTypography.mono(size: 12, weight: FontWeight.w500, color: context.vl.muted)),
+                    TextSpan(
+                        text: '${value.round()}',
+                        style: AppTypography.mono(
+                            size: 12, color: context.colors.onSurface)),
+                    TextSpan(
+                        text: '/${target.round()} $unit',
+                        style: AppTypography.mono(
+                            size: 12,
+                            weight: FontWeight.w500,
+                            color: context.vl.muted)),
                     if (over)
                       TextSpan(
                         text: '  vượt',
-                        style: context.textStyles.labelSmall?.copyWith(color: context.vl.onCautionContainer),
+                        style: context.textStyles.labelSmall
+                            ?.copyWith(color: context.vl.onCautionContainer),
                       ),
                   ],
                 ),
@@ -66,14 +76,19 @@ class MacroProgressBar extends StatelessWidget {
                 children: [
                   ColoredBox(color: context.vl.skeletonBase),
                   TweenAnimationBuilder<double>(
-                    tween: Tween(begin: 0, end: ratio.clamp(0.0, 1.0).toDouble()),
-                    duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 500),
+                    tween:
+                        Tween(begin: 0, end: ratio.clamp(0.0, 1.0).toDouble()),
+                    duration: reduceMotion
+                        ? Duration.zero
+                        : const Duration(milliseconds: 500),
                     curve: Curves.easeOutCubic,
                     builder: (context, factor, _) => FractionallySizedBox(
                       alignment: Alignment.centerLeft,
                       widthFactor: factor,
                       child: DecoratedBox(
-                        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(999)),
+                        decoration: BoxDecoration(
+                            color: color,
+                            borderRadius: BorderRadius.circular(999)),
                       ),
                     ),
                   ),
@@ -89,7 +104,11 @@ class MacroProgressBar extends StatelessWidget {
 
 /// "Thứ Tư, 14/10 · 1.670 / 1.850 kcal" + 4 macro bars.
 class DailyMacroCard extends StatelessWidget {
-  const DailyMacroCard({super.key, required this.date, required this.totals, required this.targets});
+  const DailyMacroCard(
+      {super.key,
+      required this.date,
+      required this.totals,
+      required this.targets});
 
   final DateTime date;
   final Nutrition totals;
@@ -98,7 +117,8 @@ class DailyMacroCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final vl = context.vl;
-    final kcalRatio = targets.calories == 0 ? 0.0 : totals.calories / targets.calories;
+    final kcalRatio =
+        targets.calories == 0 ? 0.0 : totals.calories / targets.calories;
 
     return VLCard(
       child: Column(
@@ -107,11 +127,21 @@ class DailyMacroCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Expanded(child: Text(formatLongDate(date), style: context.textStyles.titleSmall)),
+              Expanded(
+                  child: Text(formatLongDate(date),
+                      style: context.textStyles.titleSmall)),
               Text.rich(
                 TextSpan(children: [
-                  TextSpan(text: formatInt(totals.calories), style: AppTypography.mono(size: 18, weight: FontWeight.w700, color: context.colors.onSurface)),
-                  TextSpan(text: ' / ${formatInt(targets.calories)} kcal', style: AppTypography.mono(size: 12, weight: FontWeight.w500, color: vl.muted)),
+                  TextSpan(
+                      text: formatInt(totals.calories),
+                      style: AppTypography.mono(
+                          size: 18,
+                          weight: FontWeight.w700,
+                          color: context.colors.onSurface)),
+                  TextSpan(
+                      text: ' / ${formatInt(targets.calories)} kcal',
+                      style: AppTypography.mono(
+                          size: 12, weight: FontWeight.w500, color: vl.muted)),
                 ]),
               ),
             ],
@@ -125,7 +155,8 @@ class DailyMacroCard extends StatelessWidget {
               color: kcalRatio > 1.1 ? vl.caution : vl.success,
               backgroundColor: vl.skeletonBase,
               semanticsLabel: 'Năng lượng trong ngày',
-              semanticsValue: '${formatInt(totals.calories)} trên ${formatInt(targets.calories)} kcal',
+              semanticsValue:
+                  '${formatInt(totals.calories)} trên ${formatInt(targets.calories)} kcal',
             ),
           ),
           const SizedBox(height: 16),
@@ -136,10 +167,34 @@ class DailyMacroCard extends StatelessWidget {
                 spacing: 16,
                 runSpacing: 14,
                 children: [
-                  SizedBox(width: itemWidth, child: MacroProgressBar(label: 'Đạm', value: totals.proteinG, target: targets.proteinG, color: vl.macroProtein)),
-                  SizedBox(width: itemWidth, child: MacroProgressBar(label: 'Tinh bột', value: totals.carbsG, target: targets.carbsG, color: vl.macroCarbs)),
-                  SizedBox(width: itemWidth, child: MacroProgressBar(label: 'Chất béo', value: totals.fatG, target: targets.fatG, color: vl.macroFat)),
-                  SizedBox(width: itemWidth, child: MacroProgressBar(label: 'Chất xơ', value: totals.fiberG, target: targets.fiberG, color: vl.macroFiber)),
+                  SizedBox(
+                      width: itemWidth,
+                      child: MacroProgressBar(
+                          label: 'Đạm',
+                          value: totals.proteinG,
+                          target: targets.proteinG,
+                          color: vl.macroProtein)),
+                  SizedBox(
+                      width: itemWidth,
+                      child: MacroProgressBar(
+                          label: 'Tinh bột',
+                          value: totals.carbsG,
+                          target: targets.carbsG,
+                          color: vl.macroCarbs)),
+                  SizedBox(
+                      width: itemWidth,
+                      child: MacroProgressBar(
+                          label: 'Chất béo',
+                          value: totals.fatG,
+                          target: targets.fatG,
+                          color: vl.macroFat)),
+                  SizedBox(
+                      width: itemWidth,
+                      child: MacroProgressBar(
+                          label: 'Chất xơ',
+                          value: totals.fiberG,
+                          target: targets.fiberG,
+                          color: vl.macroFiber)),
                 ],
               );
             },

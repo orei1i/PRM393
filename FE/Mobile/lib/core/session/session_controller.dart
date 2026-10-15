@@ -9,11 +9,13 @@ import 'auth_api_service.dart';
 
 /// Overridden in `main()` with the real instance.
 final sharedPreferencesProvider = Provider<SharedPreferences>(
-  (ref) => throw UnimplementedError('sharedPreferencesProvider must be overridden in main()'),
+  (ref) => throw UnimplementedError(
+      'sharedPreferencesProvider must be overridden in main()'),
 );
 
 class AuthSession {
-  const AuthSession({required this.guestToken, this.accessToken, this.displayName});
+  const AuthSession(
+      {required this.guestToken, this.accessToken, this.displayName});
 
   /// Stable per-install id. The server counts guest AI questions against it.
   final String guestToken;

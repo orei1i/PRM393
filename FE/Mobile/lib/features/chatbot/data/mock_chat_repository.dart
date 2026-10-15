@@ -45,30 +45,39 @@ class MockChatRepository implements ChatApiService {
     final usedKey = _usedKey(session.guestToken);
     final used = prefs.getInt(usedKey) ?? 0;
     // A resumed answer is the same question → not charged twice.
-    if (session.isGuest && request.resumeFrom == 0 && used >= Env.guestTrialLimit) {
+    if (session.isGuest &&
+        request.resumeFrom == 0 &&
+        used >= Env.guestTrialLimit) {
       await mockDelay(300);
       throw const TrialExhaustedException();
     }
 
     await mockDelay(450); // time to first token
     final answer = _pickAnswer(request.message);
-    final simulateDrop = request.message.contains('#offline') && request.resumeFrom == 0;
+    final simulateDrop =
+        request.message.contains('#offline') && request.resumeFrom == 0;
     final dropAt = (answer.text.length * 0.45).round();
 
     // Citations referenced before the resume point were already delivered.
     final sent = <int>{};
     for (final c in answer.citations) {
-      if (answer.text.indexOf('[${c.index}]') < request.resumeFrom) sent.add(c.index);
+      if (answer.text.indexOf('[${c.index}]') < request.resumeFrom) {
+        sent.add(c.index);
+      }
     }
 
     var position = request.resumeFrom.clamp(0, answer.text.length).toInt();
-    final words = RegExp(r'\S+\s*').allMatches(answer.text.substring(position)).map((m) => m.group(0)!);
+    final words = RegExp(r'\S+\s*')
+        .allMatches(answer.text.substring(position))
+        .map((m) => m.group(0)!);
 
     for (final word in words) {
       if (cancelToken?.isCancelled ?? false) return;
-      await Future<void>.delayed(Duration(milliseconds: 28 + _random.nextInt(45)));
+      await Future<void>.delayed(
+          Duration(milliseconds: 28 + _random.nextInt(45)));
       if (simulateDrop && position >= dropAt) {
-        throw const ApiException(message: 'Mất kết nối giữa chừng.', code: 'network');
+        throw const ApiException(
+            message: 'Mất kết nối giữa chừng.', code: 'network');
       }
       yield ChatTokenEvent(word);
       position += word.length;
@@ -88,14 +97,22 @@ class MockChatRepository implements ChatApiService {
     } else if (session.isGuest) {
       remaining = max(0, Env.guestTrialLimit - used);
     }
-    yield ChatDoneEvent(messageId: 'msg_${DateTime.now().millisecondsSinceEpoch}', trialRemaining: remaining);
+    yield ChatDoneEvent(
+        messageId: 'msg_${DateTime.now().millisecondsSinceEpoch}',
+        trialRemaining: remaining);
   }
 
   _CannedAnswer _pickAnswer(String question) {
     final q = question.toLowerCase();
     if (q.contains('sắt') || q.contains('iron')) return _ironAnswer;
-    if (q.contains('thay') || q.contains('tempeh') || q.contains('substitut')) return _tofuSwapAnswer;
-    if (q.contains('đạm') || q.contains('protein') || q.contains('hoàn chỉnh')) return _proteinAnswer;
+    if (q.contains('thay') || q.contains('tempeh') || q.contains('substitut')) {
+      return _tofuSwapAnswer;
+    }
+    if (q.contains('đạm') ||
+        q.contains('protein') ||
+        q.contains('hoàn chỉnh')) {
+      return _proteinAnswer;
+    }
     if (q.contains('b12')) return _b12Answer;
     return _generalAnswer;
   }
@@ -116,7 +133,8 @@ const _nihIron = CitationDto(
   publisher: 'NIH Office of Dietary Supplements',
   sourceType: 'scientific',
   url: 'https://ods.od.nih.gov/factsheets/Iron-HealthProfessional/',
-  passage: 'Nhu cầu sắt khuyến nghị cho người ăn chay cao gấp khoảng 1,8 lần người ăn thịt, '
+  passage:
+      'Nhu cầu sắt khuyến nghị cho người ăn chay cao gấp khoảng 1,8 lần người ăn thịt, '
       'vì sắt non-heme từ thực vật được hấp thu kém hơn sắt heme. Vitamin C giúp tăng hấp thu sắt non-heme.',
   verified: true,
 );
@@ -135,7 +153,8 @@ const _ironAnswer = _CannedAnswer(
       title: 'Thực đơn tuần của bạn',
       publisher: 'VeganLife · dữ liệu cá nhân',
       sourceType: 'user_data',
-      passage: 'Tổng sắt 7 ngày: 88,2 mg · trung bình 12,6 mg/ngày · mục tiêu hồ sơ: 18 mg/ngày.',
+      passage:
+          'Tổng sắt 7 ngày: 88,2 mg · trung bình 12,6 mg/ngày · mục tiêu hồ sơ: 18 mg/ngày.',
     ),
     _nihIron,
     CitationDto(
@@ -143,7 +162,8 @@ const _ironAnswer = _CannedAnswer(
       title: 'Bếp chay giàu sắt',
       publisher: 'Chef Mai Anh · đầu bếp đã xác minh',
       sourceType: 'chef_document',
-      passage: 'Tannin trong trà và cà phê làm giảm hấp thu sắt non-heme; nên dùng cách xa bữa ăn chính.',
+      passage:
+          'Tannin trong trà và cà phê làm giảm hấp thu sắt non-heme; nên dùng cách xa bữa ăn chính.',
       verified: true,
     ),
   ],
@@ -162,7 +182,8 @@ const _tofuSwapAnswer = _CannedAnswer(
       publisher: 'USDA',
       sourceType: 'scientific',
       url: 'https://fdc.nal.usda.gov/',
-      passage: 'Tempeh: khoảng 19–20 g đạm/100 g. Đậu hũ cứng: khoảng 8–17 g đạm/100 g tuỳ loại.',
+      passage:
+          'Tempeh: khoảng 19–20 g đạm/100 g. Đậu hũ cứng: khoảng 8–17 g đạm/100 g tuỳ loại.',
       verified: true,
     ),
     CitationDto(
@@ -170,7 +191,8 @@ const _tofuSwapAnswer = _CannedAnswer(
       title: 'Thay thế đạm thực vật trong bếp Việt',
       publisher: 'Chef Mai Anh · đầu bếp đã xác minh',
       sourceType: 'chef_document',
-      passage: 'Nấm đùi gà xé và đậu gà là lựa chọn không chứa đậu nành cho món xào và món kho.',
+      passage:
+          'Nấm đùi gà xé và đậu gà là lựa chọn không chứa đậu nành cho món xào và món kho.',
       verified: true,
     ),
   ],
@@ -187,8 +209,10 @@ const _proteinAnswer = _CannedAnswer(
       title: 'Protein in plant-based diets',
       publisher: 'Harvard T.H. Chan School of Public Health',
       sourceType: 'scientific',
-      url: 'https://nutritionsource.hsph.harvard.edu/what-should-you-eat/protein/',
-      passage: 'Đậu nành cung cấp đủ các axit amin thiết yếu; chế độ ăn thực vật đa dạng trong ngày đáp ứng nhu cầu đạm.',
+      url:
+          'https://nutritionsource.hsph.harvard.edu/what-should-you-eat/protein/',
+      passage:
+          'Đậu nành cung cấp đủ các axit amin thiết yếu; chế độ ăn thực vật đa dạng trong ngày đáp ứng nhu cầu đạm.',
       verified: true,
     ),
   ],
@@ -205,7 +229,8 @@ const _b12Answer = _CannedAnswer(
       publisher: 'NIH Office of Dietary Supplements',
       sourceType: 'scientific',
       url: 'https://ods.od.nih.gov/factsheets/VitaminB12-Consumer/',
-      passage: 'B12 có tự nhiên trong thực phẩm động vật; người ăn thuần chay nên dùng thực phẩm tăng cường hoặc thực phẩm bổ sung.',
+      passage:
+          'B12 có tự nhiên trong thực phẩm động vật; người ăn thuần chay nên dùng thực phẩm tăng cường hoặc thực phẩm bổ sung.',
       verified: true,
     ),
   ],
@@ -223,7 +248,8 @@ const _generalAnswer = _CannedAnswer(
       publisher: 'World Health Organization',
       sourceType: 'scientific',
       url: 'https://www.who.int/news-room/fact-sheets/detail/healthy-diet',
-      passage: 'Chế độ ăn lành mạnh gồm trái cây, rau, các loại đậu, hạt và ngũ cốc nguyên hạt.',
+      passage:
+          'Chế độ ăn lành mạnh gồm trái cây, rau, các loại đậu, hạt và ngũ cốc nguyên hạt.',
       verified: true,
     ),
   ],

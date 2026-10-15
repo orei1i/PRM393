@@ -22,7 +22,8 @@ abstract final class AppTheme {
       onPrimaryContainer: isLight ? AppColors.sage900 : AppColors.darkInk,
       secondary: AppColors.sprout500,
       onSecondary: AppColors.sprout950,
-      secondaryContainer: isLight ? AppColors.sage50 : AppColors.darkSurfaceHigh,
+      secondaryContainer:
+          isLight ? AppColors.sage50 : AppColors.darkSurfaceHigh,
       onSecondaryContainer: isLight ? AppColors.sage800 : AppColors.darkInk,
       tertiary: isLight ? AppColors.ai600 : AppColors.ai400,
       onTertiary: isLight ? Colors.white : const Color(0xFF1E1240),
@@ -34,7 +35,8 @@ abstract final class AppTheme {
       surfaceContainerLowest: isLight ? Colors.white : AppColors.darkBackground,
       surfaceContainerLow: isLight ? AppColors.gray50 : AppColors.darkSurface,
       surfaceContainer: isLight ? AppColors.gray100 : AppColors.darkSurfaceHigh,
-      surfaceContainerHigh: isLight ? AppColors.gray100 : AppColors.darkSurfaceHigh,
+      surfaceContainerHigh:
+          isLight ? AppColors.gray100 : AppColors.darkSurfaceHigh,
       outline: isLight ? AppColors.gray300 : AppColors.darkBorder,
       outlineVariant: isLight ? AppColors.gray200 : AppColors.darkBorder,
     );
@@ -44,7 +46,8 @@ abstract final class AppTheme {
       displayColor: scheme.onSurface,
     );
     final background = isLight ? AppColors.gray50 : AppColors.darkBackground;
-    final buttonShape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(14));
+    final buttonShape =
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(14));
 
     return ThemeData(
       useMaterial3: true,
@@ -115,7 +118,8 @@ abstract final class AppTheme {
         actionTextColor: isLight ? AppColors.sprout400 : AppColors.sage800,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
-      dividerTheme: DividerThemeData(color: scheme.outlineVariant, thickness: 1, space: 1),
+      dividerTheme: DividerThemeData(
+          color: scheme.outlineVariant, thickness: 1, space: 1),
       progressIndicatorTheme: ProgressIndicatorThemeData(color: scheme.primary),
     );
   }

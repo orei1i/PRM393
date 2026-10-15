@@ -36,7 +36,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     super.initState();
     _scroll.addListener(() {
       if (!_scroll.hasClients) return;
-      final distance = _scroll.position.maxScrollExtent - _scroll.position.pixels;
+      final distance =
+          _scroll.position.maxScrollExtent - _scroll.position.pixels;
       final pinned = distance < 80;
       if (pinned != _pinnedToBottom) setState(() => _pinnedToBottom = pinned);
     });
@@ -53,7 +54,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (!_scroll.hasClients) return;
       final target = _scroll.position.maxScrollExtent;
       if (animated && !MediaQuery.disableAnimationsOf(context)) {
-        _scroll.animateTo(target, duration: const Duration(milliseconds: 240), curve: Curves.easeOut);
+        _scroll.animateTo(target,
+            duration: const Duration(milliseconds: 240), curve: Curves.easeOut);
       } else {
         _scroll.jumpTo(target);
       }
@@ -64,10 +66,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Widget build(BuildContext context) {
     final chat = ref.watch(chatControllerProvider);
     final controller = ref.read(chatControllerProvider.notifier);
-    final isGuest = ref.watch(sessionControllerProvider.select((s) => s.isGuest));
+    final isGuest =
+        ref.watch(sessionControllerProvider.select((s) => s.isGuest));
 
     // One-shot: show the sign-in sheet when the guest runs out of questions.
-    ref.listen(chatControllerProvider.select((s) => s.showTrialExhausted), (previous, show) {
+    ref.listen(chatControllerProvider.select((s) => s.showTrialExhausted),
+        (previous, show) {
       if (!show) return;
       final pending = ref.read(chatControllerProvider).pendingPrompt;
       TrialExhaustedSheet.show(context, pendingPrompt: pending)
@@ -75,7 +79,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
 
     // Follow the stream while the user is at the bottom ("pinned").
-    ref.listen(chatControllerProvider.select((s) => s.messages), (previous, next) {
+    ref.listen(chatControllerProvider.select((s) => s.messages),
+        (previous, next) {
       final added = (previous?.length ?? 0) < next.length;
       if (added || _pinnedToBottom) _scrollToBottom(animated: added);
     });
@@ -83,20 +88,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        leading: Padding(
-          padding: const EdgeInsets.all(10),
-          child: DecoratedBox(
-            decoration: BoxDecoration(color: context.colors.tertiary, borderRadius: BorderRadius.circular(12)),
-            child: Icon(Icons.auto_awesome, color: context.colors.onTertiary, size: 20),
-          ),
-        ),
+        // Opened from the global "Hỏi AI" button → show a back arrow.
+        leading: Navigator.of(context).canPop()
+            ? const BackButton()
+            : Padding(
+                padding: const EdgeInsets.all(10),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                      color: context.colors.tertiary,
+                      borderRadius: BorderRadius.circular(12)),
+                  child: Icon(Icons.auto_awesome,
+                      color: context.colors.onTertiary, size: 20),
+                ),
+              ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('VeganLife AI'),
             Text(
               'Mọi câu trả lời đều có nguồn trích dẫn',
-              style: context.textStyles.bodySmall?.copyWith(color: context.vl.muted),
+              style: context.textStyles.bodySmall
+                  ?.copyWith(color: context.vl.muted),
             ),
           ],
         ),
@@ -104,7 +116,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           if (!isGuest)
             IconButton(
               tooltip: 'Cuộc trò chuyện mới',
-              onPressed: chat.messages.isEmpty ? null : controller.newConversation,
+              onPressed:
+                  chat.messages.isEmpty ? null : controller.newConversation,
               icon: const Icon(Icons.add_comment_outlined),
             ),
           const AccountButton(),
@@ -116,7 +129,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             GuestTrialBanner(
               remaining: remaining,
               limit: chat.trialLimit,
-              onSignIn: () => TrialExhaustedSheet.show(context, pendingPrompt: chat.pendingPrompt),
+              onSignIn: () => TrialExhaustedSheet.show(context,
+                  pendingPrompt: chat.pendingPrompt),
             ),
           Expanded(
             child: Stack(
@@ -135,9 +149,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         key: ValueKey(m.id),
                         message: m,
                         onRetry: () => controller.retry(m.id),
-                        onFeedback: (helpful) => ScaffoldMessenger.of(context).showSnackBar(
+                        onFeedback: (helpful) =>
+                            ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text(helpful ? 'Cảm ơn bạn đã góp ý!' : 'Cảm ơn! Góp ý sẽ giúp AI trả lời tốt hơn.'),
+                            content: Text(helpful
+                                ? 'Cảm ơn bạn đã góp ý!'
+                                : 'Cảm ơn! Góp ý sẽ giúp AI trả lời tốt hơn.'),
                           ),
                         ),
                       );
@@ -151,7 +168,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     child: Center(
                       child: FilledButton.tonalIcon(
                         onPressed: _scrollToBottom,
-                        icon: const Icon(Icons.arrow_downward_rounded, size: 18),
+                        icon:
+                            const Icon(Icons.arrow_downward_rounded, size: 18),
                         label: const Text('Tin mới nhất'),
                       ),
                     ),
@@ -164,14 +182,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             onSend: controller.send,
             onStop: controller.stop,
             quickPrompts: _quickPrompts,
-            showQuickPrompts: chat.messages.isNotEmpty && !_hasActiveAnswer(chat.messages),
+            showQuickPrompts:
+                chat.messages.isNotEmpty && !_hasActiveAnswer(chat.messages),
           ),
         ],
       ),
     );
   }
 
-  bool _hasActiveAnswer(List<ChatMessage> messages) => messages.any((m) => m.isInProgress);
+  bool _hasActiveAnswer(List<ChatMessage> messages) =>
+      messages.any((m) => m.isInProgress);
 }
 
 class _WelcomeView extends StatelessWidget {
@@ -188,11 +208,13 @@ class _WelcomeView extends StatelessWidget {
         Container(
           width: 56,
           height: 56,
-          decoration: BoxDecoration(color: vl.aiContainer, borderRadius: BorderRadius.circular(16)),
+          decoration: BoxDecoration(
+              color: vl.aiContainer, borderRadius: BorderRadius.circular(16)),
           child: Icon(Icons.eco_outlined, color: vl.ai, size: 28),
         ),
         const SizedBox(height: 16),
-        Text('Hỏi gì về ăn chay cũng được', style: context.textStyles.headlineSmall),
+        Text('Hỏi gì về ăn chay cũng được',
+            style: context.textStyles.headlineSmall),
         const SizedBox(height: 6),
         Text(
           'Câu trả lời dựa trên tài liệu của WHO, NIH và đầu bếp đã xác minh, kèm thực đơn của bạn nếu bạn đã đăng nhập.',
@@ -206,7 +228,8 @@ class _WelcomeView extends StatelessWidget {
               onPressed: () => onPrompt(prompt),
               style: OutlinedButton.styleFrom(
                 alignment: Alignment.centerLeft,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               ),
               child: Row(
                 children: [

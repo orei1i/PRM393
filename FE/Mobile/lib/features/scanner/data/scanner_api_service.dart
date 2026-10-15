@@ -42,7 +42,9 @@ class RemoteScannerApiService implements ScannerApiService {
       });
 
   @override
-  Future<List<MenuSuggestionDto>> generateMenu(GenerateMenuRequestDto request) => guardApi(() async {
+  Future<List<MenuSuggestionDto>> generateMenu(
+          GenerateMenuRequestDto request) =>
+      guardApi(() async {
         final res = await _dio.post<List<dynamic>>(
           ApiEndpoints.menuFromIngredients,
           data: request.toJson(),
@@ -56,6 +58,8 @@ class RemoteScannerApiService implements ScannerApiService {
 }
 
 final scannerApiProvider = Provider<ScannerApiService>((ref) {
-  if (Env.useMockData) return MockScannerRepository(scenario: Env.mockScanScenario);
+  if (Env.useMockData) {
+    return MockScannerRepository(scenario: Env.mockScanScenario);
+  }
   return RemoteScannerApiService(ref.watch(dioProvider));
 });

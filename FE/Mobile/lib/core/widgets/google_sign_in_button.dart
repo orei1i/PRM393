@@ -26,7 +26,8 @@ class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
       widget.onSignedIn?.call();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(describeError(e))));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(describeError(e))));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -38,7 +39,8 @@ class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
       onPressed: _loading ? null : _signIn,
       style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(52)),
       icon: _loading
-          ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
+          ? const SizedBox.square(
+              dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
           : const Icon(Icons.account_circle_outlined),
       label: Text(_loading ? 'Đang đăng nhập…' : 'Tiếp tục với Google'),
     );

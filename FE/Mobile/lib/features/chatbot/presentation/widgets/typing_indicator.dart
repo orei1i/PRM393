@@ -7,7 +7,8 @@ import '../../../../core/theme/vl_colors.dart';
 
 /// Three pulsing dots shown before the first token arrives.
 class TypingIndicator extends StatefulWidget {
-  const TypingIndicator({super.key, this.label = 'Đang tìm nguồn và soạn câu trả lời'});
+  const TypingIndicator(
+      {super.key, this.label = 'Đang tìm nguồn và soạn câu trả lời'});
 
   final String label;
 
@@ -15,9 +16,11 @@ class TypingIndicator extends StatefulWidget {
   State<TypingIndicator> createState() => _TypingIndicatorState();
 }
 
-class _TypingIndicatorState extends State<TypingIndicator> with SingleTickerProviderStateMixin {
-  late final AnimationController _controller =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))..repeat();
+class _TypingIndicatorState extends State<TypingIndicator>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1100))
+    ..repeat();
 
   @override
   void dispose() {
@@ -42,13 +45,16 @@ class _TypingIndicatorState extends State<TypingIndicator> with SingleTickerProv
               mainAxisSize: MainAxisSize.min,
               children: List.generate(3, (i) {
                 final phase = (_controller.value - i * 0.18) % 1.0;
-                final t = reduceMotion ? 1.0 : 0.35 + 0.65 * (0.5 + 0.5 * math.sin(phase * 2 * math.pi));
+                final t = reduceMotion
+                    ? 1.0
+                    : 0.35 + 0.65 * (0.5 + 0.5 * math.sin(phase * 2 * math.pi));
                 return Container(
                   margin: const EdgeInsets.symmetric(horizontal: 2),
                   width: 7,
                   height: 7,
                   decoration: BoxDecoration(
-                    color: color.withValues(alpha: t.clamp(0.0, 1.0).toDouble()),
+                    color:
+                        color.withValues(alpha: t.clamp(0.0, 1.0).toDouble()),
                     shape: BoxShape.circle,
                   ),
                 );
@@ -57,7 +63,9 @@ class _TypingIndicatorState extends State<TypingIndicator> with SingleTickerProv
           ),
           const SizedBox(width: 8),
           Flexible(
-            child: Text(widget.label, style: context.textStyles.bodySmall?.copyWith(color: context.vl.muted)),
+            child: Text(widget.label,
+                style: context.textStyles.bodySmall
+                    ?.copyWith(color: context.vl.muted)),
           ),
         ],
       ),
@@ -73,9 +81,11 @@ class StreamingCaret extends StatefulWidget {
   State<StreamingCaret> createState() => _StreamingCaretState();
 }
 
-class _StreamingCaretState extends State<StreamingCaret> with SingleTickerProviderStateMixin {
-  late final AnimationController _controller =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1000))..repeat(reverse: true);
+class _StreamingCaretState extends State<StreamingCaret>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1000))
+    ..repeat(reverse: true);
 
   @override
   void dispose() {

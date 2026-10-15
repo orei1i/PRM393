@@ -30,9 +30,11 @@ class ScannerState {
   final List<MenuSuggestion> menu;
   final String? menuError;
 
-  List<DetectedIngredient> get confirmedItems => items.where((i) => i.confirmed).toList();
+  List<DetectedIngredient> get confirmedItems =>
+      items.where((i) => i.confirmed).toList();
   int get pendingCount => items.where((i) => !i.confirmed).length;
-  bool get isBusy => status == ScanStatus.analyzing || menuStatus == MenuStatus.generating;
+  bool get isBusy =>
+      status == ScanStatus.analyzing || menuStatus == MenuStatus.generating;
 
   ScannerState copyWith({
     ScanStatus? status,
@@ -79,12 +81,14 @@ class ScannerController extends Notifier<ScannerState> {
         menu: const [],
       );
     } catch (e) {
-      state = state.copyWith(status: ScanStatus.error, errorMessage: describeError(e));
+      state = state.copyWith(
+          status: ScanStatus.error, errorMessage: describeError(e));
     }
   }
 
   /// Low-confidence item → user picked the right name.
-  void confirm(String id, {String? name}) => _update(id, (i) => i.copyWith(confirmed: true, name: name));
+  void confirm(String id, {String? name}) =>
+      _update(id, (i) => i.copyWith(confirmed: true, name: name));
 
   void updateQuantity(String id, double quantity) {
     if (quantity <= 0) return;
@@ -109,7 +113,8 @@ class ScannerController extends Notifier<ScannerState> {
   void addManual(String rawName) {
     final name = rawName.trim();
     if (name.isEmpty) return;
-    final exists = state.items.any((i) => i.name.toLowerCase() == name.toLowerCase());
+    final exists =
+        state.items.any((i) => i.name.toLowerCase() == name.toLowerCase());
     if (exists) return;
     _manualCounter++;
     final item = DetectedIngredient(
@@ -119,7 +124,8 @@ class ScannerController extends Notifier<ScannerState> {
       freshness: Freshness.unknown,
       manual: true,
     );
-    state = state.copyWith(items: [...state.items, item], status: ScanStatus.detected);
+    state = state
+        .copyWith(items: [...state.items, item], status: ScanStatus.detected);
   }
 
   /// "Tạo thực đơn từ nguyên liệu này"
@@ -132,25 +138,29 @@ class ScannerController extends Notifier<ScannerState> {
       );
       return;
     }
-    state = state.copyWith(menuStatus: MenuStatus.generating, clearMenuError: true);
+    state =
+        state.copyWith(menuStatus: MenuStatus.generating, clearMenuError: true);
     try {
       final allergies = await ref.read(userAllergiesProvider.future);
       final dtos = await _api.generateMenu(
-        GenerateMenuRequestDto(ingredients: ingredients, excludeAllergens: allergies),
+        GenerateMenuRequestDto(
+            ingredients: ingredients, excludeAllergens: allergies),
       );
       state = state.copyWith(
         menuStatus: MenuStatus.ready,
         menu: dtos.map((d) => d.toEntity()).toList(),
       );
     } catch (e) {
-      state = state.copyWith(menuStatus: MenuStatus.error, menuError: describeError(e));
+      state = state.copyWith(
+          menuStatus: MenuStatus.error, menuError: describeError(e));
     }
   }
 
   void reset() => state = const ScannerState();
 
   /// Back to the live camera; detected items stay in the tray.
-  void resumeLive() => state = state.copyWith(status: ScanStatus.idle, clearError: true);
+  void resumeLive() =>
+      state = state.copyWith(status: ScanStatus.idle, clearError: true);
 
   /// Re-opens the tray from the shutter row.
   void showTray() {
@@ -160,17 +170,20 @@ class ScannerController extends Notifier<ScannerState> {
 
   // ---------------------------------------------------------------------------
 
-  void _update(String id, DetectedIngredient Function(DetectedIngredient) change) {
+  void _update(
+      String id, DetectedIngredient Function(DetectedIngredient) change) {
     state = state.copyWith(
       items: [for (final i in state.items) i.id == id ? change(i) : i],
     );
   }
 
   /// Re-scans replace items of the same name; manual items are kept.
-  List<DetectedIngredient> _merge(List<DetectedIngredient> current, List<DetectedIngredient> fresh) {
+  List<DetectedIngredient> _merge(
+      List<DetectedIngredient> current, List<DetectedIngredient> fresh) {
     final freshNames = fresh.map((i) => i.name.toLowerCase()).toSet();
     return [
-      ...current.where((i) => i.manual && !freshNames.contains(i.name.toLowerCase())),
+      ...current
+          .where((i) => i.manual && !freshNames.contains(i.name.toLowerCase())),
       ...fresh,
     ];
   }

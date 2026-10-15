@@ -10,7 +10,8 @@ import 'citation_pill.dart';
 import 'typing_indicator.dart';
 
 class MessageBubble extends StatelessWidget {
-  const MessageBubble({super.key, required this.message, this.onRetry, this.onFeedback});
+  const MessageBubble(
+      {super.key, required this.message, this.onRetry, this.onFeedback});
 
   final ChatMessage message;
   final VoidCallback? onRetry;
@@ -18,7 +19,10 @@ class MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return message.isUser ? _UserBubble(message: message) : _AssistantMessage(message: message, onRetry: onRetry, onFeedback: onFeedback);
+    return message.isUser
+        ? _UserBubble(message: message)
+        : _AssistantMessage(
+            message: message, onRetry: onRetry, onFeedback: onFeedback);
   }
 }
 
@@ -35,10 +39,12 @@ class _UserBubble extends StatelessWidget {
       child: GestureDetector(
         onLongPress: () {
           Clipboard.setData(ClipboardData(text: message.content));
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã sao chép câu hỏi')));
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Đã sao chép câu hỏi')));
         },
         child: Container(
-          constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.78),
+          constraints:
+              BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.78),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
             color: cs.primary,
@@ -49,7 +55,9 @@ class _UserBubble extends StatelessWidget {
               bottomRight: Radius.circular(4),
             ),
           ),
-          child: Text(message.content, style: context.textStyles.bodyLarge?.copyWith(color: cs.onPrimary)),
+          child: Text(message.content,
+              style:
+                  context.textStyles.bodyLarge?.copyWith(color: cs.onPrimary)),
         ),
       ),
     );
@@ -57,7 +65,8 @@ class _UserBubble extends StatelessWidget {
 }
 
 class _AssistantMessage extends StatelessWidget {
-  const _AssistantMessage({required this.message, this.onRetry, this.onFeedback});
+  const _AssistantMessage(
+      {required this.message, this.onRetry, this.onFeedback});
 
   final ChatMessage message;
   final VoidCallback? onRetry;
@@ -66,8 +75,8 @@ class _AssistantMessage extends StatelessWidget {
   static final _citationPattern = RegExp(r'\[(\d+)\](?!\()');
 
   /// "[1]" → markdown link "[\[1\]](cite:1)" so citations are tappable inline.
-  static String _linkCitations(String text) =>
-      text.replaceAllMapped(_citationPattern, (m) => '[\\[${m[1]}\\]](cite:${m[1]})');
+  static String _linkCitations(String text) => text.replaceAllMapped(
+      _citationPattern, (m) => '[\\[${m[1]}\\]](cite:${m[1]})');
 
   void _onTapLink(BuildContext context, String? href) {
     if (href == null || !href.startsWith('cite:')) return;
@@ -90,7 +99,8 @@ class _AssistantMessage extends StatelessWidget {
       p: text.bodyLarge,
       strong: text.bodyLarge?.copyWith(fontWeight: FontWeight.w700),
       listBullet: text.bodyLarge,
-      a: text.labelMedium?.copyWith(color: vl.onAiContainer, fontWeight: FontWeight.w800),
+      a: text.labelMedium
+          ?.copyWith(color: vl.onAiContainer, fontWeight: FontWeight.w800),
       blockSpacing: 10,
     );
 
@@ -101,15 +111,19 @@ class _AssistantMessage extends StatelessWidget {
           children: [
             Icon(Icons.auto_awesome, size: 16, color: vl.ai),
             const SizedBox(width: 6),
-            Text('VeganLife AI', style: text.labelMedium?.copyWith(color: vl.onAiContainer)),
+            Text('VeganLife AI',
+                style: text.labelMedium?.copyWith(color: vl.onAiContainer)),
             if (message.citations.isNotEmpty) ...[
-              Text(' · ${message.citations.length} nguồn', style: text.labelMedium?.copyWith(color: vl.muted)),
+              Text(' · ${message.citations.length} nguồn',
+                  style: text.labelMedium?.copyWith(color: vl.muted)),
             ],
           ],
         ),
         const SizedBox(height: 6),
         if (status == MessageStatus.waiting)
-          const Padding(padding: EdgeInsets.symmetric(vertical: 6), child: TypingIndicator())
+          const Padding(
+              padding: EdgeInsets.symmetric(vertical: 6),
+              child: TypingIndicator())
         else if (message.content.isNotEmpty)
           MarkdownBody(
             data: _linkCitations(message.content),
@@ -117,16 +131,20 @@ class _AssistantMessage extends StatelessWidget {
             onTapLink: (text, href, title) => _onTapLink(context, href),
           ),
         if (status == MessageStatus.streaming)
-          const Padding(padding: EdgeInsets.only(top: 4), child: StreamingCaret()),
+          const Padding(
+              padding: EdgeInsets.only(top: 4), child: StreamingCaret()),
         if (message.citations.isNotEmpty) ...[
           const SizedBox(height: 10),
           Wrap(
             spacing: 6,
             runSpacing: 6,
-            children: [for (final c in message.citations) CitationPill(citation: c)],
+            children: [
+              for (final c in message.citations) CitationPill(citation: c)
+            ],
           ),
         ],
-        if (status == MessageStatus.interrupted || status == MessageStatus.failed)
+        if (status == MessageStatus.interrupted ||
+            status == MessageStatus.failed)
           _InterruptedBanner(message: message, onRetry: onRetry),
         if (status == MessageStatus.complete) ...[
           const SizedBox(height: 4),
@@ -146,7 +164,8 @@ class _AssistantMessage extends StatelessWidget {
                 tooltip: 'Sao chép',
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: message.content));
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã sao chép câu trả lời')));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Đã sao chép câu trả lời')));
                 },
                 icon: const Icon(Icons.copy_rounded, size: 18),
               ),

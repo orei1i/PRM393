@@ -15,25 +15,39 @@ enum BmiCategory {
   final String label;
 }
 
-typedef BmiThresholds = ({double underweightBelow, double overweightFrom, double obeseFrom});
+typedef BmiThresholds = ({
+  double underweightBelow,
+  double overweightFrom,
+  double obeseFrom
+});
 
 abstract final class Bmi {
   /// Gauge range shown in the UI.
   static const double gaugeMin = 15;
   static const double gaugeMax = 35;
 
-  static double calculate({required double heightCm, required double weightKg}) {
+  static double calculate(
+      {required double heightCm, required double weightKg}) {
     final meters = heightCm / 100;
     if (meters <= 0 || weightKg <= 0) return 0;
     return weightKg / (meters * meters);
   }
 
   static BmiThresholds thresholds(BmiStandard standard) => switch (standard) {
-        BmiStandard.asiaPacific => (underweightBelow: 18.5, overweightFrom: 23.0, obeseFrom: 25.0),
-        BmiStandard.who => (underweightBelow: 18.5, overweightFrom: 25.0, obeseFrom: 30.0),
+        BmiStandard.asiaPacific => (
+            underweightBelow: 18.5,
+            overweightFrom: 23.0,
+            obeseFrom: 25.0
+          ),
+        BmiStandard.who => (
+            underweightBelow: 18.5,
+            overweightFrom: 25.0,
+            obeseFrom: 30.0
+          ),
       };
 
-  static BmiCategory categorize(double bmi, {BmiStandard standard = BmiStandard.asiaPacific}) {
+  static BmiCategory categorize(double bmi,
+      {BmiStandard standard = BmiStandard.asiaPacific}) {
     final t = thresholds(standard);
     if (bmi < t.underweightBelow) return BmiCategory.underweight;
     if (bmi < t.overweightFrom) return BmiCategory.normal;
@@ -43,5 +57,6 @@ abstract final class Bmi {
 
   /// 0…1 position of [bmi] on the gauge.
   static double gaugePosition(double bmi) =>
-      ((bmi.clamp(gaugeMin, gaugeMax) - gaugeMin) / (gaugeMax - gaugeMin)).toDouble();
+      ((bmi.clamp(gaugeMin, gaugeMax) - gaugeMin) / (gaugeMax - gaugeMin))
+          .toDouble();
 }

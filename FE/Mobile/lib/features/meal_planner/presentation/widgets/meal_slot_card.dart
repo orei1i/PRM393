@@ -58,8 +58,16 @@ class MealSlotCard extends StatelessWidget {
                     children: [
                       Text.rich(
                         TextSpan(children: [
-                          TextSpan(text: '${slot.label} · ', style: context.textStyles.bodySmall?.copyWith(color: vl.muted)),
-                          TextSpan(text: '${formatInt(n.calories)} kcal', style: AppTypography.mono(size: 12, weight: FontWeight.w600, color: vl.muted)),
+                          TextSpan(
+                              text: '${slot.label} · ',
+                              style: context.textStyles.bodySmall
+                                  ?.copyWith(color: vl.muted)),
+                          TextSpan(
+                              text: '${formatInt(n.calories)} kcal',
+                              style: AppTypography.mono(
+                                  size: 12,
+                                  weight: FontWeight.w600,
+                                  color: vl.muted)),
                         ]),
                       ),
                       const SizedBox(height: 2),
@@ -77,19 +85,26 @@ class MealSlotCard extends StatelessWidget {
                       Text(
                         'Đạm ${n.proteinG.round()} g · Tinh bột ${n.carbsG.round()} g · Béo ${n.fatG.round()} g'
                         '${recipe.prepMinutes == null ? '' : ' · ${recipe.prepMinutes} phút'}',
-                        style: context.textStyles.bodySmall?.copyWith(color: vl.muted),
+                        style: context.textStyles.bodySmall
+                            ?.copyWith(color: vl.muted),
                       ),
-                      if (conflicts.isNotEmpty || recipe.dietTags.isNotEmpty || seasonal != null) ...[
+                      if (conflicts.isNotEmpty ||
+                          recipe.dietTags.isNotEmpty ||
+                          seasonal != null) ...[
                         const SizedBox(height: 10),
                         Wrap(
                           spacing: 6,
                           runSpacing: 6,
                           children: [
-                            for (final a in conflicts) VLTag.caution(context, 'Chứa ${allergenLabel(a).toLowerCase()}'),
-                            for (final t in recipe.dietTags.take(2)) VLTag.neutral(context, dietTagLabel(t)),
+                            for (final a in conflicts)
+                              VLTag.caution(context,
+                                  'Chứa ${allergenLabel(a).toLowerCase()}'),
+                            for (final t in recipe.dietTags.take(2))
+                              VLTag.neutral(context, dietTagLabel(t)),
                             if (seasonal != null && onSeasonalSwap != null)
                               _SeasonalChip(
-                                label: 'Đổi sang ${seasonal.ingredient} đang mùa',
+                                label:
+                                    'Đổi sang ${seasonal.ingredient} đang mùa',
                                 onTap: isSwapping ? null : onSeasonalSwap,
                               ),
                           ],
@@ -163,7 +178,8 @@ class _SeasonalChip extends StatelessWidget {
     final vl = context.vl;
     return Material(
       color: vl.successContainer,
-      shape: StadiumBorder(side: BorderSide(color: vl.success.withValues(alpha: 0.35))),
+      shape: StadiumBorder(
+          side: BorderSide(color: vl.success.withValues(alpha: 0.35))),
       child: InkWell(
         onTap: onTap,
         customBorder: const StadiumBorder(),
@@ -174,7 +190,9 @@ class _SeasonalChip extends StatelessWidget {
             children: [
               Icon(Icons.eco_outlined, size: 14, color: vl.onSuccessContainer),
               const SizedBox(width: 4),
-              Text(label, style: context.textStyles.labelMedium?.copyWith(color: vl.onSuccessContainer)),
+              Text(label,
+                  style: context.textStyles.labelMedium
+                      ?.copyWith(color: vl.onSuccessContainer)),
             ],
           ),
         ),

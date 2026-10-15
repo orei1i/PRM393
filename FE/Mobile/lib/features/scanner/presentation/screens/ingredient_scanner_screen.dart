@@ -30,7 +30,8 @@ class IngredientScannerScreen extends StatelessWidget {
       body: GuestGate(
         icon: Icons.document_scanner_outlined,
         title: 'Quét tủ lạnh, ra thực đơn',
-        message: 'Đăng nhập để AI nhận diện nguyên liệu trong tủ và gợi ý món chay phù hợp.',
+        message:
+            'Đăng nhập để AI nhận diện nguyên liệu trong tủ và gợi ý món chay phù hợp.',
         benefits: [
           'Nhận diện rau củ, đậu hũ, nấm… ngay trên camera',
           'Ưu tiên nguyên liệu sắp hết hạn để không lãng phí',
@@ -51,7 +52,8 @@ class _ScannerView extends ConsumerStatefulWidget {
   ConsumerState<_ScannerView> createState() => _ScannerViewState();
 }
 
-class _ScannerViewState extends ConsumerState<_ScannerView> with WidgetsBindingObserver {
+class _ScannerViewState extends ConsumerState<_ScannerView>
+    with WidgetsBindingObserver {
   static const _permissionCodes = {
     'CameraAccessDenied',
     'CameraAccessDeniedWithoutPrompt',
@@ -72,7 +74,8 @@ class _ScannerViewState extends ConsumerState<_ScannerView> with WidgetsBindingO
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     // Start from a clean scan each time the screen opens.
-    Future.microtask(() => ref.read(scannerControllerProvider.notifier).reset());
+    Future.microtask(
+        () => ref.read(scannerControllerProvider.notifier).reset());
     _initCamera();
   }
 
@@ -86,7 +89,8 @@ class _ScannerViewState extends ConsumerState<_ScannerView> with WidgetsBindingO
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final camera = _camera;
-    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
       if (camera == null) return;
       _camera = null;
       _pausedByLifecycle = true;
@@ -111,7 +115,8 @@ class _ScannerViewState extends ConsumerState<_ScannerView> with WidgetsBindingO
         (c) => c.lensDirection == CameraLensDirection.back,
         orElse: () => cameras.first,
       );
-      final controller = CameraController(back, ResolutionPreset.high, enableAudio: false);
+      final controller =
+          CameraController(back, ResolutionPreset.high, enableAudio: false);
       await controller.initialize();
       if (!mounted) {
         await controller.dispose();
@@ -122,7 +127,9 @@ class _ScannerViewState extends ConsumerState<_ScannerView> with WidgetsBindingO
         _torchOn = false;
       });
     } on CameraException catch (e) {
-      _setIssue(_permissionCodes.contains(e.code) ? _CameraIssue.permissionDenied : _CameraIssue.unavailable);
+      _setIssue(_permissionCodes.contains(e.code)
+          ? _CameraIssue.permissionDenied
+          : _CameraIssue.unavailable);
     } catch (_) {
       // No camera plugin on this platform (desktop/web) or emulator without camera.
       _setIssue(_CameraIssue.unavailable);
@@ -156,7 +163,9 @@ class _ScannerViewState extends ConsumerState<_ScannerView> with WidgetsBindingO
     final notifier = ref.read(scannerControllerProvider.notifier);
     var bytes = Uint8List(0);
     final camera = _camera;
-    if (camera != null && camera.value.isInitialized && !camera.value.isTakingPicture) {
+    if (camera != null &&
+        camera.value.isInitialized &&
+        !camera.value.isTakingPicture) {
       try {
         final file = await camera.takePicture();
         bytes = await file.readAsBytes();
@@ -215,7 +224,9 @@ class _ScannerViewState extends ConsumerState<_ScannerView> with WidgetsBindingO
           useMockPreview: _useMockPreview,
           items: state.status == ScanStatus.detected ? state.items : const [],
           onTapItem: (item) {
-            if (!item.confirmed) ScannedIngredientsSheet.reviewItem(context, ref, item);
+            if (!item.confirmed) {
+              ScannedIngredientsSheet.reviewItem(context, ref, item);
+            }
           },
         ),
         if (state.status == ScanStatus.analyzing) const _AnalyzingOverlay(),
@@ -263,7 +274,8 @@ class _ScannerViewState extends ConsumerState<_ScannerView> with WidgetsBindingO
                     trayCount: state.items.length,
                     onCapture: _capture,
                     onManual: _openManualEntry,
-                    onOpenTray: () => ref.read(scannerControllerProvider.notifier).showTray(),
+                    onOpenTray: () =>
+                        ref.read(scannerControllerProvider.notifier).showTray(),
                   ),
                 ],
               ),
@@ -315,7 +327,8 @@ class _Viewport extends StatelessWidget {
       return const ColoredBox(
         color: Colors.black,
         child: Center(
-          child: Text('Đang mở camera…', style: TextStyle(color: Colors.white70)),
+          child:
+              Text('Đang mở camera…', style: TextStyle(color: Colors.white70)),
         ),
       );
     }
@@ -326,10 +339,12 @@ class _Viewport extends StatelessWidget {
         ClipRect(
           child: FittedBox(
             fit: BoxFit.cover,
-            child: SizedBox(width: frame.width, height: frame.height, child: background),
+            child: SizedBox(
+                width: frame.width, height: frame.height, child: background),
           ),
         ),
-        BoundingBoxOverlay(items: items, frameSize: frame, onTapItem: onTapItem),
+        BoundingBoxOverlay(
+            items: items, frameSize: frame, onTapItem: onTapItem),
       ],
     );
   }
@@ -359,7 +374,8 @@ class _TopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final label = switch (status) {
-      ScanStatus.idle => isMock ? 'Chế độ mô phỏng · sẵn sàng' : 'Hướng camera vào tủ lạnh',
+      ScanStatus.idle =>
+        isMock ? 'Chế độ mô phỏng · sẵn sàng' : 'Hướng camera vào tủ lạnh',
       ScanStatus.analyzing => 'Đang nhận diện…',
       ScanStatus.detected => 'Tìm thấy $itemCount nguyên liệu',
       ScanStatus.empty => 'Không tìm thấy nguyên liệu',
@@ -376,27 +392,35 @@ class _TopBar extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
           child: Row(
             children: [
-              _RoundButton(icon: Icons.close_rounded, tooltip: 'Đóng', onPressed: onClose),
+              _RoundButton(
+                  icon: Icons.close_rounded,
+                  tooltip: 'Đóng',
+                  onPressed: onClose),
               Expanded(
                 child: Center(
                   child: Semantics(
                     liveRegion: true,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 8),
                       decoration: BoxDecoration(
                         color: const Color(0x8C000000),
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
                         label,
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13),
                       ),
                     ),
                   ),
                 ),
               ),
               _RoundButton(
-                icon: torchOn ? Icons.flash_on_rounded : Icons.flash_off_rounded,
+                icon:
+                    torchOn ? Icons.flash_on_rounded : Icons.flash_off_rounded,
                 tooltip: torchOn ? 'Tắt đèn pin' : 'Bật đèn pin',
                 onPressed: canTorch ? onTorch : null,
                 active: torchOn,
@@ -410,7 +434,11 @@ class _TopBar extends StatelessWidget {
 }
 
 class _RoundButton extends StatelessWidget {
-  const _RoundButton({required this.icon, required this.tooltip, required this.onPressed, this.active = false});
+  const _RoundButton(
+      {required this.icon,
+      required this.tooltip,
+      required this.onPressed,
+      this.active = false});
 
   final IconData icon;
   final String tooltip;
@@ -456,7 +484,10 @@ class _ShutterRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          _RoundButton(icon: Icons.keyboard_alt_outlined, tooltip: 'Nhập tay', onPressed: busy ? null : onManual),
+          _RoundButton(
+              icon: Icons.keyboard_alt_outlined,
+              tooltip: 'Nhập tay',
+              onPressed: busy ? null : onManual),
           Semantics(
             button: true,
             label: 'Chụp và nhận diện',
@@ -474,7 +505,8 @@ class _ShutterRow extends StatelessWidget {
                     border: Border.all(color: Colors.white, width: 4),
                   ),
                   child: const DecoratedBox(
-                    decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                    decoration: BoxDecoration(
+                        color: Colors.white, shape: BoxShape.circle),
                   ),
                 ),
               ),
@@ -526,7 +558,8 @@ class _InfoCard extends StatelessWidget {
             children: [
               Icon(icon, color: context.colors.primary),
               const SizedBox(width: 8),
-              Expanded(child: Text(title, style: context.textStyles.titleMedium)),
+              Expanded(
+                  child: Text(title, style: context.textStyles.titleMedium)),
               TextButton(onPressed: onAction, child: Text(actionLabel)),
             ],
           ),
@@ -538,7 +571,8 @@ class _InfoCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('•  ', style: context.textStyles.bodyMedium),
-                  Expanded(child: Text(line, style: context.textStyles.bodyMedium)),
+                  Expanded(
+                      child: Text(line, style: context.textStyles.bodyMedium)),
                 ],
               ),
             ),
@@ -556,9 +590,11 @@ class _AnalyzingOverlay extends StatefulWidget {
   State<_AnalyzingOverlay> createState() => _AnalyzingOverlayState();
 }
 
-class _AnalyzingOverlayState extends State<_AnalyzingOverlay> with SingleTickerProviderStateMixin {
-  late final AnimationController _controller =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1600))..repeat(reverse: true);
+class _AnalyzingOverlayState extends State<_AnalyzingOverlay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1600))
+    ..repeat(reverse: true);
 
   @override
   void dispose() {
@@ -585,7 +621,10 @@ class _AnalyzingOverlayState extends State<_AnalyzingOverlay> with SingleTickerP
                   margin: const EdgeInsets.symmetric(horizontal: 24),
                   decoration: BoxDecoration(
                     color: aiColor,
-                    boxShadow: [BoxShadow(color: aiColor.withValues(alpha: 0.6), blurRadius: 16)],
+                    boxShadow: [
+                      BoxShadow(
+                          color: aiColor.withValues(alpha: 0.6), blurRadius: 16)
+                    ],
                   ),
                 ),
               ),
@@ -597,7 +636,8 @@ class _AnalyzingOverlayState extends State<_AnalyzingOverlay> with SingleTickerP
 }
 
 class _PermissionDeniedView extends StatelessWidget {
-  const _PermissionDeniedView({required this.onRetry, required this.onUseMock, required this.onManual});
+  const _PermissionDeniedView(
+      {required this.onRetry, required this.onUseMock, required this.onManual});
 
   final VoidCallback onRetry;
   final VoidCallback onUseMock;
@@ -622,20 +662,26 @@ class _PermissionDeniedView extends StatelessWidget {
                 ),
               ),
               const Spacer(),
-              Icon(Icons.no_photography_outlined, size: 48, color: context.colors.primary),
+              Icon(Icons.no_photography_outlined,
+                  size: 48, color: context.colors.primary),
               const SizedBox(height: 16),
-              Text('VeganLife cần quyền camera', style: context.textStyles.headlineSmall),
+              Text('VeganLife cần quyền camera',
+                  style: context.textStyles.headlineSmall),
               const SizedBox(height: 8),
               Text(
                 'Camera chỉ dùng để nhận diện nguyên liệu trong tủ lạnh. Ảnh không được lưu nếu bạn không lưu lần quét. '
                 'Hãy bật quyền Camera cho VeganLife trong Cài đặt rồi thử lại.',
-                style: context.textStyles.bodyLarge?.copyWith(color: context.vl.muted),
+                style: context.textStyles.bodyLarge
+                    ?.copyWith(color: context.vl.muted),
               ),
               const Spacer(),
               FilledButton(onPressed: onRetry, child: const Text('Thử lại')),
               const SizedBox(height: 8),
-              OutlinedButton(onPressed: onManual, child: const Text('Nhập nguyên liệu bằng tay')),
-              TextButton(onPressed: onUseMock, child: const Text('Dùng ảnh mô phỏng')),
+              OutlinedButton(
+                  onPressed: onManual,
+                  child: const Text('Nhập nguyên liệu bằng tay')),
+              TextButton(
+                  onPressed: onUseMock, child: const Text('Dùng ảnh mô phỏng')),
             ],
           ),
         ),

@@ -25,7 +25,8 @@ enum CitationSourceType {
   final String label;
 
   static CitationSourceType fromApi(String? value) =>
-      values.firstWhere((t) => t.apiValue == value, orElse: () => CitationSourceType.scientific);
+      values.firstWhere((t) => t.apiValue == value,
+          orElse: () => CitationSourceType.scientific);
 }
 
 class Citation {
@@ -90,7 +91,8 @@ class ChatMessage {
   final String? errorMessage;
 
   bool get isUser => role == ChatRole.user;
-  bool get isInProgress => status == MessageStatus.waiting || status == MessageStatus.streaming;
+  bool get isInProgress =>
+      status == MessageStatus.waiting || status == MessageStatus.streaming;
 
   ChatMessage copyWith({
     String? content,

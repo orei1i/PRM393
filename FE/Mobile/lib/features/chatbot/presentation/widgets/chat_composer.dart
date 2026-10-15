@@ -73,8 +73,10 @@ class _ChatComposerState extends State<ChatComposer> {
                       final prompt = widget.quickPrompts[i];
                       return ActionChip(
                         label: Text(prompt),
-                        avatar: Icon(Icons.auto_awesome, size: 16, color: vl.ai),
-                        onPressed: widget.isStreaming ? null : () => _submit(prompt),
+                        avatar:
+                            Icon(Icons.auto_awesome, size: 16, color: vl.ai),
+                        onPressed:
+                            widget.isStreaming ? null : () => _submit(prompt),
                       );
                     },
                   ),
@@ -112,7 +114,8 @@ class _ChatComposerState extends State<ChatComposer> {
                             ? IconButton.filledTonal(
                                 tooltip: 'Dừng trả lời',
                                 onPressed: widget.onStop,
-                                style: IconButton.styleFrom(minimumSize: const Size(44, 44)),
+                                style: IconButton.styleFrom(
+                                    minimumSize: const Size(44, 44)),
                                 icon: const Icon(Icons.stop_rounded),
                               )
                             : IconButton.filled(

@@ -10,13 +10,17 @@ enum Freshness {
   final String apiValue;
   final String label;
 
-  static Freshness fromApi(String? value) =>
-      values.firstWhere((f) => f.apiValue == value, orElse: () => Freshness.unknown);
+  static Freshness fromApi(String? value) => values
+      .firstWhere((f) => f.apiValue == value, orElse: () => Freshness.unknown);
 }
 
 /// Box in 0…1 coordinates of the analysed frame (top-left origin).
 class NormalizedBox {
-  const NormalizedBox({required this.left, required this.top, required this.width, required this.height});
+  const NormalizedBox(
+      {required this.left,
+      required this.top,
+      required this.width,
+      required this.height});
 
   final double left;
   final double top;

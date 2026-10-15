@@ -52,15 +52,18 @@ class ChatState {
       sessionId: sessionId,
       messages: messages ?? this.messages,
       isStreaming: isStreaming ?? this.isStreaming,
-      trialRemaining: clearTrial ? null : (trialRemaining ?? this.trialRemaining),
+      trialRemaining:
+          clearTrial ? null : (trialRemaining ?? this.trialRemaining),
       trialLimit: trialLimit,
       showTrialExhausted: showTrialExhausted ?? this.showTrialExhausted,
-      pendingPrompt: clearPending ? null : (pendingPrompt ?? this.pendingPrompt),
+      pendingPrompt:
+          clearPending ? null : (pendingPrompt ?? this.pendingPrompt),
     );
   }
 }
 
-final chatControllerProvider = NotifierProvider<ChatController, ChatState>(ChatController.new);
+final chatControllerProvider =
+    NotifierProvider<ChatController, ChatState>(ChatController.new);
 
 class ChatController extends Notifier<ChatState> {
   StreamSubscription<ChatStreamEvent>? _subscription;
@@ -98,7 +101,8 @@ class ChatController extends Notifier<ChatState> {
     final text = raw.trim();
     if (text.isEmpty || state.isStreaming) return;
 
-    state = state.copyWith(messages: [...state.messages, ChatMessage.user(text)]);
+    state =
+        state.copyWith(messages: [...state.messages, ChatMessage.user(text)]);
 
     // Known to be out of free questions: don't even call the API.
     if (ref.read(sessionControllerProvider).isGuest && state.isTrialExhausted) {
@@ -116,7 +120,9 @@ class ChatController extends Notifier<ChatState> {
     _replace(
       last.id,
       last.copyWith(
-        status: last.content.isEmpty ? MessageStatus.failed : MessageStatus.interrupted,
+        status: last.content.isEmpty
+            ? MessageStatus.failed
+            : MessageStatus.interrupted,
         errorMessage: 'Đã dừng.',
       ),
     );
@@ -128,7 +134,9 @@ class ChatController extends Notifier<ChatState> {
     if (state.isStreaming) return;
     final index = state.messages.indexWhere((m) => m.id == assistantMessageId);
     if (index <= 0) return;
-    final question = state.messages.take(index).lastWhere((m) => m.isUser, orElse: () => state.messages[index - 1]);
+    final question = state.messages
+        .take(index)
+        .lastWhere((m) => m.isUser, orElse: () => state.messages[index - 1]);
     final partial = state.messages[index];
 
     if (partial.content.isEmpty) {
@@ -136,16 +144,19 @@ class ChatController extends Notifier<ChatState> {
       _respondTo(question.content);
       return;
     }
-    _replace(partial.id, partial.copyWith(status: MessageStatus.streaming, clearError: true));
+    _replace(partial.id,
+        partial.copyWith(status: MessageStatus.streaming, clearError: true));
     state = state.copyWith(isStreaming: true);
     _listen(
       assistantId: partial.id,
       question: question.content,
-      request: ChatRequestDto(message: question.content, resumeFrom: partial.content.length),
+      request: ChatRequestDto(
+          message: question.content, resumeFrom: partial.content.length),
     );
   }
 
-  void consumeTrialExhaustedEvent() => state = state.copyWith(showTrialExhausted: false);
+  void consumeTrialExhaustedEvent() =>
+      state = state.copyWith(showTrialExhausted: false);
 
   void newConversation() {
     _cancelStream();
@@ -159,7 +170,8 @@ class ChatController extends Notifier<ChatState> {
 
   void _respondTo(String question) {
     final placeholder = ChatMessage.assistantPlaceholder();
-    state = state.copyWith(messages: [...state.messages, placeholder], isStreaming: true);
+    state = state.copyWith(
+        messages: [...state.messages, placeholder], isStreaming: true);
     _listen(
       assistantId: placeholder.id,
       question: question,
@@ -167,15 +179,20 @@ class ChatController extends Notifier<ChatState> {
     );
   }
 
-  void _listen({required String assistantId, required String question, required ChatRequestDto request}) {
+  void _listen(
+      {required String assistantId,
+      required String question,
+      required ChatRequestDto request}) {
     _cancelStream();
     final token = CancelToken();
     _cancelToken = token;
     _subscription = _api
-        .streamReply(sessionId: state.sessionId, request: request, cancelToken: token)
+        .streamReply(
+            sessionId: state.sessionId, request: request, cancelToken: token)
         .listen(
           (event) => _onEvent(assistantId, event),
-          onError: (Object error, StackTrace _) => _onError(assistantId, question, error),
+          onError: (Object error, StackTrace _) =>
+              _onError(assistantId, question, error),
           onDone: () => _onDone(assistantId),
           cancelOnError: true,
         );
@@ -186,13 +203,20 @@ class ChatController extends Notifier<ChatState> {
     if (message == null) return;
     switch (event) {
       case ChatTokenEvent(:final text):
-        _replace(id, message.copyWith(content: message.content + text, status: MessageStatus.streaming));
+        _replace(
+            id,
+            message.copyWith(
+                content: message.content + text,
+                status: MessageStatus.streaming));
       case ChatCitationEvent(:final citation):
         final entity = citation.toEntity();
         if (message.citations.any((c) => c.index == entity.index)) return;
-        _replace(id, message.copyWith(citations: [...message.citations, entity]));
+        _replace(
+            id, message.copyWith(citations: [...message.citations, entity]));
       case ChatDoneEvent(:final trialRemaining):
-        if (trialRemaining != null) state = state.copyWith(trialRemaining: trialRemaining);
+        if (trialRemaining != null) {
+          state = state.copyWith(trialRemaining: trialRemaining);
+        }
         _replace(id, message.copyWith(status: MessageStatus.complete));
       case ChatErrorEvent(message: final errorText):
         _onError(id, '', ApiException(message: errorText));
@@ -224,7 +248,9 @@ class ChatController extends Notifier<ChatState> {
       _replace(
         id,
         message.copyWith(
-          status: message.content.isEmpty ? MessageStatus.failed : MessageStatus.interrupted,
+          status: message.content.isEmpty
+              ? MessageStatus.failed
+              : MessageStatus.interrupted,
           errorMessage: describeError(error),
         ),
       );
@@ -234,7 +260,8 @@ class ChatController extends Notifier<ChatState> {
 
   void _onSignedIn() {
     final pending = state.pendingPrompt;
-    state = state.copyWith(clearTrial: true, showTrialExhausted: false, clearPending: true);
+    state = state.copyWith(
+        clearTrial: true, showTrialExhausted: false, clearPending: true);
     if (pending != null && !state.isStreaming) _respondTo(pending);
   }
 
@@ -270,6 +297,7 @@ class ChatController extends Notifier<ChatState> {
   }
 
   void _replace(String id, ChatMessage updated) {
-    state = state.copyWith(messages: [for (final m in state.messages) m.id == id ? updated : m]);
+    state = state.copyWith(
+        messages: [for (final m in state.messages) m.id == id ? updated : m]);
   }
 }
