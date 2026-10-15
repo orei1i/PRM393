@@ -47,5 +47,7 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>VeganLife dùng camera để nhận diện nguyên liệu trong tủ lạnh và gợi ý thực đơn chay.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>VeganLife mở thư viện ảnh để bạn chọn ảnh tủ lạnh cần nhận diện hoặc video món chay muốn chia sẻ.</string>
 </dict>
 </plist>

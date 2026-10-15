@@ -1,11 +1,16 @@
 // src/lib/api_client.ts
-// Typed API layer shared by every admin page (moderation, telemetry here;
-// users/chefs/content/catalog/overview in admin_api.ts).
+// Typed API layer shared by every admin page (moderation, telemetry, AI models
+// here; users/chefs/content/comments/catalog/overview in admin_api.ts;
+// knowledge docs in knowledge_api.ts).
 // NEXT_PUBLIC_USE_MOCK_DATA=false switches every call to the ASP.NET Core API.
+import type { AiAccuracyMetrics, AiModel, AiModelPatch } from "@/types/ai_models";
 import type {
   AiFlag,
   AiLog,
+  AiLogDetail,
+  AiLogLabelInput,
   AiLogQuery,
+  AiTaskType,
   FlagQueueQuery,
   FlagStatus,
   ModerationDecision,
@@ -16,6 +21,8 @@ import type {
 
 import { ApiError } from "./api_error";
 import { clearSession, readSession } from "./auth";
+import { readId } from "./ids";
+import * as mockModels from "./mock_ai_models";
 import * as mock from "./mock_data";
 
 export const USE_MOCK_DATA = process.env.NEXT_PUBLIC_USE_MOCK_DATA !== "false";
@@ -104,6 +111,43 @@ export const moderationApi = {
   },
 };
 
+/* ------------------------------------------------------------- ai_logs */
+
+const AI_TASKS: readonly AiTaskType[] = ["moderation", "meal_plan", "chatbot", "vision_scan"];
+
+type RawAiLog = Omit<Partial<AiLogDetail>, "id" | "refId" | "task"> & {
+  id?: unknown;
+  refId?: unknown;
+  task?: string;
+  taskType?: string;
+  createdAt?: string;
+};
+
+/** Accepts the SQL-named aliases (`taskType`, `createdAt`) and INT ids. */
+export function normalizeAiLog(raw: RawAiLog): AiLogDetail {
+  const task = (raw.task ?? raw.taskType ?? "").toLowerCase();
+  return {
+    id: readId(raw.id),
+    timestamp: raw.timestamp ?? raw.createdAt ?? new Date(0).toISOString(),
+    task: AI_TASKS.find((t) => t === task) ?? "chatbot",
+    model: raw.model ?? "—",
+    latencyMs: raw.latencyMs ?? 0,
+    inputTokens: raw.inputTokens ?? 0,
+    outputTokens: raw.outputTokens ?? 0,
+    status: raw.status ?? "success",
+    detail: raw.detail ?? "",
+    traceId: raw.traceId ?? "",
+    flagged: raw.flagged,
+    refType: raw.refType ?? null,
+    refId: raw.refId === null || raw.refId === undefined ? null : readId(raw.refId),
+    inputText: raw.inputText ?? "",
+    outputText: raw.outputText ?? "",
+    label: raw.label,
+  };
+}
+
+const sessionName = () => readSession()?.fullName ?? "Quản trị viên";
+
 export const telemetryApi = {
   getSummary(range: TelemetryRange): Promise<TelemetrySummary> {
     if (USE_MOCK_DATA) return mock.getTelemetrySummary(range);
@@ -111,8 +155,48 @@ export const telemetryApi = {
   },
 
   /** Latest ai_logs rows, newest first. */
-  listLogs(query: AiLogQuery): Promise<AiLog[]> {
+  async listLogs(query: AiLogQuery): Promise<AiLog[]> {
     if (USE_MOCK_DATA) return mock.listLogs(query);
-    return request<AiLog[]>(`/admin/ai/logs?${qs({ task: query.task === "all" ? undefined : query.task, limit: query.limit })}`);
+    const raw = await request<RawAiLog[]>(`/admin/ai/logs?${qs({ task: query.task === "all" ? undefined : query.task, limit: query.limit })}`);
+    return raw.map(normalizeAiLog);
+  },
+
+  /** GET /admin/ai/logs/{id} — input/output text and the admin label. 404 once the log is pruned. */
+  async getLog(id: string): Promise<AiLogDetail> {
+    if (USE_MOCK_DATA) return mock.getLogDetail(id);
+    return normalizeAiLog(await request<RawAiLog>(`/admin/ai/logs/${encodeURIComponent(id)}`));
+  },
+
+  /** POST /admin/ai/logs/{id}/label { verdict, note? } */
+  async labelLog(input: AiLogLabelInput): Promise<AiLogDetail> {
+    if (USE_MOCK_DATA) return mock.labelLog(input, sessionName());
+    return normalizeAiLog(
+      await request<RawAiLog>(`/admin/ai/logs/${encodeURIComponent(input.logId)}/label`, {
+        method: "POST",
+        body: JSON.stringify({ verdict: input.verdict, note: input.note }),
+      }),
+    );
+  },
+};
+
+/* ----------------------------------------------------------- ai models */
+
+export const aiModelsApi = {
+  /** GET /admin/ai/models */
+  list(): Promise<AiModel[]> {
+    if (USE_MOCK_DATA) return mockModels.listModels();
+    return request<AiModel[]>("/admin/ai/models");
+  },
+
+  /** PATCH /admin/ai/models/{id} — audit note required. */
+  update(id: string, patch: AiModelPatch): Promise<AiModel> {
+    if (USE_MOCK_DATA) return mockModels.updateModel(id, patch, readSession());
+    return request<AiModel>(`/admin/ai/models/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
+  },
+
+  /** GET /admin/ai/metrics?range= — precision from ai_flags × moderation_decisions + admin labels. */
+  metrics(range: TelemetryRange): Promise<AiAccuracyMetrics> {
+    if (USE_MOCK_DATA) return mockModels.getMetrics(range);
+    return request<AiAccuracyMetrics>(`/admin/ai/metrics?${qs({ range })}`);
   },
 };

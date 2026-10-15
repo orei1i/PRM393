@@ -1,5 +1,6 @@
 // lib/features/profile/data/profile_api_service.dart
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/env.dart';
@@ -50,25 +51,55 @@ class RemoteProfileApiService implements ProfileApiService {
       });
 }
 
+/// One stored profile per mock account (`u_me`, `u_chef_tam`), so edits
+/// and chef applications don't leak from one account to the other.
 class MockProfileRepository implements ProfileApiService {
-  MockProfileRepository({required this.displayName});
+  MockProfileRepository(
+      {required this.currentUserId, required this.currentUserName});
 
-  final String displayName;
+  final String? Function() currentUserId;
+  final String Function() currentUserName;
 
-  static Map<String, dynamic>? _me;
+  static final Map<String, Map<String, dynamic>> _users = {};
 
-  Map<String, dynamic> get _store => _me ??= {
-        'id': 'u_me',
-        'email': 'minhanh.nguyen@gmail.com',
-        'fullName': displayName,
-        'phone': '0912345678',
-        'role': 'Member',
-        'status': 0,
-        'authType': 1,
-        'createdAt': '2026-07-02T08:15:00Z',
-        'stats': {'posts': 2, 'likesReceived': 20, 'saved': 2},
-        'chefApplication': {'status': 'none'},
+  @visibleForTesting
+  static void reset() => _users.clear();
+
+  static Map<String, dynamic> _seed(String id, String name) => switch (id) {
+        'u_chef_tam' => {
+            'id': id,
+            'email': 'tam.chefchay@gmail.com',
+            'fullName': name,
+            'phone': '0903456789',
+            'role': 'Chef',
+            'status': 0,
+            'authType': 1,
+            'createdAt': '2025-11-20T03:00:00Z',
+            'stats': {'posts': 0, 'likesReceived': 0, 'saved': 0},
+            'chefApplication': {'status': 'approved'},
+          },
+        _ => {
+            'id': id,
+            'email': 'minhanh.nguyen@gmail.com',
+            'fullName': name,
+            'phone': '0912345678',
+            'role': 'User',
+            'status': 0,
+            'authType': 1,
+            'createdAt': '2026-07-02T08:15:00Z',
+            'stats': {'posts': 2, 'likesReceived': 20, 'saved': 2},
+            'chefApplication': {'status': 'none'},
+          },
       };
+
+  Map<String, dynamic> get _store {
+    final id = currentUserId();
+    if (id == null) {
+      throw const ApiException(
+          message: 'Vui lòng đăng nhập để tiếp tục.', statusCode: 401);
+    }
+    return _users.putIfAbsent(id, () => _seed(id, currentUserName()));
+  }
 
   @override
   Future<UserProfileDto> getMe() async {
@@ -101,8 +132,10 @@ class MockProfileRepository implements ProfileApiService {
 final profileApiProvider = Provider<ProfileApiService>((ref) {
   if (Env.useMockData) {
     return MockProfileRepository(
-        displayName:
-            ref.read(sessionControllerProvider).displayName ?? 'Minh Anh');
+      currentUserId: () => ref.read(sessionControllerProvider).userId,
+      currentUserName: () =>
+          ref.read(sessionControllerProvider).displayName ?? 'Minh Anh',
+    );
   }
   return RemoteProfileApiService(ref.watch(dioProvider));
 });

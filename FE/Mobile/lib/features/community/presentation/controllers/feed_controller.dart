@@ -54,6 +54,20 @@ class FeedState {
 final feedControllerProvider =
     AsyncNotifierProvider<FeedController, FeedState>(FeedController.new);
 
+/// Bumped after the member posts, edits, deletes, likes, saves or comments.
+/// Lists built from the same data elsewhere ("Bài viết của tôi", "Đã lưu",
+/// "Bình luận", the stats on "Tôi") watch it and refetch instead of keeping
+/// numbers from before the change.
+final communityRevisionProvider =
+    NotifierProvider<CommunityRevision, int>(CommunityRevision.new);
+
+class CommunityRevision extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void bump() => state++;
+}
+
 class FeedController extends AsyncNotifier<FeedState> {
   CommunityApiService get _api => ref.read(communityApiProvider);
   PostType? _filter;
@@ -115,6 +129,8 @@ class FeedController extends AsyncNotifier<FeedState> {
 
   // ------------------------------------------------------------ mutations --
 
+  void _changed() => ref.read(communityRevisionProvider.notifier).bump();
+
   void _replace(Post post) {
     final current = _current;
     if (current == null || current.byId(post.id) == null) return;
@@ -129,6 +145,7 @@ class FeedController extends AsyncNotifier<FeedState> {
     _replace(post.toggledLike());
     try {
       await _api.setLiked(post.id, liked: liked);
+      _changed();
     } catch (_) {
       _replace(post);
       rethrow;
@@ -140,6 +157,7 @@ class FeedController extends AsyncNotifier<FeedState> {
     _replace(post.toggledSave());
     try {
       await _api.setSaved(post.id, saved: saved);
+      _changed();
     } catch (_) {
       _replace(post);
       rethrow;
@@ -147,20 +165,61 @@ class FeedController extends AsyncNotifier<FeedState> {
   }
 
   void commentAdded(String postId) {
+    _changed();
     final post = _current?.byId(postId);
     if (post != null) {
       _replace(post.copyWith(commentCount: post.commentCount + 1));
     }
   }
 
-  /// New post from the composer goes to the top (below pinned posts).
+  void commentRemoved(String postId) {
+    _changed();
+    final post = _current?.byId(postId);
+    if (post != null && post.commentCount > 0) {
+      _replace(post.copyWith(commentCount: post.commentCount - 1));
+    }
+  }
+
+  /// An edited comment changes no count; lists of "my comments" refetch.
+  void commentEdited() => _changed();
+
+  /// New post from the composer goes to the top (below pinned posts). Posts
+  /// held for review never reach the feed.
   void prepend(Post post) {
+    _changed();
     final current = _current;
-    if (current == null) return;
+    if (current == null || !post.isPublished) return;
     if (current.filter != null && current.filter != post.type) return;
     final pinned = current.posts.where((p) => p.isPinned).toList();
     final rest = current.posts.where((p) => !p.isPinned).toList();
     state = AsyncData(current.copyWith(posts: [...pinned, post, ...rest]));
+  }
+
+  /// After the author edits a post: still published → updated in place;
+  /// held for review → leaves the feed.
+  void postUpdated(Post post) {
+    _changed();
+    final current = _current;
+    if (current == null || current.byId(post.id) == null) return;
+    if (post.isPublished) {
+      _replace(post);
+    } else {
+      _drop(post.id);
+    }
+  }
+
+  /// Author only; throws (and keeps the post) on failure.
+  Future<void> deletePost(Post post) async {
+    await _api.deletePost(post.id);
+    _changed();
+    _drop(post.id);
+  }
+
+  void _drop(String postId) {
+    final current = _current;
+    if (current == null) return;
+    state = AsyncData(current.copyWith(
+        posts: current.posts.where((p) => p.id != postId).toList()));
   }
 
   /// Called by the video screen while it polls the AI pipeline.

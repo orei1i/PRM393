@@ -4,21 +4,25 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type {
+  AdminComment,
   AdminUser,
+  AssignableRole,
   CatalogInput,
   CatalogItem,
   CatalogKind,
   ChefApplicationStatus,
   ChefReviewInput,
+  CommentAction,
+  CommentQuery,
   ContentAction,
   ContentItem,
   ContentQuery,
+  PostReviewInput,
   UserQuery,
-  UserRole,
   UserStatusChange,
 } from "@/types/admin";
 
-import { catalogApi, chefApplicationsApi, contentApi, overviewApi, usersApi } from "../admin_api";
+import { catalogApi, chefApplicationsApi, commentsApi, contentApi, overviewApi, usersApi } from "../admin_api";
 
 export const adminKeys = {
   overview: ["overview"] as const,
@@ -26,6 +30,7 @@ export const adminKeys = {
   chefApps: (status?: ChefApplicationStatus) => (status ? (["chef-apps", status] as const) : (["chef-apps"] as const)),
   chefCounts: ["chef-apps", "counts"] as const,
   content: (q?: ContentQuery) => (q ? (["content", q] as const) : (["content"] as const)),
+  comments: (q?: CommentQuery) => (q ? (["comments", q] as const) : (["comments"] as const)),
   catalog: (kind?: CatalogKind) => (kind ? (["catalog", kind] as const) : (["catalog"] as const)),
 };
 
@@ -57,7 +62,7 @@ export function useSetUserRole() {
   const qc = useQueryClient();
   const patch = usePatchUser();
   return useMutation({
-    mutationFn: ({ userId, role }: { userId: string; role: UserRole }) => usersApi.setRole(userId, role),
+    mutationFn: ({ userId, role }: { userId: string; role: AssignableRole }) => usersApi.setRole(userId, role),
     onSuccess: patch,
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["users"] });
@@ -146,8 +151,88 @@ export function useContentAction() {
         updated ? old?.map((c) => (c.id === id ? updated : c)) : old?.filter((c) => c.id !== id),
       );
     },
+    onSettled: (_data, _error, { action }) => {
+      qc.invalidateQueries({ queryKey: ["content"] });
+      qc.invalidateQueries({ queryKey: adminKeys.overview });
+      if (action === "delete") qc.invalidateQueries({ queryKey: ["comments"] });
+    },
+  });
+}
+
+const viewOf = (key: readonly unknown[]) => (key[1] as ContentQuery | undefined)?.view;
+
+/**
+ * Approve / reject a post held by the AI pre-screen. The item leaves every
+ * "Chờ duyệt" list right away and comes back if the request fails.
+ */
+export function useReviewPost() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: PostReviewInput) => contentApi.review(input),
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: ["content"] });
+      const snapshots = qc.getQueriesData<ContentItem[]>({ queryKey: ["content"] });
+      for (const [key, data] of snapshots) {
+        if (data && viewOf(key) === "pending") qc.setQueryData(key, data.filter((c) => c.id !== input.postId));
+      }
+      return { snapshots };
+    },
+    onError: (_e, _input, context) => {
+      context?.snapshots.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSuccess: (updated) => {
+      for (const [key, data] of qc.getQueriesData<ContentItem[]>({ queryKey: ["content"] })) {
+        if (data && viewOf(key) !== "pending") qc.setQueryData(key, data.map((c) => (c.id === updated.id ? updated : c)));
+      }
+    },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["content"] });
+      qc.invalidateQueries({ queryKey: adminKeys.overview });
+      qc.invalidateQueries({ queryKey: ["ai-models", "metrics"] });
+    },
+  });
+}
+
+/* -------------------------------------------------------------- comments */
+
+export function useComments(query: CommentQuery) {
+  return useQuery({
+    queryKey: adminKeys.comments(query),
+    queryFn: () => commentsApi.list(query),
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Optimistic hide / unhide / delete across every cached comment list; rolls back on error. */
+export function useCommentAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, action, reason }: { id: string; action: CommentAction; reason?: string }) => commentsApi.act(id, action, reason),
+    onMutate: async ({ id, action }) => {
+      await qc.cancelQueries({ queryKey: ["comments"] });
+      const snapshots = qc.getQueriesData<AdminComment[]>({ queryKey: ["comments"] });
+      for (const [key, data] of snapshots) {
+        if (!data) continue;
+        const view = (key[1] as CommentQuery | undefined)?.view;
+        if (action === "delete") {
+          qc.setQueryData(key, data.filter((c) => c.id !== id));
+          continue;
+        }
+        const status = action === "hide" ? "Hidden" : "Visible";
+        const leavesView = (view === "hidden" && status === "Visible") || (view === "reported" && status === "Hidden");
+        qc.setQueryData(
+          key,
+          leavesView ? data.filter((c) => c.id !== id) : data.map((c) => (c.id === id ? { ...c, status } : c)),
+        );
+      }
+      return { snapshots };
+    },
+    onError: (_e, _v, context) => {
+      context?.snapshots.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: (_data, _error, { action }) => {
+      qc.invalidateQueries({ queryKey: ["comments"] });
+      if (action === "delete") qc.invalidateQueries({ queryKey: ["content"] });
       qc.invalidateQueries({ queryKey: adminKeys.overview });
     },
   });

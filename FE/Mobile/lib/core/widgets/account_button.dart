@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../network/api_exception.dart';
 import '../session/session_controller.dart';
+import 'mock_account_picker.dart';
 
 /// App-bar avatar: sign in (guest) or sign out (member → back to guest mode).
 class AccountButton extends ConsumerWidget {
@@ -22,7 +23,7 @@ class AccountButton extends ConsumerWidget {
       onSelected: (value) async {
         final messenger = ScaffoldMessenger.of(context);
         try {
-          if (value == 'sign_in') await notifier.signInWithGoogle();
+          if (value == 'sign_in') await runGoogleSignIn(context, ref);
           if (value == 'sign_out') await notifier.signOut();
         } catch (e) {
           messenger.showSnackBar(SnackBar(content: Text(describeError(e))));

@@ -9,6 +9,8 @@ import '../../domain/entities/meal_plan.dart';
 
 /// One macro: label, value/target and an animated bar.
 /// Over 110 % adds a text tag ("vượt") so the state never relies on colour alone.
+/// [estimated] values (part of the total was estimated from kcal) read
+/// "≈ 52" and say "ước tính" to screen readers.
 class MacroProgressBar extends StatelessWidget {
   const MacroProgressBar({
     super.key,
@@ -17,6 +19,7 @@ class MacroProgressBar extends StatelessWidget {
     required this.target,
     required this.color,
     this.unit = 'g',
+    this.estimated = false,
   });
 
   final String label;
@@ -24,6 +27,7 @@ class MacroProgressBar extends StatelessWidget {
   final double target;
   final Color color;
   final String unit;
+  final bool estimated;
 
   @override
   Widget build(BuildContext context) {
@@ -32,21 +36,24 @@ class MacroProgressBar extends StatelessWidget {
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
 
     return Semantics(
-      label:
-          '$label ${value.round()} trên ${target.round()} $unit${over ? ', vượt mục tiêu' : ''}',
+      label: '$label ${estimated ? 'ước tính khoảng ' : ''}${value.round()} '
+          'trên ${target.round()} $unit${over ? ', vượt mục tiêu' : ''}',
       excludeSemantics: true,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Text(label, style: context.textStyles.labelMedium),
-              const Spacer(),
+              Expanded(
+                child: Text(label,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.textStyles.labelMedium),
+              ),
               Text.rich(
                 TextSpan(
                   children: [
                     TextSpan(
-                        text: '${value.round()}',
+                        text: '${estimated ? '≈' : ''}${value.round()}',
                         style: AppTypography.mono(
                             size: 12, color: context.colors.onSurface)),
                     TextSpan(
@@ -102,17 +109,24 @@ class MacroProgressBar extends StatelessWidget {
   }
 }
 
-/// "Thứ Tư, 14/10 · 1.670 / 1.850 kcal" + 4 macro bars.
+/// "Thứ Tư, 14/10 · 1.670 / 1.850 kcal" + 4 macro bars. Totals that include
+/// macros estimated from kcal ([estimated]) read "≈" and a note names the
+/// dishes ([estimatedDishes]) and says "ước tính".
 class DailyMacroCard extends StatelessWidget {
-  const DailyMacroCard(
-      {super.key,
-      required this.date,
-      required this.totals,
-      required this.targets});
+  const DailyMacroCard({
+    super.key,
+    required this.date,
+    required this.totals,
+    required this.targets,
+    this.estimated = const {},
+    this.estimatedDishes = const [],
+  });
 
   final DateTime date;
   final Nutrition totals;
   final Nutrition targets;
+  final Set<Macro> estimated;
+  final List<String> estimatedDishes;
 
   @override
   Widget build(BuildContext context) {
@@ -163,42 +177,37 @@ class DailyMacroCard extends StatelessWidget {
           LayoutBuilder(
             builder: (context, constraints) {
               final itemWidth = (constraints.maxWidth - 16) / 2;
+              final colors = {
+                Macro.protein: vl.macroProtein,
+                Macro.carbs: vl.macroCarbs,
+                Macro.fat: vl.macroFat,
+                Macro.fiber: vl.macroFiber,
+              };
               return Wrap(
                 spacing: 16,
                 runSpacing: 14,
                 children: [
-                  SizedBox(
-                      width: itemWidth,
-                      child: MacroProgressBar(
-                          label: 'Đạm',
-                          value: totals.proteinG,
-                          target: targets.proteinG,
-                          color: vl.macroProtein)),
-                  SizedBox(
-                      width: itemWidth,
-                      child: MacroProgressBar(
-                          label: 'Tinh bột',
-                          value: totals.carbsG,
-                          target: targets.carbsG,
-                          color: vl.macroCarbs)),
-                  SizedBox(
-                      width: itemWidth,
-                      child: MacroProgressBar(
-                          label: 'Chất béo',
-                          value: totals.fatG,
-                          target: targets.fatG,
-                          color: vl.macroFat)),
-                  SizedBox(
-                      width: itemWidth,
-                      child: MacroProgressBar(
-                          label: 'Chất xơ',
-                          value: totals.fiberG,
-                          target: targets.fiberG,
-                          color: vl.macroFiber)),
+                  for (final m in Macro.values)
+                    SizedBox(
+                        width: itemWidth,
+                        child: MacroProgressBar(
+                            label: m.label,
+                            value: m.of(totals) ?? 0,
+                            target: m.of(targets) ?? 0,
+                            color: colors[m]!,
+                            estimated: estimated.contains(m))),
                 ],
               );
             },
           ),
+          if (estimated.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              '≈ Có phần ước tính theo kcal cho món chưa nhập đủ macro'
+              '${estimatedDishes.isEmpty ? '' : ': ${estimatedDishes.map((d) => '"$d"').join(', ')}'}.',
+              style: context.textStyles.bodySmall?.copyWith(color: vl.muted),
+            ),
+          ],
         ],
       ),
     );

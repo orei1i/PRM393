@@ -20,11 +20,13 @@ class MockVideoStore {
 
   VideoRecipeDto? get(String id) => _videos[id]?.current();
 
-  /// Registers a video submitted by link and returns its id.
+  /// Registers a video submitted by link (or an uploaded file's URL) and
+  /// returns its id.
   String createFromLink(
       {required String title,
       required AuthorSummary author,
-      required String url}) {
+      required String url,
+      int durationSeconds = 300}) {
     final id = 'vid_${DateTime.now().millisecondsSinceEpoch}';
     _videos[id] = _Entry(
       VideoRecipeDto(
@@ -32,7 +34,7 @@ class MockVideoStore {
         title: title,
         author: author,
         coverSeed: id,
-        durationSeconds: 300,
+        durationSeconds: durationSeconds,
         aiStatus: 'queued',
         videoUrl: url,
       ),

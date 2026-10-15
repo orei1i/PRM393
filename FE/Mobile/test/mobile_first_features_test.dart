@@ -2,9 +2,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:veganlife_mobile/core/network/api_envelope.dart';
 import 'package:veganlife_mobile/core/network/api_exception.dart';
+import 'package:veganlife_mobile/core/session/user_role.dart';
 import 'package:veganlife_mobile/core/utils/formatters.dart';
 import 'package:veganlife_mobile/core/utils/text_search.dart';
 import 'package:veganlife_mobile/features/chef/data/models/chef_model.dart';
+import 'package:veganlife_mobile/features/chef/domain/entities/chef.dart';
 import 'package:veganlife_mobile/features/community/data/models/post_model.dart';
 import 'package:veganlife_mobile/features/community/domain/entities/post.dart';
 import 'package:veganlife_mobile/features/profile/data/models/user_profile_model.dart';
@@ -116,25 +118,36 @@ void main() {
     expect(video.steps.single.atSecond, 40);
   });
 
-  test('ChefDto parses packages and UTC slots to local time', () {
+  test('ChefDto parses services, the single SQL specialty and UTC slots', () {
     final chef = ChefDto.fromJson({
-      'id': 'u_chef',
-      'fullName': 'Phạm Thu Hà',
-      'specialties': ['Dinh dưỡng lâm sàng'],
+      'id': 3,
+      'userId': 12,
+      'name': 'Phạm Thu Hà',
+      'specialty': 'Dinh dưỡng lâm sàng',
       'rating': 4.8,
-      'startingPriceVnd': 450000,
-      'packages': [
+      'services': [
         {
-          'id': 'pk',
-          'name': 'Tư vấn nhanh',
+          'id': 12,
+          'chefId': 3,
+          'title': 'Tư vấn nhanh',
+          'type': 'Consult',
+          'price': 450000,
           'durationMinutes': 30,
-          'priceVnd': 450000,
-          'mode': 'online'
         },
+        {'id': 13, 'title': 'Thực đơn VIP', 'type': 'VipMenu', 'price': 690000},
       ],
       'availableSlots': ['2026-10-20T12:30:00Z'],
     }).toEntity();
-    expect(chef.packages.single.priceVnd, 450000);
+    expect(chef.id, '3');
+    expect(chef.userId, '12');
+    expect(chef.name, 'Phạm Thu Hà');
+    expect(chef.specialties, ['Dinh dưỡng lâm sàng']);
+    expect(chef.services.first.price, 450000);
+    expect(chef.services.last.type, ServiceType.vipMenu);
+    expect(chef.services.last.durationMinutes, isNull);
+    expect(chef.consultServices.single.id, '12');
+    // No startingPriceVnd on the wire: the cheapest service.
+    expect(chef.startingPriceVnd, 450000);
     expect(chef.availableSlots.single.isUtc, isFalse);
   });
 
@@ -153,6 +166,18 @@ void main() {
     expect(profile.status, UserStatus.locked);
     expect(profile.signedInWithGoogle, isTrue);
     expect(profile.chefApplication, ChefApplicationStatus.pending);
+    expect(profile.role, UserRole.user, reason: 'legacy Member');
+    expect(profile.isVerifiedChef, isFalse);
+
+    final chef = UserProfileDto.fromJson({
+      'id': 12,
+      'email': 'tam@x.vn',
+      'name': 'Lê Quang Tâm',
+      'role': 'Chef',
+    }).toEntity();
+    expect(chef.fullName, 'Lê Quang Tâm');
+    expect(chef.role, UserRole.chef);
+    expect(chef.isVerifiedChef, isTrue);
   });
 
   group('formatting & search', () {

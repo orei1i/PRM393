@@ -5,21 +5,32 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/session/session_controller.dart';
 import '../../../../core/theme/vl_colors.dart';
+import '../../../../core/widgets/floating_bar_clearance.dart';
 import '../../../../core/widgets/sign_in_sheet.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/user_avatar.dart';
 import '../../../../core/widgets/vl_card.dart';
+import '../../../ads/presentation/controllers/ads_controller.dart';
+import '../../../ads/presentation/widgets/sponsored_store_card.dart';
+import '../../../reels/presentation/controllers/reels_controller.dart';
+import '../../../reels/presentation/widgets/reels_strip.dart';
+import '../../../restaurant/presentation/screens/restaurant_nearby_screen.dart';
+import '../../../search/presentation/screens/search_screen.dart';
 import '../../../video/presentation/screens/video_detail_screen.dart';
 import '../../domain/entities/post.dart';
 import '../controllers/feed_controller.dart';
 import '../post_actions.dart';
+import '../widgets/feed_filter_chips.dart';
 import '../widgets/feed_skeleton.dart';
 import '../widgets/post_card.dart';
 import 'create_post_screen.dart';
 import 'post_detail_screen.dart';
 
-/// Tab "Trang chủ": community feed (recipes, videos with AI summary, Q&A).
-/// Guests can read everything; actions ask for sign-in.
+/// Tab "Trang chủ": community feed (recipes, videos with AI summary, Q&A),
+/// a "Reels" strip of short videos near the top, and a sponsored store card
+/// ("Được tài trợ") after every [adEvery] posts. The app bar opens search
+/// and "Quán chay gần bạn". Guests can read everything; actions ask for
+/// sign-in.
 class FeedScreen extends ConsumerStatefulWidget {
   const FeedScreen({super.key});
 
@@ -47,6 +58,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   }
 
   Future<void> _refresh() async {
+    ref
+      ..invalidate(reelsProvider)
+      ..invalidate(feedAdsProvider);
     try {
       await ref.read(feedControllerProvider.notifier).refresh();
     } catch (e) {
@@ -112,6 +126,18 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
               ),
               actions: [
                 IconButton(
+                  tooltip: 'Tìm kiếm',
+                  onPressed: () =>
+                      Navigator.of(context).push(SearchScreen.route()),
+                  icon: const Icon(Icons.search_rounded),
+                ),
+                IconButton(
+                  tooltip: 'Quán chay gần bạn',
+                  onPressed: () => Navigator.of(context)
+                      .push(RestaurantNearbyScreen.route()),
+                  icon: const Icon(Icons.storefront_outlined),
+                ),
+                IconButton(
                   tooltip: 'Tạo bài viết',
                   onPressed: _compose,
                   icon: const Icon(Icons.add_box_outlined),
@@ -120,8 +146,11 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
               ],
             ),
             SliverToBoxAdapter(child: _ComposerPrompt(onTap: _compose)),
+            // Short videos: with "Tất cả" and "Video" only.
+            if (filter == null || filter == PostType.video)
+              const SliverToBoxAdapter(child: ReelsStrip()),
             SliverToBoxAdapter(
-              child: _FilterChips(
+              child: FeedFilterChips(
                 selected: filter,
                 onSelected: (type) =>
                     ref.read(feedControllerProvider.notifier).setFilter(type),
@@ -165,34 +194,55 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
         ),
       ];
     }
+    // No ads while they load or when they fail: the feed never waits on them.
+    final slots = interleaveAds(
+        feed.posts, ref.watch(feedAdsProvider).valueOrNull ?? const []);
     return [
+      // Full-width posts separated by a surface-tone band.
       SliverPadding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+        padding: const EdgeInsets.only(top: 4),
         sliver: SliverList(
           delegate: SliverChildBuilderDelegate(
             (context, i) {
-              final post = feed.posts[i];
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: PostCard(
-                  key: ValueKey(post.id),
-                  post: post,
-                  onOpen: () => _openPost(post),
-                  onOpenVideo: () => _openVideo(post),
-                  onLike: () => PostActions.toggleLike(context, ref, post),
-                  onSave: () => PostActions.toggleSave(context, ref, post),
-                  onComment: () => PostActions.openComments(context, post),
-                  onReport: () => PostActions.report(context, ref, post),
-                ),
+              final slot = slots[i];
+              if (slot is AdSlot<Post>) {
+                final ad = slot.ad;
+                return Column(
+                  key: ValueKey('ad-${ad.id}'),
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const PostListGap(),
+                    SponsoredStoreCard(ad: ad),
+                  ],
+                );
+              }
+              final post = (slot as PostSlot<Post>).post;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const PostListGap(),
+                  PostCard(
+                    key: ValueKey(post.id),
+                    post: post,
+                    onOpen: () => _openPost(post),
+                    onOpenVideo: () => _openVideo(post),
+                    onLike: () => PostActions.toggleLike(context, ref, post),
+                    onSave: () => PostActions.toggleSave(context, ref, post),
+                    onComment: () => PostActions.openComments(context, post),
+                    onReport: () => PostActions.report(context, ref, post),
+                  ),
+                ],
               );
             },
-            childCount: feed.posts.length,
+            childCount: slots.length,
           ),
         ),
       ),
+      const SliverToBoxAdapter(child: PostListGap()),
       SliverToBoxAdapter(child: _Footer(feed: feed)),
-      // Clear the floating "Hỏi AI" button.
-      const SliverToBoxAdapter(child: SizedBox(height: 88)),
+      // Bottom breathing room: clears the shell's floating bar.
+      SliverToBoxAdapter(
+          child: SizedBox(height: floatingBarClearance(context))),
     ];
   }
 }
@@ -229,40 +279,6 @@ class _ComposerPrompt extends ConsumerWidget {
             Icon(Icons.restaurant_menu_rounded, color: context.colors.primary),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _FilterChips extends StatelessWidget {
-  const _FilterChips({required this.selected, required this.onSelected});
-
-  final PostType? selected;
-  final ValueChanged<PostType?> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final options = <(PostType?, String)>[
-      (null, 'Tất cả'),
-      (PostType.recipe, 'Công thức'),
-      (PostType.video, 'Video'),
-      (PostType.discussion, 'Thảo luận'),
-    ];
-    return SizedBox(
-      height: 48,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        itemCount: options.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (context, i) {
-          final (type, label) = options[i];
-          return ChoiceChip(
-            label: Text(label),
-            selected: selected == type,
-            onSelected: (_) => onSelected(type),
-          );
-        },
       ),
     );
   }

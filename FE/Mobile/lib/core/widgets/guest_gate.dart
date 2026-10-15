@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../config/env.dart';
 import '../session/session_controller.dart';
 import '../theme/vl_colors.dart';
 import 'google_sign_in_button.dart';
@@ -16,6 +17,7 @@ class GuestGate extends ConsumerWidget {
     required this.message,
     required this.benefits,
     required this.child,
+    this.showClose = false,
   });
 
   final IconData icon;
@@ -24,13 +26,17 @@ class GuestGate extends ConsumerWidget {
   final List<String> benefits;
   final Widget child;
 
+  /// Adds a "Đóng" button that pops the route, for gates that fill a pushed
+  /// fullscreen route without an app bar (the scanner).
+  final bool showClose;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isGuest =
         ref.watch(sessionControllerProvider.select((s) => s.isGuest));
     if (!isGuest) return child;
 
-    return SafeArea(
+    final content = SafeArea(
       child: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -74,7 +80,7 @@ class GuestGate extends ConsumerWidget {
                 const GoogleSignInButton(),
                 const SizedBox(height: 12),
                 Text(
-                  'Bạn vẫn xem công thức và hỏi AI 3 lần miễn phí mà không cần tài khoản.',
+                  'Bạn vẫn xem công thức và hỏi AI ${Env.guestTrialLimit} lần miễn phí mà không cần tài khoản.',
                   style: context.textStyles.bodySmall
                       ?.copyWith(color: context.vl.muted),
                 ),
@@ -83,6 +89,34 @@ class GuestGate extends ConsumerWidget {
           ),
         ),
       ),
+    );
+
+    // Paint the theme background ourselves: some hosts are dark (the scanner
+    // route is black), and the themed text would be unreadable on them.
+    return ColoredBox(
+      color: Theme.of(context).scaffoldBackgroundColor,
+      child: !showClose
+          ? content
+          : Stack(
+              fit: StackFit.expand,
+              children: [
+                content,
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  child: SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: IconButton(
+                        tooltip: 'Đóng',
+                        onPressed: () => Navigator.of(context).maybePop(),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
     );
   }
 }

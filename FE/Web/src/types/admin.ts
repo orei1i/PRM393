@@ -1,7 +1,7 @@
 // src/types/admin.ts
 // Admin console types. User fields mirror the backend `UserResponse`
 // (ApplicationLayer.DTOs.Users) and `GeneralEnum.UserStatusEnum` / `AuthTypeEnum`.
-import type { ISODateString } from "./moderation";
+import type { FlagCategory, ISODateString } from "./moderation";
 
 /* ------------------------------------------------------------------- auth */
 
@@ -15,8 +15,11 @@ export interface AdminSession {
 
 /* ------------------------------------------------------------------ users */
 
-export const USER_ROLES = ["Admin", "Member"] as const;
+/** `users.role`. Legacy "Member" (and unknown values) read as "User". */
+export const USER_ROLES = ["Admin", "User", "Chef"] as const;
 export type UserRole = (typeof USER_ROLES)[number];
+/** Roles an admin can assign; "Chef" is granted only by approving a chef application. */
+export type AssignableRole = Exclude<UserRole, "Chef">;
 
 /** Same order as the C# enum, so numeric values map by index. */
 export const USER_STATUSES = ["Active", "Inactive", "Locked", "Banned"] as const;
@@ -34,7 +37,8 @@ export const USER_STATUS_LABEL: Record<UserStatus, string> = {
 
 export const USER_ROLE_LABEL: Record<UserRole, string> = {
   Admin: "Quản trị viên",
-  Member: "Thành viên",
+  User: "Thành viên",
+  Chef: "Chuyên gia",
 };
 
 export interface AdminUser {
@@ -46,7 +50,7 @@ export interface AdminUser {
   status: UserStatus;
   authType: AuthType;
   createdAt: ISODateString;
-  /** Extras the console needs (not in UserResponse yet). */
+  /** Extras the console needs (not in UserResponse yet). Defaults to `role === "Chef"`. */
   isVerifiedChef: boolean;
   postCount: number;
   reportCount: number;
@@ -122,6 +126,22 @@ export const VIDEO_AI_STATUS_LABEL: Record<VideoAiStatus, string> = {
   failed: "AI lỗi",
 };
 
+/** `posts.status`: published unless the AI pre-screen flags it (then Pending until an admin decides). */
+export const POST_STATUSES = ["Published", "Pending", "Rejected"] as const;
+export type PostStatus = (typeof POST_STATUSES)[number];
+
+export const POST_STATUS_LABEL: Record<PostStatus, string> = {
+  Published: "Đã đăng",
+  Pending: "Chờ duyệt",
+  Rejected: "Bị từ chối",
+};
+
+/** `posts.media_type`. `kind` stays the FE category (recipe / video / discussion). */
+export const MEDIA_TYPES = ["Text", "Image", "Video"] as const;
+export type MediaType = (typeof MEDIA_TYPES)[number];
+
+export type PostDecision = "Approve" | "Reject";
+
 export interface ContentItem {
   id: string;
   kind: ContentKind;
@@ -135,17 +155,66 @@ export interface ContentItem {
   hidden: boolean;
   pinned: boolean;
   video?: { durationSeconds: number; aiStatus: VideoAiStatus; failureReason?: string };
+  status: PostStatus;
+  mediaType: MediaType;
+  mediaUrl: string | null;
+  /** The AI pre-screen flag (ai_flags) that held the post. */
+  aiFlag?: { reason: string; score: number; category: FlagCategory; createdAt: ISODateString };
+  /** moderation_decisions row (one per post). `note` goes back to the author as rejectionReason. */
+  decision?: { decision: PostDecision; note: string | null; adminName: string; decidedAt: ISODateString };
 }
 
-export type ContentView = "all" | "reported" | "hidden" | "pinned";
+export type ContentView = "all" | "pending" | "reported" | "hidden" | "pinned" | "rejected";
 
 export interface ContentQuery {
   view: ContentView;
   kind: ContentKind | "all";
   search: string;
+  /** `?author=` from the user drawer. */
+  authorId?: string;
 }
 
 export type ContentAction = "hide" | "unhide" | "pin" | "unpin" | "delete" | "retry_ai";
+
+/** POST /admin/posts/{id}/review — `note` is required (≥ 10 chars) when rejecting. */
+export interface PostReviewInput {
+  postId: string;
+  decision: PostDecision;
+  note: string;
+}
+
+/* ---------------------------------------------------------------- comments */
+
+/** Proposed `comments.status` column. */
+export type CommentStatus = "Visible" | "Hidden";
+
+export const COMMENT_STATUS_LABEL: Record<CommentStatus, string> = {
+  Visible: "Hiển thị",
+  Hidden: "Đã ẩn",
+};
+
+export interface AdminComment {
+  id: string;
+  postId: string;
+  postTitle: string;
+  author: { id: string; fullName: string };
+  content: string;
+  status: CommentStatus;
+  reportCount: number;
+  createdAt: ISODateString;
+  updatedAt: ISODateString | null;
+}
+
+export type CommentView = "all" | "reported" | "hidden";
+
+export interface CommentQuery {
+  view: CommentView;
+  search: string;
+  authorId?: string;
+  postId?: string;
+}
+
+export type CommentAction = "hide" | "unhide" | "delete";
 
 /* ----------------------------------------------------------------- catalog */
 
@@ -195,6 +264,8 @@ export interface OverviewStats {
     chefApplications: number;
     reportedContent: number;
     failedVideos: number;
+    /** Posts held by the AI pre-screen (status Pending). */
+    pendingPosts: number;
   };
   signupsDaily: { date: ISODateString; count: number }[];
   contentMix: { kind: ContentKind; count: number }[];

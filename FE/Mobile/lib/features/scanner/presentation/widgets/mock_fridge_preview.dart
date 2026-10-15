@@ -29,10 +29,9 @@ class _FridgePainter extends CustomPainter {
     canvas.drawRect(Rect.fromLTWH(0, 0.12 * h, w, 0.68 * h), fill(0xFF1B2722));
 
     // Shelves
-    canvas.drawRect(
-        Rect.fromLTWH(0, 0.385 * h, w, 0.008 * h), fill(0xFF2E3E36));
-    canvas.drawRect(
-        Rect.fromLTWH(0, 0.715 * h, w, 0.008 * h), fill(0xFF2E3E36));
+    for (final y in const [0.385, 0.555, 0.715]) {
+      canvas.drawRect(Rect.fromLTWH(0, y * h, w, 0.008 * h), fill(0xFF2E3E36));
+    }
 
     // Broccoli (box 0.05, 0.17, 0.30 × 0.20)
     canvas.drawRRect(
@@ -69,30 +68,58 @@ class _FridgePainter extends CustomPainter {
     canvas.drawCircle(p(0.78, 0.31), 0.055 * w, fill(0xFFA8473A));
     canvas.drawCircle(p(0.89, 0.315), 0.05 * w, fill(0xFFB85544));
 
-    // Carrots (box 0.05, 0.50, 0.42 × 0.20)
+    // Egg carton (box 0.05, 0.43, 0.36 × 0.12)
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+          Rect.fromLTWH(0.07 * w, 0.49 * h, 0.32 * w, 0.055 * h),
+          const Radius.circular(6)),
+      fill(0xFF8C8577),
+    );
+    for (final x in const [0.12, 0.19, 0.26, 0.33]) {
+      canvas.drawOval(
+          Rect.fromCenter(
+              center: p(x, 0.478), width: 0.06 * w, height: 0.055 * h),
+          fill(0xFFF1E3C8));
+    }
+
+    // Milk carton (box 0.45, 0.40, 0.17 × 0.15)
+    canvas.drawRect(Rect.fromLTWH(0.47 * w, 0.445 * h, 0.13 * w, 0.103 * h),
+        fill(0xFFE8EEF2));
+    canvas.drawPath(
+      Path()
+        ..moveTo(0.47 * w, 0.445 * h)
+        ..lineTo(0.535 * w, 0.41 * h)
+        ..lineTo(0.60 * w, 0.445 * h)
+        ..close(),
+      fill(0xFFD3DCE3),
+    );
+    canvas.drawRect(Rect.fromLTWH(0.47 * w, 0.475 * h, 0.13 * w, 0.03 * h),
+        fill(0xFF4A7BB7));
+
+    // Carrots (box 0.05, 0.58, 0.42 × 0.13)
     final carrot = fill(0xFFC2672C);
-    for (final y in const [0.55, 0.60, 0.65]) {
+    for (final y in const [0.61, 0.645, 0.68]) {
       final path = Path()
-        ..moveTo(0.08 * w, (y - 0.02) * h)
+        ..moveTo(0.08 * w, (y - 0.016) * h)
         ..lineTo(0.45 * w, y * h)
-        ..lineTo(0.08 * w, (y + 0.02) * h)
+        ..lineTo(0.08 * w, (y + 0.016) * h)
         ..close();
       canvas.drawPath(path, carrot);
       canvas.drawLine(
           p(0.08, y),
-          p(0.05, y - 0.025),
+          p(0.05, y - 0.02),
           Paint()
             ..color = const Color(0xFF4F7A3F)
             ..strokeWidth = 0.012 * w
             ..strokeCap = StrokeCap.round);
     }
 
-    // Leafy greens (box 0.52, 0.52, 0.43 × 0.18)
+    // Leafy greens (box 0.52, 0.585, 0.43 × 0.12)
     for (final (x, y, rx, ry, c) in const [
-      (0.60, 0.61, 0.08, 0.035, 0xFF2E5636),
-      (0.72, 0.58, 0.09, 0.04, 0xFF35603C),
-      (0.85, 0.61, 0.08, 0.035, 0xFF2A4F33),
-      (0.73, 0.655, 0.18, 0.03, 0xFF305A38),
+      (0.60, 0.645, 0.08, 0.03, 0xFF2E5636),
+      (0.72, 0.62, 0.09, 0.032, 0xFF35603C),
+      (0.85, 0.645, 0.08, 0.03, 0xFF2A4F33),
+      (0.73, 0.68, 0.18, 0.025, 0xFF305A38),
     ]) {
       canvas.drawOval(
           Rect.fromCenter(

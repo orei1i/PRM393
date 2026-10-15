@@ -2,12 +2,14 @@
 //
 // Matches the backend `UserResponse` (ApplicationLayer.DTOs.Users) plus
 // profile extras the mobile app needs from GET /users/me:
-// { "id", "email", "fullName", "phone", "role", "status": 0, "authType": 1, "createdAt",
+// { "id", "email", "fullName" (or SQL "name"), "phone", "role": "User" | "Chef" | "Admin",
+//   "status": 0, "authType": 1, "createdAt",
 //   "stats": { "posts": 2, "likesReceived": 20, "saved": 2 },
 //   "chefApplication": { "status": "pending", "rejectReason": null } }
 //
 // ASP.NET serialises enums as numbers unless JsonStringEnumConverter is
 // registered, so `status`/`authType` accept both forms.
+import '../../../../core/session/user_role.dart';
 import '../../../../core/utils/json_helpers.dart';
 import '../../domain/entities/user_profile.dart';
 
@@ -40,9 +42,9 @@ class UserProfileDto {
     return UserProfile(
       id: json['id']?.toString() ?? '',
       email: json['email'] as String? ?? '',
-      fullName: json['fullName'] as String? ?? '',
+      fullName: (json['fullName'] ?? json['name']) as String? ?? '',
       phone: json['phone'] as String? ?? '',
-      role: json['role'] as String? ?? 'Member',
+      role: UserRole.fromApi(json['role']),
       status: _status(json['status']),
       signedInWithGoogle: _isGoogle(json['authType']),
       createdAt: readDateTime(json['createdAt']) ?? DateTime.now(),

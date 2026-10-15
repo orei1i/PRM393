@@ -1,4 +1,5 @@
 // lib/features/profile/domain/entities/user_profile.dart
+import '../../../../core/session/user_role.dart';
 
 /// Mirrors `DomainLayer.Enums.GeneralEnum.UserStatusEnum` on the backend.
 enum UserStatus {
@@ -47,8 +48,8 @@ class UserProfile {
   final String fullName;
   final String phone;
 
-  /// `Member` | `Admin` (JWT role). Chef is a verified member, not a role.
-  final String role;
+  /// `users.role`: Admin / User / Chef (legacy `Member` reads as User).
+  final UserRole role;
   final UserStatus status;
   final bool signedInWithGoogle;
   final DateTime createdAt;
@@ -58,7 +59,9 @@ class UserProfile {
   final ChefApplicationStatus chefApplication;
   final String? chefRejectReason;
 
-  bool get isVerifiedChef => chefApplication == ChefApplicationStatus.approved;
+  bool get isVerifiedChef =>
+      role == UserRole.chef ||
+      chefApplication == ChefApplicationStatus.approved;
 }
 
 class ChefApplicationRequest {

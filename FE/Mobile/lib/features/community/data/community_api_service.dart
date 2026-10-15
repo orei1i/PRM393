@@ -12,9 +12,11 @@ import 'mock_community_repository.dart';
 import 'models/post_model.dart';
 
 abstract interface class CommunityApiService {
-  /// Cursor-paginated feed, newest first; pinned posts come first on page 1.
+  /// Cursor-paginated feed of `Published` posts, newest first; pinned posts
+  /// come first on page 1.
   Future<FeedPageDto> getFeed({PostType? type, String? cursor, int limit = 6});
 
+  /// Non-published posts are 404 for everyone but their author.
   Future<PostDto> getPost(String id);
 
   Future<void> setLiked(String postId, {required bool liked});
@@ -25,15 +27,33 @@ abstract interface class CommunityApiService {
 
   Future<CommentDto> addComment(String postId, String text);
 
+  /// The server pre-screens the text: `Published`, or `Pending` when the AI
+  /// flags it (hidden from the feed until an admin approves).
   Future<PostDto> createPost(CreatePostRequestDto request);
+
+  /// Author only (403 otherwise). Re-screened like a new post; an edited
+  /// `Rejected` post always goes back to `Pending`.
+  Future<PostDto> updatePost(String id, UpdatePostRequestDto request);
+
+  /// Author only; removes the post with its comments.
+  Future<void> deletePost(String id);
 
   /// Lands in the admin moderation queue on the web console.
   Future<void> reportPost(String postId,
       {required ReportReason reason, String? note});
 
+  /// Every status, with `rejectionReason` on rejected posts.
   Future<List<PostDto>> getMyPosts();
 
   Future<List<PostDto>> getSavedPosts();
+
+  Future<CommentDto> updateComment(
+      String postId, String commentId, String text);
+
+  Future<void> deleteComment(String postId, String commentId);
+
+  /// The member's comments across all posts, newest first.
+  Future<List<MyCommentDto>> getMyComments();
 }
 
 class RemoteCommunityApiService implements CommunityApiService {
@@ -115,6 +135,19 @@ class RemoteCommunityApiService implements CommunityApiService {
       });
 
   @override
+  Future<PostDto> updatePost(String id, UpdatePostRequestDto request) =>
+      guardApi(() async {
+        final res = await _dio.put<Map<String, dynamic>>(ApiEndpoints.post(id),
+            data: request.toJson());
+        return PostDto.fromJson(res.data!);
+      });
+
+  @override
+  Future<void> deletePost(String id) => guardApi(() async {
+        await _dio.delete<void>(ApiEndpoints.post(id));
+      });
+
+  @override
   Future<void> reportPost(String postId,
           {required ReportReason reason, String? note}) =>
       guardApi(() async {
@@ -138,6 +171,32 @@ class RemoteCommunityApiService implements CommunityApiService {
         final res = await _dio.get<List<dynamic>>(ApiEndpoints.mySavedPosts);
         return _posts(res.data);
       });
+
+  @override
+  Future<CommentDto> updateComment(
+          String postId, String commentId, String text) =>
+      guardApi(() async {
+        final res = await _dio.put<Map<String, dynamic>>(
+          ApiEndpoints.postComment(postId, commentId),
+          data: {'text': text},
+        );
+        return CommentDto.fromJson(res.data!);
+      });
+
+  @override
+  Future<void> deleteComment(String postId, String commentId) =>
+      guardApi(() async {
+        await _dio.delete<void>(ApiEndpoints.postComment(postId, commentId));
+      });
+
+  @override
+  Future<List<MyCommentDto>> getMyComments() => guardApi(() async {
+        final res = await _dio.get<List<dynamic>>(ApiEndpoints.myComments);
+        return (res.data ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(MyCommentDto.fromJson)
+            .toList();
+      });
 }
 
 final communityApiProvider = Provider<CommunityApiService>((ref) {
@@ -145,6 +204,8 @@ final communityApiProvider = Provider<CommunityApiService>((ref) {
     return MockCommunityRepository(
       currentUserName: () =>
           ref.read(sessionControllerProvider).displayName ?? 'Bạn',
+      isSignedIn: () => !ref.read(sessionControllerProvider).isGuest,
+      currentUserId: () => ref.read(sessionControllerProvider).userId ?? '',
     );
   }
   return RemoteCommunityApiService(ref.watch(dioProvider));

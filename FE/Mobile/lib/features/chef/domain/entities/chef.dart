@@ -1,33 +1,65 @@
 // lib/features/chef/domain/entities/chef.dart
 
-enum ConsultMode {
-  online('online', 'Online qua video'),
-  atHome('at_home', 'Tại nhà bạn');
+/// `services.type`. Wire values are exactly [apiValue]; the parser ignores
+/// case, spaces and underscores, so `VipMenu` and `VIP_MENU` both read as
+/// [vipMenu]. Unknown values read as [consult].
+enum ServiceType {
+  consult('Consult', 'Tư vấn 1–1'),
+  course('Course', 'Khoá học'),
+  vipMenu('VIP Menu', 'Thực đơn VIP');
 
-  const ConsultMode(this.apiValue, this.label);
+  const ServiceType(this.apiValue, this.label);
   final String apiValue;
   final String label;
 
-  static ConsultMode fromApi(String? value) => values
-      .firstWhere((m) => m.apiValue == value, orElse: () => ConsultMode.online);
+  /// Course / VIP Menu: bought once, then opened as content.
+  bool get isPackage => this != consult;
+
+  /// How long a paid package stays open (access-grant rule, mirrored from
+  /// the BE). Consults expire 24 h after the appointment instead.
+  int? get accessDays => switch (this) {
+        consult => null,
+        course => 180,
+        vipMenu => 30,
+      };
+
+  static String _fold(Object? value) =>
+      (value?.toString() ?? '').replaceAll(RegExp(r'[\s_]'), '').toLowerCase();
+
+  static ServiceType fromApi(Object? value) {
+    final raw = _fold(value);
+    return values.firstWhere((t) => _fold(t.apiValue) == raw,
+        orElse: () => consult);
+  }
 }
 
-class ConsultPackage {
-  const ConsultPackage({
+/// A row of `services`: what a chef sells (1–1 consult, course, VIP menu).
+class ChefService {
+  const ChefService({
     required this.id,
-    required this.name,
-    required this.description,
-    required this.durationMinutes,
-    required this.priceVnd,
-    required this.mode,
+    required this.chefId,
+    required this.title,
+    required this.type,
+    required this.price,
+    this.description = '',
+    this.durationMinutes,
+    this.contentUrl,
   });
 
   final String id;
-  final String name;
+  final String chefId;
+  final String title;
+  final ServiceType type;
+
+  /// Integer VND.
+  final int price;
   final String description;
-  final int durationMinutes;
-  final int priceVnd;
-  final ConsultMode mode;
+
+  /// Consult only.
+  final int? durationMinutes;
+
+  /// Course / VIP Menu only; sent to the owner and to buyers with access.
+  final String? contentUrl;
 }
 
 /// A member verified by an admin (web console › Duyệt chuyên gia).
@@ -42,14 +74,20 @@ class Chef {
     required this.yearsExperience,
     required this.city,
     required this.startingPriceVnd,
+    this.userId,
     this.bio = '',
     this.consultCount = 0,
     this.certificates = const [],
-    this.packages = const [],
+    this.services = const [],
     this.availableSlots = const [],
+    this.bookedSlots = const [],
   });
 
+  /// `chef_profiles.id`.
   final String id;
+
+  /// `chef_profiles.user_id`: the account that owns this profile.
+  final String? userId;
   final String name;
   final String headline;
   final List<String> specialties;
@@ -63,51 +101,13 @@ class Chef {
   final String bio;
   final int consultCount;
   final List<String> certificates;
-  final List<ConsultPackage> packages;
+  final List<ChefService> services;
   final List<DateTime> availableSlots;
-}
 
-enum ConsultationStatus {
-  pending('pending', 'Chờ chuyên gia xác nhận'),
-  confirmed('confirmed', 'Đã xác nhận'),
-  completed('completed', 'Đã hoàn thành'),
-  cancelled('cancelled', 'Đã huỷ');
+  /// Slots of the chef's calendar someone already holds: shown greyed out
+  /// ("Đã kín") next to [availableSlots].
+  final List<DateTime> bookedSlots;
 
-  const ConsultationStatus(this.apiValue, this.label);
-  final String apiValue;
-  final String label;
-
-  bool get isUpcoming => this == pending || this == confirmed;
-
-  static ConsultationStatus fromApi(String? value) =>
-      values.firstWhere((s) => s.apiValue == value,
-          orElse: () => ConsultationStatus.pending);
-}
-
-class Consultation {
-  const Consultation({
-    required this.id,
-    required this.chefId,
-    required this.chefName,
-    required this.packageName,
-    required this.priceVnd,
-    required this.durationMinutes,
-    required this.mode,
-    required this.scheduledAt,
-    required this.status,
-    required this.createdAt,
-    this.note,
-  });
-
-  final String id;
-  final String chefId;
-  final String chefName;
-  final String packageName;
-  final int priceVnd;
-  final int durationMinutes;
-  final ConsultMode mode;
-  final DateTime scheduledAt;
-  final ConsultationStatus status;
-  final DateTime createdAt;
-  final String? note;
+  List<ChefService> get consultServices =>
+      services.where((s) => s.type == ServiceType.consult).toList();
 }

@@ -1,16 +1,15 @@
 // src/components/users/user-table.tsx
 "use client";
 
-import { BadgeCheck, Flag } from "lucide-react";
+import { Flag } from "lucide-react";
 
 import { InitialsAvatar } from "@/components/admin/initials-avatar";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/form-controls";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatNumber } from "@/lib/utils";
-import { USER_ROLE_LABEL, type AdminUser } from "@/types/admin";
+import type { AdminUser } from "@/types/admin";
 
-import { UserStatusBadge } from "./status-badge";
+import { UserRoleBadges, UserStatusBadge } from "./status-badge";
 
 const dateVi = new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
 
@@ -73,13 +72,7 @@ export function UserTable({
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-1">
-                    <Badge variant={u.role === "Admin" ? "default" : "secondary"}>{USER_ROLE_LABEL[u.role]}</Badge>
-                    {u.isVerifiedChef && (
-                      <Badge variant="sprout">
-                        <BadgeCheck aria-hidden />
-                        Chuyên gia
-                      </Badge>
-                    )}
+                    <UserRoleBadges user={u} />
                   </div>
                 </TableCell>
                 <TableCell>

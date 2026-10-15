@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/session/session_controller.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/widgets/food_cover.dart';
@@ -9,12 +10,17 @@ import '../../../../core/widgets/sign_in_sheet.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/user_avatar.dart';
 import '../../../../core/widgets/vl_card.dart';
+import '../../../commerce/data/models/order_model.dart';
+import '../../../commerce/presentation/controllers/commerce_controllers.dart';
+import '../../../commerce/presentation/screens/payment_screen.dart';
+import '../../../commerce/presentation/screens/service_content_screen.dart';
+import '../../../commerce/presentation/widgets/commerce_ui.dart';
 import '../../data/chef_api_service.dart';
 import '../../domain/entities/chef.dart';
-import '../controllers/chef_controllers.dart';
 import '../widgets/booking_sheet.dart';
 import '../widgets/chef_card.dart';
-import 'my_consultations_screen.dart';
+import '../widgets/purchase_sheet.dart';
+import '../widgets/service_tile.dart';
 
 class ChefProfileScreen extends ConsumerStatefulWidget {
   const ChefProfileScreen({super.key, required this.chefId, this.preview});
@@ -43,33 +49,63 @@ class _ChefProfileScreenState extends ConsumerState<ChefProfileScreen> {
         _future = _load();
       });
 
-  Future<void> _book(Chef chef, {ConsultPackage? package}) async {
-    if (!await ensureSignedIn(context, ref,
-        reason: 'Đăng nhập để đặt lịch tư vấn với chuyên gia.')) {
+  bool _isOwn(Chef chef) {
+    final me = ref.read(sessionControllerProvider);
+    return !me.isGuest && chef.userId != null && chef.userId == me.userId;
+  }
+
+  /// Order created in a sheet → refresh slots and lists, then pay.
+  Future<void> _pay(OrderDto? order) async {
+    if (order == null || !mounted) return;
+    ref.read(commerceRevisionProvider.notifier).bump();
+    _reload(); // the held slot leaves the calendar
+    await Navigator.of(context).push(PaymentScreen.route(order.id));
+    if (mounted) _reload(); // expired / cancelled orders release it again
+  }
+
+  Future<bool> _signedInBuyer(Chef chef, String reason) async {
+    if (!await ensureSignedIn(context, ref, reason: reason)) return false;
+    if (!mounted) return false;
+    if (_isOwn(chef)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Đây là dịch vụ của bạn, không tự đặt được.')));
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _book(Chef chef, {ChefService? service}) async {
+    if (!await _signedInBuyer(
+        chef, 'Đăng nhập để đặt lịch tư vấn với chuyên gia.')) {
       return;
     }
     if (!mounted) return;
-    final booked = await showModalBottomSheet<Consultation>(
+    final order = await showModalBottomSheet<OrderDto>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => BookingSheet(chef: chef, initialPackage: package),
+      builder: (_) => BookingSheet(chef: chef, initialService: service),
     );
-    if (booked == null || !mounted) return;
-    ref.invalidate(myConsultationsProvider);
-    _reload(); // refresh free slots
-    final navigator = Navigator.of(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content:
-            const Text('Đã gửi yêu cầu. Chuyên gia sẽ xác nhận trong 24 giờ.'),
-        action: SnackBarAction(
-          label: 'Xem lịch',
-          onPressed: () => navigator.push(MyConsultationsScreen.route()),
-        ),
-      ),
-    );
+    await _pay(order);
   }
+
+  Future<void> _buy(Chef chef, ChefService service) async {
+    if (!await _signedInBuyer(
+        chef, 'Đăng nhập để mua khoá học, thực đơn của chuyên gia.')) {
+      return;
+    }
+    if (!mounted) return;
+    final order = await showModalBottomSheet<OrderDto>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => PurchaseSheet(chef: chef, service: service),
+    );
+    await _pay(order);
+  }
+
+  void _openContent(ChefService service) => Navigator.of(context)
+      .push(ServiceContentScreen.route(service.id, title: service.title));
 
   @override
   Widget build(BuildContext context) {
@@ -109,45 +145,55 @@ class _ChefProfileScreenState extends ConsumerState<ChefProfileScreen> {
                       )
                     else
                       SliverToBoxAdapter(
-                          child: _Details(
-                              chef: chef,
-                              onBook: (p) => _book(chef, package: p))),
+                        child: _Details(
+                          chef: chef,
+                          isOwn: _isOwn(chef),
+                          owned: ref.watch(ownedServiceIdsProvider),
+                          onBook: (s) => _book(chef, service: s),
+                          onBuy: (s) => _buy(chef, s),
+                          onOpenContent: _openContent,
+                        ),
+                      ),
                   ],
                 ),
-          bottomNavigationBar:
-              chef == null || loadingDetail || snapshot.hasError
-                  ? null
-                  : SafeArea(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                        child: Row(
+          bottomNavigationBar: chef == null ||
+                  loadingDetail ||
+                  snapshot.hasError ||
+                  chef.consultServices.isEmpty ||
+                  _isOwn(chef)
+              ? null
+              : SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                    child: Row(
+                      children: [
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('Từ',
-                                    style: context.textStyles.bodySmall
-                                        ?.copyWith(color: context.vl.muted)),
-                                Text(
-                                  formatVnd(chef.startingPriceVnd),
-                                  style: context.textStyles.titleMedium
-                                      ?.copyWith(fontWeight: FontWeight.w800),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: FilledButton.icon(
-                                onPressed: () => _book(chef),
-                                icon: const Icon(Icons.event_available_rounded),
-                                label: const Text('Đặt lịch tư vấn'),
-                              ),
+                            Text('Từ',
+                                style: context.textStyles.bodySmall
+                                    ?.copyWith(color: context.vl.muted)),
+                            Text(
+                              formatVnd(chef.startingPriceVnd),
+                              style: context.textStyles.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w800),
                             ),
                           ],
                         ),
-                      ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: () => _book(chef,
+                                service: chef.consultServices.first),
+                            icon: const Icon(Icons.event_available_rounded),
+                            label: const Text('Đặt lịch tư vấn'),
+                          ),
+                        ),
+                      ],
                     ),
+                  ),
+                ),
         );
       },
     );
@@ -201,10 +247,48 @@ class _Header extends StatelessWidget {
 }
 
 class _Details extends StatelessWidget {
-  const _Details({required this.chef, required this.onBook});
+  const _Details({
+    required this.chef,
+    required this.isOwn,
+    required this.owned,
+    required this.onBook,
+    required this.onBuy,
+    required this.onOpenContent,
+  });
 
   final Chef chef;
-  final ValueChanged<ConsultPackage> onBook;
+
+  /// The signed-in chef looking at their own public page.
+  final bool isOwn;
+
+  /// Packages the member can already open.
+  final Set<String> owned;
+  final ValueChanged<ChefService> onBook;
+  final ValueChanged<ChefService> onBuy;
+  final ValueChanged<ChefService> onOpenContent;
+
+  Widget? _action(ChefService s) {
+    if (isOwn) return null;
+    if (s.type == ServiceType.consult) {
+      return FilledButton.tonalIcon(
+        onPressed: () => onBook(s),
+        icon: const Icon(Icons.event_available_rounded, size: 18),
+        label: const Text('Đặt lịch tư vấn'),
+      );
+    }
+    if (owned.contains(s.id)) {
+      return OutlinedButton.icon(
+        onPressed: () => onOpenContent(s),
+        icon: const Icon(Icons.play_circle_outline_rounded, size: 18),
+        label: const Text('Mở nội dung'),
+      );
+    }
+    return FilledButton.tonalIcon(
+      onPressed: () => onBuy(s),
+      icon: const Icon(Icons.shopping_bag_outlined, size: 18),
+      label: const Text('Mua gói'),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -232,7 +316,13 @@ class _Details extends StatelessWidget {
             spacing: 6,
             runSpacing: 6,
             children: [
-              for (final s in chef.specialties) VLTag.neutral(context, s)
+              // Wraps instead of overflowing at large text sizes.
+              for (final s in chef.specialties)
+                StatusPill(
+                  label: s,
+                  background: context.colors.surfaceContainer,
+                  foreground: context.colors.onSurfaceVariant,
+                ),
             ],
           ),
           if (chef.certificates.isNotEmpty) ...[
@@ -249,12 +339,29 @@ class _Details extends StatelessWidget {
               ),
           ],
           const SizedBox(height: 16),
-          Text('Gói tư vấn', style: context.textStyles.titleMedium),
+          Text('Dịch vụ', style: context.textStyles.titleMedium),
           const SizedBox(height: 8),
-          for (final p in chef.packages)
+          if (isOwn)
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: PackageTile(package: p, onTap: () => onBook(p)),
+              child: VLCard(
+                color: context.vl.aiContainer,
+                borderColor: Colors.transparent,
+                child: Text(
+                  'Đây là trang công khai của bạn. Sửa dịch vụ trong Tôi › Bảng điều khiển chuyên gia.',
+                  style: context.textStyles.bodyMedium
+                      ?.copyWith(color: context.vl.onAiContainer),
+                ),
+              ),
+            ),
+          if (chef.services.isEmpty)
+            Text('Chuyên gia chưa mở dịch vụ nào.',
+                style: context.textStyles.bodyMedium
+                    ?.copyWith(color: context.vl.muted)),
+          for (final s in chef.services)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: ServiceTile(service: s, action: _action(s)),
             ),
         ],
       ),
@@ -279,69 +386,6 @@ class _Stat extends StatelessWidget {
           Text(label,
               style: context.textStyles.bodySmall
                   ?.copyWith(color: context.vl.muted)),
-        ],
-      ),
-    );
-  }
-}
-
-class PackageTile extends StatelessWidget {
-  const PackageTile(
-      {super.key, required this.package, this.onTap, this.selected = false});
-
-  final ConsultPackage package;
-  final VoidCallback? onTap;
-  final bool selected;
-
-  @override
-  Widget build(BuildContext context) {
-    return VLCard(
-      onTap: onTap,
-      borderColor: selected ? context.colors.primary : null,
-      color: selected ? context.colors.secondaryContainer : null,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(package.name,
-                    style: context.textStyles.titleSmall
-                        ?.copyWith(fontWeight: FontWeight.w700)),
-                const SizedBox(height: 2),
-                Text(package.description,
-                    style: context.textStyles.bodySmall
-                        ?.copyWith(color: context.vl.muted)),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    VLTag.neutral(context, '${package.durationMinutes} phút'),
-                    VLTag.neutral(context, package.mode.label),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                formatVnd(package.priceVnd),
-                style: context.textStyles.titleSmall?.copyWith(
-                  color: context.colors.primary,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              if (selected) ...[
-                const SizedBox(height: 6),
-                Icon(Icons.check_circle_rounded, color: context.colors.primary),
-              ],
-            ],
-          ),
         ],
       ),
     );

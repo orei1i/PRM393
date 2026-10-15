@@ -9,17 +9,14 @@ import '../../../core/network/dio_client.dart';
 import 'mock_chef_repository.dart';
 import 'models/chef_model.dart';
 
+/// Public chef directory. Booking and buying go through `CommerceApiService`
+/// (`POST /orders`), which replaced the direct `POST /consultations`.
 abstract interface class ChefApiService {
   Future<List<ChefDto>> listChefs({String? query, String? specialty});
 
+  /// With `services`, `availableSlots` minus the ones held by unpaid
+  /// orders, and those held slots as `bookedSlots` (optional).
   Future<ChefDto> getChef(String id);
-
-  /// Creates a `pending` request; payment (PayOS) happens after the chef confirms.
-  Future<ConsultationDto> requestConsultation(ConsultationRequestDto request);
-
-  Future<List<ConsultationDto>> myConsultations();
-
-  Future<ConsultationDto> cancelConsultation(String id);
 }
 
 class RemoteChefApiService implements ChefApiService {
@@ -47,31 +44,6 @@ class RemoteChefApiService implements ChefApiService {
   Future<ChefDto> getChef(String id) => guardApi(() async {
         final res = await _dio.get<Map<String, dynamic>>(ApiEndpoints.chef(id));
         return ChefDto.fromJson(res.data!);
-      });
-
-  @override
-  Future<ConsultationDto> requestConsultation(ConsultationRequestDto request) =>
-      guardApi(() async {
-        final res = await _dio.post<Map<String, dynamic>>(
-            ApiEndpoints.consultations,
-            data: request.toJson());
-        return ConsultationDto.fromJson(res.data!);
-      });
-
-  @override
-  Future<List<ConsultationDto>> myConsultations() => guardApi(() async {
-        final res = await _dio.get<List<dynamic>>(ApiEndpoints.myConsultations);
-        return (res.data ?? const [])
-            .whereType<Map<String, dynamic>>()
-            .map(ConsultationDto.fromJson)
-            .toList();
-      });
-
-  @override
-  Future<ConsultationDto> cancelConsultation(String id) => guardApi(() async {
-        final res = await _dio
-            .post<Map<String, dynamic>>(ApiEndpoints.cancelConsultation(id));
-        return ConsultationDto.fromJson(res.data!);
       });
 }
 

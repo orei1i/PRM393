@@ -1,8 +1,30 @@
 // src/components/users/status-badge.tsx
-import { Ban, CircleCheck, CircleDashed, Lock } from "lucide-react";
+import { Ban, BadgeCheck, CircleCheck, CircleDashed, Lock } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { USER_STATUS_LABEL, type UserStatus } from "@/types/admin";
+import { USER_ROLE_LABEL, USER_STATUS_LABEL, type AdminUser, type UserStatus } from "@/types/admin";
+
+/** Role badge; a verified chef who is not "Chef" by role (e.g. an admin) gets an extra chip. */
+export function UserRoleBadges({ user }: { user: Pick<AdminUser, "role" | "isVerifiedChef"> }) {
+  return (
+    <>
+      {user.role === "Chef" ? (
+        <Badge variant="sprout">
+          <BadgeCheck aria-hidden />
+          {USER_ROLE_LABEL.Chef}
+        </Badge>
+      ) : (
+        <Badge variant={user.role === "Admin" ? "default" : "secondary"}>{USER_ROLE_LABEL[user.role]}</Badge>
+      )}
+      {user.isVerifiedChef && user.role !== "Chef" && (
+        <Badge variant="sprout">
+          <BadgeCheck aria-hidden />
+          Chuyên gia đã xác minh
+        </Badge>
+      )}
+    </>
+  );
+}
 
 /** Status always ships icon + label, never colour alone. */
 export function UserStatusBadge({ status }: { status: UserStatus }) {

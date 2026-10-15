@@ -9,14 +9,24 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { cn, formatNumber, formatTime } from "@/lib/utils";
 import { TASK_LABEL, type AiLog, type AiLogStatus } from "@/types/moderation";
 
-const STATUS: Record<AiLogStatus, { label: string; variant: "sprout" | "ochre" | "destructive" }> = {
+export const LOG_STATUS: Record<AiLogStatus, { label: string; variant: "sprout" | "ochre" | "destructive" }> = {
   success: { label: "OK", variant: "sprout" },
   warning: { label: "Cảnh báo", variant: "ochre" },
   error: { label: "Lỗi", variant: "destructive" },
 };
 
-/** ai_logs stream. Rows that arrived since the previous render flash once. */
-export function LiveLogTable({ logs, isLoading }: { logs: AiLog[] | undefined; isLoading: boolean }) {
+/** ai_logs stream. Rows that arrived since the previous render flash once; a row opens the log drawer. */
+export function LiveLogTable({
+  logs,
+  isLoading,
+  selectedId = null,
+  onSelect,
+}: {
+  logs: AiLog[] | undefined;
+  isLoading: boolean;
+  selectedId?: string | null;
+  onSelect?: (log: AiLog) => void;
+}) {
   const seen = React.useRef<Set<string> | null>(null);
   const [fresh, setFresh] = React.useState<Set<string>>(new Set());
 
@@ -61,9 +71,26 @@ export function LiveLogTable({ logs, isLoading }: { logs: AiLog[] | undefined; i
               </TableRow>
             ))
           : logs?.map((log) => {
-              const status = STATUS[log.status];
+              const status = LOG_STATUS[log.status];
               return (
-                <TableRow key={log.id} className={cn(fresh.has(log.id) && "vl-row-new")}>
+                <TableRow
+                  key={log.id}
+                  data-state={log.id === selectedId ? "selected" : undefined}
+                  className={cn(fresh.has(log.id) && "vl-row-new", onSelect && "cursor-pointer")}
+                  {...(onSelect
+                    ? {
+                        tabIndex: 0,
+                        "aria-label": `Xem chi tiết lượt gọi ${TASK_LABEL[log.task]} lúc ${formatTime(log.timestamp)}`,
+                        onClick: () => onSelect(log),
+                        onKeyDown: (e: React.KeyboardEvent<HTMLTableRowElement>) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            onSelect(log);
+                          }
+                        },
+                      }
+                    : {})}
+                >
                   <TableCell className="pl-5 tabular">{formatTime(log.timestamp)}</TableCell>
                   <TableCell className="font-sans font-semibold">{TASK_LABEL[log.task]}</TableCell>
                   <TableCell>{log.model}</TableCell>

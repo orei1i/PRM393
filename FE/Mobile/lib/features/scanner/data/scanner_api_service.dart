@@ -12,10 +12,12 @@ import 'mock_scanner_repository.dart';
 import 'models/scan_result_model.dart';
 
 abstract interface class ScannerApiService {
-  /// Sends a JPEG frame; returns detections with boxes, confidence, freshness.
+  /// Sends a JPEG frame; returns detections with boxes, confidence and
+  /// whether each food is vegan (`isVegan`).
   Future<ScanResultDto> scanImage(Uint8List jpegBytes);
 
-  /// AI menu ideas that use the confirmed ingredients and avoid allergens.
+  /// AI menu ideas that use the confirmed vegan ingredients and avoid
+  /// allergens.
   Future<List<MenuSuggestionDto>> generateMenu(GenerateMenuRequestDto request);
 }
 

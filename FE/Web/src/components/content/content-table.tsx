@@ -1,14 +1,41 @@
 // src/components/content/content-table.tsx
 "use client";
 
-import { EyeOff, Flag, Pin, Sparkles, TriangleAlert } from "lucide-react";
+import { CircleCheck, CircleX, EyeOff, Flag, Hourglass, Pin, Sparkles, TriangleAlert } from "lucide-react";
 
 import { InitialsAvatar } from "@/components/admin/initials-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/form-controls";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatAge, formatNumber } from "@/lib/utils";
-import { CONTENT_KIND_LABEL, VIDEO_AI_STATUS_LABEL, type ContentItem } from "@/types/admin";
+import { CONTENT_KIND_LABEL, POST_STATUS_LABEL, VIDEO_AI_STATUS_LABEL, type ContentItem, type PostStatus } from "@/types/admin";
+
+/** posts.status — icon + label, never colour alone. */
+export function PostStatusBadge({ status }: { status: PostStatus }) {
+  switch (status) {
+    case "Published":
+      return (
+        <Badge variant="sprout">
+          <CircleCheck aria-hidden />
+          {POST_STATUS_LABEL[status]}
+        </Badge>
+      );
+    case "Pending":
+      return (
+        <Badge variant="ochre">
+          <Hourglass aria-hidden />
+          {POST_STATUS_LABEL[status]}
+        </Badge>
+      );
+    case "Rejected":
+      return (
+        <Badge variant="secondary">
+          <CircleX aria-hidden />
+          {POST_STATUS_LABEL[status]}
+        </Badge>
+      );
+  }
+}
 
 export function VideoAiBadge({ item }: { item: ContentItem }) {
   if (!item.video) return null;
@@ -41,11 +68,12 @@ export function ContentTable({
   onSelect: (item: ContentItem) => void;
 }) {
   return (
-    <Table className="min-w-[880px]">
+    <Table className="min-w-[980px]">
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          <TableHead className="w-[42%]">Bài viết</TableHead>
+          <TableHead className="w-[38%]">Bài viết</TableHead>
           <TableHead>Loại</TableHead>
+          <TableHead>Trạng thái</TableHead>
           <TableHead>Tác giả</TableHead>
           <TableHead className="text-right">Báo cáo</TableHead>
           <TableHead className="text-right">Thích · Bình luận</TableHead>
@@ -56,7 +84,7 @@ export function ContentTable({
         {isLoading
           ? Array.from({ length: 6 }, (_, i) => (
               <TableRow key={i}>
-                <TableCell colSpan={6}>
+                <TableCell colSpan={7}>
                   <Skeleton className="h-10" />
                 </TableCell>
               </TableRow>
@@ -93,13 +121,28 @@ export function ContentTable({
                       )}
                       <span className="font-semibold">{item.title}</span>
                     </div>
-                    <p className="line-clamp-1 text-xs text-muted-foreground">{item.excerpt}</p>
+                    {item.status === "Pending" && item.aiFlag ? (
+                      <p className="line-clamp-1 text-xs text-ai-text">AI: {item.aiFlag.reason}</p>
+                    ) : (
+                      <p className="line-clamp-1 text-xs text-muted-foreground">{item.excerpt}</p>
+                    )}
                   </div>
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-col items-start gap-1">
                     <Badge variant="outline">{CONTENT_KIND_LABEL[item.kind]}</Badge>
                     <VideoAiBadge item={item} />
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-col items-start gap-1">
+                    <PostStatusBadge status={item.status} />
+                    {item.status === "Pending" && item.aiFlag && (
+                      <span className="inline-flex items-center gap-1 font-mono text-xs text-ai-text tabular">
+                        <Sparkles className="size-3" aria-hidden />
+                        AI {item.aiFlag.score.toFixed(2)}
+                      </span>
+                    )}
                   </div>
                 </TableCell>
                 <TableCell>

@@ -76,12 +76,17 @@ class ChatController extends Notifier<ChatState> {
     ref.onDispose(_cancelStream);
 
     // Sign-in keeps the conversation: drop the trial counter and send the held question.
+    // Sign-out starts over so the member's chat isn't left on a guest screen.
     ref.listen<AuthSession>(sessionControllerProvider, (previous, next) {
       if (previous == null || previous.isGuest == next.isGuest) return;
       if (!next.isGuest) {
         _onSignedIn();
       } else {
-        state = state.copyWith(trialRemaining: Env.guestTrialLimit);
+        _cancelStream();
+        state = ChatState(
+          sessionId: 'session_${DateTime.now().millisecondsSinceEpoch}',
+          trialRemaining: Env.guestTrialLimit,
+        );
         _refreshTrialStatus();
       }
     });
@@ -101,14 +106,28 @@ class ChatController extends Notifier<ChatState> {
     final text = raw.trim();
     if (text.isEmpty || state.isStreaming) return;
 
-    state =
-        state.copyWith(messages: [...state.messages, ChatMessage.user(text)]);
-
-    // Known to be out of free questions: don't even call the API.
+    // Known to be out of free questions: don't even call the API. Only one
+    // question is held for after sign-in, so a new attempt replaces the
+    // previous unanswered bubble instead of stacking another one.
     if (ref.read(sessionControllerProvider).isGuest && state.isTrialExhausted) {
-      state = state.copyWith(showTrialExhausted: true, pendingPrompt: text);
+      final held = state.pendingPrompt;
+      final messages = [...state.messages];
+      if (held != null &&
+          messages.isNotEmpty &&
+          messages.last.isUser &&
+          messages.last.content == held) {
+        messages.removeLast();
+      }
+      state = state.copyWith(
+        messages: [...messages, ChatMessage.user(text)],
+        showTrialExhausted: true,
+        pendingPrompt: text,
+      );
       return;
     }
+
+    state =
+        state.copyWith(messages: [...state.messages, ChatMessage.user(text)]);
     _respondTo(text);
   }
 

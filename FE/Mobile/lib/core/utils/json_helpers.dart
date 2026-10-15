@@ -32,3 +32,7 @@ DateTime readDate(Object? value) {
 
 Map<String, dynamic> readMap(Object? value) =>
     value is Map<String, dynamic> ? value : const <String, dynamic>{};
+
+/// Request-body id: numeric ids (SQL `INT`) go out as JSON numbers, readable
+/// mock ids (`svc_tam_consult`) stay strings. Never `int.parse` ids in UI code.
+Object apiId(String id) => int.tryParse(id) ?? id;

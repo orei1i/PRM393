@@ -3,10 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../network/api_exception.dart';
-import '../session/session_controller.dart';
+import 'mock_account_picker.dart';
 
 /// "Tiếp tục với Google". Replace the leading icon with Google's official
 /// button asset when the real sign-in is wired (brand guidelines).
+/// In mock mode it first opens the demo account picker.
 class GoogleSignInButton extends ConsumerStatefulWidget {
   const GoogleSignInButton({super.key, this.onSignedIn});
 
@@ -20,10 +21,10 @@ class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
   bool _loading = false;
 
   Future<void> _signIn() async {
-    setState(() => _loading = true);
     try {
-      await ref.read(sessionControllerProvider.notifier).signInWithGoogle();
-      widget.onSignedIn?.call();
+      final signedIn = await runGoogleSignIn(context, ref,
+          onSigningIn: () => setState(() => _loading = true));
+      if (signedIn) widget.onSignedIn?.call();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)

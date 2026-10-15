@@ -1,28 +1,34 @@
 // src/lib/mock_admin.ts
 // In-memory mock backend for the admin console (users, chef applications,
-// content, catalog, overview). Mirrors the mobile app's mock data so the
-// same people and posts appear on both sides.
+// content, comments, catalog, overview). Mirrors the mobile app's mock data so
+// the same people and posts appear on both sides.
 import type {
+  AdminComment,
   AdminSession,
   AdminUser,
+  AssignableRole,
   CatalogInput,
   CatalogItem,
   CatalogKind,
   ChefApplication,
   ChefApplicationStatus,
   ChefReviewInput,
+  CommentQuery,
   ContentAction,
   ContentItem,
   ContentQuery,
+  MediaType,
   OverviewStats,
+  PostReviewInput,
   UserQuery,
   UserRole,
   UserStatus,
   UserStatusChange,
 } from "@/types/admin";
+import { MIN_AUDIT_NOTE_LENGTH } from "@/types/moderation";
 
 import { ApiError } from "./api_error";
-import { getFlagCounts, sleep } from "./mock_data";
+import { getFlagCounts, recordDecisionSample, sleep } from "./mock_data";
 
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
 const daysAgo = (d: number) => minutesAgo(d * 24 * 60);
@@ -37,36 +43,40 @@ const audit: OverviewStats["recentActions"] = [
   { id: "a1", at: daysAgo(1), actor: "Trần Thu Hằng", action: "cấm tài khoản", target: "thuocgiamcan.official" },
 ];
 
-function logAction(actor: string, action: string, target: string) {
-  audit.unshift({ id: `a${Date.now()}`, at: new Date().toISOString(), actor, action, target });
+let auditSeq = 0;
+
+/** Admin audit log shown on /overview. Other mock modules (knowledge, AI models) write here too. */
+export function logAction(actor: string, action: string, target: string) {
+  audit.unshift({ id: `a${Date.now()}_${auditSeq++}`, at: new Date().toISOString(), actor, action, target });
   audit.splice(12);
 }
 
 /* ------------------------------------------------------------------- users */
 
+/** `chef` = verified chef; their role is "Chef". */
 type Seed = [id: string, fullName: string, email: string, role: UserRole, status: UserStatus, chef: boolean, posts: number, reports: number, joinedDaysAgo: number];
 
 const SEED_USERS: Seed[] = [
   ["u_admin", "Trần Thu Hằng", "admin@veganlife.vn", "Admin", "Active", false, 3, 0, 210],
   ["u_admin_2", "Lê Minh Quân", "quan.le@veganlife.vn", "Admin", "Active", false, 0, 0, 180],
-  ["u_me", "Minh Anh", "minhanh.nguyen@gmail.com", "Member", "Active", false, 2, 0, 104],
-  ["u_chef_tam", "Lê Quang Tâm", "tam.chefchay@gmail.com", "Member", "Active", true, 48, 0, 320],
-  ["u_thu_ha", "ThS. DD Phạm Thu Hà", "thuha.dinhduong@gmail.com", "Member", "Active", true, 31, 0, 290],
-  ["u_chef_chau", "Tôn Nữ Minh Châu", "minhchau.hue@gmail.com", "Member", "Active", true, 22, 0, 260],
-  ["u_chef_khoa", "Nguyễn Đăng Khoa", "khoa.fitvegan@gmail.com", "Member", "Active", true, 17, 0, 150],
-  ["u_chef_lan", "Võ Thị Ngọc Lan", "ngoclan.anddam@gmail.com", "Member", "Active", true, 12, 0, 140],
-  ["u_chef_minh", "Trần Quốc Minh", "quocminh.thucduong@gmail.com", "Member", "Active", true, 9, 0, 230],
-  ["u_bep_may", "Bếp Chay Nhà Mây", "bepchaynhamay@gmail.com", "Member", "Active", false, 64, 1, 300],
-  ["u_thao_vy", "Thảo Vy", "thaovy.nguyen@gmail.com", "Member", "Active", false, 27, 0, 200],
-  ["u_hoang_nam", "Hoàng Nam", "hoangnam.dev@gmail.com", "Member", "Active", false, 15, 0, 120],
-  ["u_ngoc_tram", "Ngọc Trâm", "ngoctram.k17@gmail.com", "Member", "Active", false, 4, 0, 21],
-  ["u_duc_huy", "Đức Huy", "duchuy.q9@gmail.com", "Member", "Active", false, 6, 0, 45],
-  ["u_spam_1", "thuocgiamcan.official", "zalo.giamcan247@gmail.com", "Member", "Banned", false, 11, 23, 9],
-  ["u_detox", "Detox Xanh Mỗi Ngày", "detoxxanh.vn@gmail.com", "Member", "Locked", false, 8, 9, 30],
-  ["u_new_1", "Phan Gia Bảo", "giabao.chef@gmail.com", "Member", "Active", false, 5, 0, 60],
-  ["u_new_2", "Lý Thanh Trúc", "thanhtruc.dietitian@gmail.com", "Member", "Active", false, 2, 0, 33],
-  ["u_new_3", "Đỗ Hải Yến", "haiyen.mebe@gmail.com", "Member", "Active", false, 1, 0, 12],
-  ["u_pending", "Quách Bảo Ngân", "baongan.q@gmail.com", "Member", "Inactive", false, 0, 0, 1],
+  ["u_me", "Minh Anh", "minhanh.nguyen@gmail.com", "User", "Active", false, 3, 0, 104],
+  ["u_chef_tam", "Lê Quang Tâm", "tam.chefchay@gmail.com", "Chef", "Active", true, 48, 0, 320],
+  ["u_thu_ha", "ThS. DD Phạm Thu Hà", "thuha.dinhduong@gmail.com", "Chef", "Active", true, 31, 0, 290],
+  ["u_chef_chau", "Tôn Nữ Minh Châu", "minhchau.hue@gmail.com", "Chef", "Active", true, 22, 0, 260],
+  ["u_chef_khoa", "Nguyễn Đăng Khoa", "khoa.fitvegan@gmail.com", "Chef", "Active", true, 17, 0, 150],
+  ["u_chef_lan", "Võ Thị Ngọc Lan", "ngoclan.anddam@gmail.com", "Chef", "Active", true, 12, 0, 140],
+  ["u_chef_minh", "Trần Quốc Minh", "quocminh.thucduong@gmail.com", "Chef", "Active", true, 9, 0, 230],
+  ["u_bep_may", "Bếp Chay Nhà Mây", "bepchaynhamay@gmail.com", "User", "Active", false, 64, 1, 300],
+  ["u_thao_vy", "Thảo Vy", "thaovy.nguyen@gmail.com", "User", "Active", false, 27, 0, 200],
+  ["u_hoang_nam", "Hoàng Nam", "hoangnam.dev@gmail.com", "User", "Active", false, 15, 0, 120],
+  ["u_ngoc_tram", "Ngọc Trâm", "ngoctram.k17@gmail.com", "User", "Active", false, 4, 0, 21],
+  ["u_duc_huy", "Đức Huy", "duchuy.q9@gmail.com", "User", "Active", false, 6, 0, 45],
+  ["u_spam_1", "thuocgiamcan.official", "zalo.giamcan247@gmail.com", "User", "Banned", false, 11, 23, 9],
+  ["u_detox", "Detox Xanh Mỗi Ngày", "detoxxanh.vn@gmail.com", "User", "Locked", false, 8, 9, 30],
+  ["u_new_1", "Phan Gia Bảo", "giabao.chef@gmail.com", "User", "Active", false, 5, 0, 60],
+  ["u_new_2", "Lý Thanh Trúc", "thanhtruc.dietitian@gmail.com", "User", "Active", false, 2, 0, 33],
+  ["u_new_3", "Đỗ Hải Yến", "haiyen.mebe@gmail.com", "User", "Active", false, 1, 0, 12],
+  ["u_pending", "Quách Bảo Ngân", "baongan.q@gmail.com", "User", "Inactive", false, 0, 0, 1],
 ];
 
 const FAMILY = ["Nguyễn", "Trần", "Lê", "Phạm", "Hoàng", "Huỳnh", "Phan", "Vũ", "Võ", "Đặng", "Bùi", "Đỗ", "Hồ", "Ngô", "Dương"];
@@ -104,7 +114,7 @@ function buildUsers(): AdminUser[] {
       email: `${slug(fullName)}${i}@gmail.com`,
       fullName,
       phone: `03${String(20000000 + i * 104729).slice(0, 8)}`,
-      role: "Member",
+      role: "User",
       status: i % 17 === 5 ? "Locked" : "Active",
       authType: i % 4 === 0 ? "System" : "Google",
       createdAt: daysAgo(2 + ((i * 13) % 200)),
@@ -143,10 +153,13 @@ function guardSelf(id: string, session: AdminSession | null) {
   }
 }
 
-export async function updateUserRole(id: string, role: UserRole, session: AdminSession | null): Promise<AdminUser> {
+export async function updateUserRole(id: string, role: AssignableRole, session: AdminSession | null): Promise<AdminUser> {
   await sleep(500);
   guardSelf(id, session);
   const user = findUser(id);
+  if (user.role === "Chef") {
+    throw new ApiError("Vai trò Chuyên gia được cấp khi duyệt hồ sơ chuyên gia, không đổi ở đây.", 409, "chef_role_locked");
+  }
   user.role = role;
   logAction(session?.fullName ?? "Quản trị viên", role === "Admin" ? "cấp quyền quản trị" : "gỡ quyền quản trị", user.fullName);
   return { ...user };
@@ -313,7 +326,11 @@ export async function reviewChefApplication(input: ChefReviewInput, session: Adm
   app.reviewedAt = new Date().toISOString();
   app.reviewedBy = session?.fullName ?? "Quản trị viên";
   const user = users.find((u) => u.id === app.userId);
-  if (user && input.decision === "approved") user.isVerifiedChef = true;
+  if (user && input.decision === "approved") {
+    user.isVerifiedChef = true;
+    // Approval grants the Chef role (admins keep theirs).
+    if (user.role !== "Admin") user.role = "Chef";
+  }
   logAction(app.reviewedBy, input.decision === "approved" ? "duyệt chuyên gia" : "từ chối hồ sơ chuyên gia", app.fullName);
   return { ...app };
 }
@@ -322,7 +339,19 @@ export async function reviewChefApplication(input: ChefReviewInput, session: Adm
 
 const a = (id: string, fullName: string, isVerifiedChef = false) => ({ id, fullName, isVerifiedChef });
 
-const content: ContentItem[] = [
+type ContentSeed = Omit<ContentItem, "status" | "mediaType" | "mediaUrl"> & Partial<Pick<ContentItem, "status" | "mediaType" | "mediaUrl">>;
+
+const MEDIA_BASE = "https://res.cloudinary.com/veganlife";
+
+/** Legacy rows have no status (→ Published); media_type is derived from the FE kind. */
+function withPostDefaults(seed: ContentSeed): ContentItem {
+  const mediaType: MediaType = seed.mediaType ?? (seed.kind === "video" ? "Video" : seed.kind === "recipe" ? "Image" : "Text");
+  const derivedUrl =
+    mediaType === "Video" ? `${MEDIA_BASE}/video/upload/v1/${seed.id}.mp4` : mediaType === "Image" ? `${MEDIA_BASE}/image/upload/v1/${seed.id}.jpg` : null;
+  return { ...seed, status: seed.status ?? "Published", mediaType, mediaUrl: seed.mediaUrl !== undefined ? seed.mediaUrl : derivedUrl };
+}
+
+const CONTENT_SEED: ContentSeed[] = [
   { id: "p_pin_rules", kind: "discussion", title: "Nội quy cộng đồng & cách báo cáo bài sai thông tin", excerpt: "Chia sẻ công thức, kinh nghiệm và câu hỏi về ăn chay — nhớ ghi nguồn khi nói về sức khoẻ…", author: a("u_admin", "Ban quản trị VeganLife"), createdAt: daysAgo(12), likeCount: 312, commentCount: 18, reportCount: 0, hidden: false, pinned: true },
   { id: "p_video_cha_lua", kind: "video", title: "Chả lụa chay từ đậu hũ ky — không cần máy xay", excerpt: "Công thức mình bán ở quán 6 năm nay, chia sẻ cả nhà…", author: a("u_chef_tam", "Lê Quang Tâm", true), createdAt: minutesAgo(120), likeCount: 842, commentCount: 63, reportCount: 0, hidden: false, pinned: false, video: { durationSeconds: 724, aiStatus: "ready" } },
   { id: "p_detox", kind: "discussion", title: "Uống nước ép cần tây 7 ngày, mình đã ngưng thuốc tiểu đường!", excerpt: "Bác sĩ bảo phải uống thuốc suốt đời nhưng nước ép cần tây đã chữa khỏi cho mình…", author: a("u_detox", "Detox Xanh Mỗi Ngày"), createdAt: minutesAgo(200), likeCount: 41, commentCount: 37, reportCount: 9, hidden: false, pinned: false },
@@ -331,23 +360,34 @@ const content: ContentItem[] = [
   { id: "p_b12", kind: "discussion", title: "Mới ăn chay 3 tuần, nên bổ sung B12 thế nào?", excerpt: "Mình ăn chay trường được 3 tuần, hay bị mệt buổi chiều…", author: a("u_ngoc_tram", "Ngọc Trâm"), createdAt: minutesAgo(480), likeCount: 46, commentCount: 31, reportCount: 0, hidden: false, pinned: false },
   { id: "p_spam", kind: "discussion", title: "Trà giảm cân thảo mộc — giảm 8 kg/tháng, inbox Zalo 09xx", excerpt: "Cam kết hoàn tiền, 100% thiên nhiên, liên hệ ngay…", author: a("u_spam_1", "thuocgiamcan.official"), createdAt: daysAgo(1), likeCount: 2, commentCount: 5, reportCount: 14, hidden: true, pinned: false },
   { id: "p_video_meal_prep", kind: "video", title: "Meal prep 5 hộp cơm chay cho cả tuần với 150.000đ", excerpt: "Đi chợ một lần, nấu 90 phút…", author: a("u_bep_may", "Bếp Chay Nhà Mây"), createdAt: daysAgo(1), likeCount: 1290, commentCount: 88, reportCount: 1, hidden: false, pinned: false, video: { durationSeconds: 572, aiStatus: "ready" } },
-  { id: "p_flan", kind: "recipe", title: "Bánh flan chay mềm mịn (dùng trứng gà ta cho béo)", excerpt: "Mình thêm 2 lòng đỏ trứng gà ta để bánh mịn hơn…", author: a("u_gen_3", "Hồ Ngọc Linh"), createdAt: daysAgo(2), likeCount: 19, commentCount: 12, reportCount: 3, hidden: false, pinned: false },
+  { id: "p_flan", kind: "recipe", title: "Bánh flan chay mềm mịn (dùng trứng gà ta cho béo)", excerpt: "Mình thêm 2 lòng đỏ trứng gà ta để bánh mịn hơn…", author: a("u_gen_3", "Hồ Ngọc Linh"), createdAt: daysAgo(2), likeCount: 19, commentCount: 12, reportCount: 3, hidden: false, pinned: false, status: "Pending", aiFlag: { reason: "Công thức gắn nhãn chay nhưng dùng lòng đỏ trứng gà.", score: 0.88, category: "not_vegan", createdAt: daysAgo(2) } },
   { id: "p_iq", kind: "discussion", title: "Ăn chay lâu năm có làm giảm trí nhớ không?", excerpt: "Đọc trên mạng thấy bảo ăn chay thiếu B12 dễ giảm trí nhớ…", author: a("u_gen_8", "Vũ Hữu Phúc"), createdAt: daysAgo(2), likeCount: 33, commentCount: 40, reportCount: 4, hidden: false, pinned: false },
   { id: "p_video_sua_hat", kind: "video", title: "Sữa hạt điều yến mạch 5 phút, không cần máy làm sữa", excerpt: "Bữa sáng 5 phút cho ngày bận rộn.", author: a("u_thao_vy", "Thảo Vy"), createdAt: daysAgo(2), likeCount: 376, commentCount: 21, reportCount: 0, hidden: false, pinned: false, video: { durationSeconds: 251, aiStatus: "ready" } },
   { id: "p_dam_thuc_vat", kind: "discussion", title: "5 nguồn đạm thực vật rẻ mà chợ nào cũng có", excerpt: "Đậu hũ, đậu xanh nguyên vỏ, đậu phộng, mè đen và tàu hũ ky…", author: a("u_thu_ha", "ThS. DD Phạm Thu Hà", true), createdAt: daysAgo(3), likeCount: 521, commentCount: 44, reportCount: 0, hidden: false, pinned: false },
   { id: "p_me_banh_xeo", kind: "video", title: "Bánh xèo chay nhân nấm — video đầu tay của mình", excerpt: "Lần đầu quay video nấu ăn, mọi người góp ý giúp mình nha!", author: a("u_me", "Minh Anh"), createdAt: daysAgo(5), likeCount: 12, commentCount: 3, reportCount: 0, hidden: false, pinned: false, video: { durationSeconds: 486, aiStatus: "failed", failureReason: "Âm thanh quá nhỏ để nhận dạng giọng nói." } },
   { id: "p_dau_hu_sot_ca", kind: "recipe", title: "Đậu hũ sốt cà chua kiểu Bắc — 15 phút", excerpt: "Rán vàng 2 bìa đậu, xào 3 quả cà chua với hành lá…", author: a("u_bep_may", "Bếp Chay Nhà Mây"), createdAt: daysAgo(3), likeCount: 98, commentCount: 6, reportCount: 0, hidden: false, pinned: false },
+  // Held by the AI pre-screen (ids and titles mirror the mobile seeds).
+  { id: "p_me_pending_celery", kind: "discussion", title: "Nước ép cần tây có chữa khỏi tiểu đường không?", excerpt: "Mẹ mình đọc trên mạng thấy uống nước ép cần tây mỗi sáng chữa khỏi tiểu đường, có ai thử chưa ạ?", author: a("u_me", "Minh Anh"), createdAt: minutesAgo(95), likeCount: 0, commentCount: 0, reportCount: 0, hidden: false, pinned: false, status: "Pending", aiFlag: { reason: "Có cụm “chữa khỏi tiểu đường” — dễ lan truyền thông tin sức khoẻ sai lệch nếu không có nguồn.", score: 0.82, category: "health_misinformation", createdAt: minutesAgo(95) } },
+  { id: "p_detox_tea", kind: "discussion", title: "Trà detox thảo mộc giảm mỡ bụng — inbox Zalo nhận ưu đãi", excerpt: "Cam kết hoàn tiền nếu không giảm 5 kg trong 2 tuần, ship toàn quốc…", author: a("u_detox", "Detox Xanh Mỗi Ngày"), createdAt: minutesAgo(40), likeCount: 0, commentCount: 0, reportCount: 0, hidden: false, pinned: false, status: "Pending", aiFlag: { reason: "Quảng cáo bán hàng kèm số Zalo và cam kết giảm cân.", score: 0.94, category: "spam_promo", createdAt: minutesAgo(40) } },
+  { id: "p_me_rejected_detox", kind: "discussion", title: "Trà detox giảm cân thần tốc 7 ngày", excerpt: "Công thức trà detox mình uống 7 ngày giảm 3 kg, mọi người thử nha…", author: a("u_me", "Minh Anh"), createdAt: daysAgo(4), likeCount: 0, commentCount: 0, reportCount: 0, hidden: false, pinned: false, status: "Rejected", aiFlag: { reason: "Khẳng định hiệu quả giảm cân nhanh chưa được kiểm chứng.", score: 0.79, category: "health_misinformation", createdAt: daysAgo(4) }, decision: { decision: "Reject", note: "Bài khẳng định hiệu quả giảm cân chưa được kiểm chứng. Vui lòng bỏ cam kết và ghi nguồn rồi gửi lại.", adminName: "Lê Minh Quân", decidedAt: minutesAgo(4 * 24 * 60 - 90) } },
 ];
+
+const content: ContentItem[] = CONTENT_SEED.map(withPostDefaults);
 
 export async function listContent(query: ContentQuery): Promise<ContentItem[]> {
   await sleep(450);
   const q = SEARCH_FOLD(query.search.trim());
   return content
     .filter((c) => query.kind === "all" || c.kind === query.kind)
+    .filter((c) => !query.authorId || c.author.id === query.authorId)
     .filter((c) => {
       switch (query.view) {
+        case "pending":
+          return c.status === "Pending";
+        case "rejected":
+          return c.status === "Rejected";
         case "reported":
-          return c.reportCount > 0 && !c.hidden;
+          return c.status === "Published" && c.reportCount > 0 && !c.hidden;
         case "hidden":
           return c.hidden;
         case "pinned":
@@ -357,7 +397,47 @@ export async function listContent(query: ContentQuery): Promise<ContentItem[]> {
       }
     })
     .filter((c) => !q || SEARCH_FOLD(`${c.title} ${c.author.fullName}`).includes(q))
-    .sort((x, y) => (query.view === "reported" ? y.reportCount - x.reportCount : y.createdAt.localeCompare(x.createdAt)));
+    .sort((x, y) => {
+      if (query.view === "reported") return y.reportCount - x.reportCount;
+      // Oldest flag first, like the moderation queue.
+      if (query.view === "pending") return (x.aiFlag?.createdAt ?? x.createdAt).localeCompare(y.aiFlag?.createdAt ?? y.createdAt);
+      return y.createdAt.localeCompare(x.createdAt);
+    })
+    .map((c) => ({ ...c }));
+}
+
+export function countPendingPosts(): number {
+  return content.filter((c) => c.status === "Pending").length;
+}
+
+/** POST /admin/posts/{id}/review → writes moderation_decisions (one row per post). */
+export async function reviewPost(input: PostReviewInput, session: AdminSession | null): Promise<ContentItem> {
+  await sleep(600);
+  const note = input.note.trim();
+  if (input.decision === "Reject" && note.length < MIN_AUDIT_NOTE_LENGTH) {
+    throw new ApiError(`Ghi chú từ chối cần ít nhất ${MIN_AUDIT_NOTE_LENGTH} ký tự.`, 400, "note_too_short");
+  }
+  if (note.toLowerCase().includes("#fail")) {
+    throw new ApiError("Máy chủ đang bận, chưa lưu được quyết định. Thử lại sau.", 503, "unavailable");
+  }
+  const item = content.find((c) => c.id === input.postId);
+  if (!item) throw new ApiError("Bài viết không còn tồn tại.", 404);
+  if (item.status !== "Pending") throw new ApiError("Bài này đã được người khác xử lý.", 409, "already_reviewed");
+
+  const actor = session?.fullName ?? "Quản trị viên";
+  const decidedAt = new Date().toISOString();
+  item.status = input.decision === "Approve" ? "Published" : "Rejected";
+  item.decision = { decision: input.decision, note: note || null, adminName: actor, decidedAt };
+  if (item.aiFlag) {
+    recordDecisionSample({
+      category: item.aiFlag.category,
+      upheld: input.decision === "Reject",
+      minutesToDecide: Math.max(1, Math.round((Date.now() - new Date(item.aiFlag.createdAt).getTime()) / 60_000)),
+      decidedAt,
+    });
+  }
+  logAction(actor, input.decision === "Approve" ? "duyệt bài chờ" : "từ chối bài", item.title);
+  return { ...item };
 }
 
 export async function applyContentAction(id: string, action: ContentAction, session: AdminSession | null): Promise<ContentItem | null> {
@@ -377,6 +457,9 @@ export async function applyContentAction(id: string, action: ContentAction, sess
       logAction(actor, "hiện lại bài viết", item.title);
       break;
     case "pin":
+      if (item.status !== "Published") {
+        throw new ApiError("Chỉ ghim được bài đã đăng.", 409, "not_published");
+      }
       if (content.filter((c) => c.pinned).length >= 3) {
         throw new ApiError("Chỉ ghim tối đa 3 bài. Bỏ ghim một bài trước.", 409, "pin_limit");
       }
@@ -393,10 +476,111 @@ export async function applyContentAction(id: string, action: ContentAction, sess
       break;
     case "delete":
       content.splice(index, 1);
+      // The post's comments go with it.
+      for (let i = comments.length - 1; i >= 0; i--) if (comments[i].postId === id) comments.splice(i, 1);
       logAction(actor, "xoá bài viết", item.title);
       return null;
   }
   return { ...item };
+}
+
+/* ---------------------------------------------------------------- comments */
+
+type StoredComment = Omit<AdminComment, "postTitle">;
+
+type CommentSeed = [id: string, postId: string, authorId: string, author: string, text: string, ageMin: number, reports?: number, hidden?: boolean, editedMinAgo?: number];
+
+const H = 60;
+const D = 24 * H;
+
+const COMMENT_SEED: CommentSeed[] = [
+  ["c_01", "p_video_cha_lua", "u_thao_vy", "Thảo Vy", "Chả lụa nhìn mịn quá anh ơi, đậu hũ ky mua loại khô hay loại tươi ạ?", 100],
+  ["c_02", "p_video_cha_lua", "u_chef_tam", "Lê Quang Tâm", "Loại tươi nha em, loại khô thì ngâm nước ấm 15 phút rồi vắt thật ráo.", 88],
+  ["c_03", "p_video_cha_lua", "u_me", "Minh Anh", "Mình làm theo video, cuộn chặt tay hơn là không bị bở. Cảm ơn anh Tâm!", 50, 0, false, 32],
+  ["c_04", "p_bun_rieu", "u_ngoc_tram", "Ngọc Trâm", "Nước dùng ngọt thanh thật, mình thêm chút củ cải trắng cho ngọt hơn.", 3 * H + 20],
+  ["c_05", "p_bun_rieu", "u_spam_1", "thuocgiamcan.official", "Ăn chay mà muốn giảm 8 kg/tháng thì inbox Zalo 09xx nhé, trà thảo mộc 100% thiên nhiên!", 3 * H + 10, 6],
+  ["c_06", "p_b12", "u_thu_ha", "ThS. DD Phạm Thu Hà", "Em nên xét nghiệm B12 trước rồi bổ sung theo chỉ định. Mệt buổi chiều cũng có thể do thiếu sắt.", 7 * H],
+  ["c_07", "p_b12", "u_me", "Minh Anh", "Mình dùng sữa hạt có bổ sung B12, uống mỗi sáng thấy đỡ mệt hơn hẳn.", 6 * H + 40],
+  ["c_08", "p_b12", "u_detox", "Detox Xanh Mỗi Ngày", "Không cần B12 đâu, uống nước ép cần tây là đủ chất. Liên hệ zalo để được tư vấn liệu trình.", 6 * H + 15, 4, true],
+  ["c_09", "p_detox", "u_thu_ha", "ThS. DD Phạm Thu Hà", "Tự ý ngưng thuốc tiểu đường rất nguy hiểm. Bạn hãy trao đổi với bác sĩ điều trị trước nhé.", 3 * H],
+  ["c_10", "p_detox", "u_hoang_nam", "Hoàng Nam", "Bài này nên được gỡ, nhiều người lớn tuổi đọc sẽ làm theo mất.", 2 * H + 45],
+  ["c_11", "p_iq", "u_thao_vy", "Thảo Vy", "Mình ăn chay 5 năm, bổ sung B12 đều thì trí nhớ vẫn bình thường nha.", 2 * D],
+  ["c_12", "p_iq", "u_duc_huy", "Đức Huy", "Có nghiên cứu nào cụ thể không bạn? Mình cũng đang lo chuyện này.", 2 * D - 3 * H],
+  ["c_13", "p_video_meal_prep", "u_me", "Minh Anh", "150k cho 5 hộp thì rẻ thật, chị cho mình xin danh sách đi chợ với.", D + 2 * H],
+  ["c_14", "p_video_meal_prep", "u_bep_may", "Bếp Chay Nhà Mây", "Danh sách mình để ở phần mô tả video nha bạn!", D + H],
+  ["c_15", "p_video_meal_prep", "u_spam_1", "thuocgiamcan.official", "Nhận làm meal prep giảm cân cấp tốc, cam kết hoàn tiền, inbox zalo 0909xxx.", D + 30, 9, true],
+  ["c_16", "p_flan", "u_hoang_nam", "Hoàng Nam", "Có trứng thì không còn là món chay rồi bạn ơi.", 2 * D - H],
+  ["c_17", "p_flan", "u_ngoc_tram", "Ngọc Trâm", "Thay trứng bằng bột bắp và sữa đậu nành vẫn mịn nha.", 2 * D - 2 * H],
+  ["c_18", "p_video_sua_hat", "u_chef_khoa", "Nguyễn Đăng Khoa", "Thêm 1 muỗng hạt chia là đủ đạm cho bữa sáng trước giờ tập.", 2 * D - 5 * H],
+  ["c_19", "p_video_sua_hat", "u_detox", "Detox Xanh Mỗi Ngày", "Mua máy làm sữa hạt giá sỉ, inbox Zalo shop Detox Xanh để nhận mã giảm 50%.", 2 * D - 6 * H, 3],
+  ["c_20", "p_dam_thuc_vat", "u_me", "Minh Anh", "Tàu hũ ky chiên giòn chấm tương là chân ái!", 3 * D - 2 * H],
+  ["c_21", "p_dam_thuc_vat", "u_chef_chau", "Tôn Nữ Minh Châu", "Mè đen rang xay rắc lên cơm cũng là cách bổ sung canxi rất Huế.", 3 * D - 4 * H],
+  ["c_22", "p_me_banh_xeo", "u_chef_tam", "Lê Quang Tâm", "Bột pha thêm chút nước cốt dừa, đổ chảo thật nóng thì bánh giòn lâu hơn em nhé.", 4 * D],
+  ["c_23", "p_me_banh_xeo", "u_thao_vy", "Thảo Vy", "Video đầu tay mà quay đẹp ghê!", 4 * D + 3 * H],
+  ["c_24", "p_dau_hu_sot_ca", "u_duc_huy", "Đức Huy", "Món cứu đói cuối tháng của sinh viên đây rồi.", 3 * D - H],
+  ["c_25", "p_pin_rules", "u_hoang_nam", "Hoàng Nam", "Đề nghị thêm mục báo cáo riêng cho bình luận spam bán hàng.", 10 * D],
+];
+
+const comments: StoredComment[] = COMMENT_SEED.map(([id, postId, authorId, fullName, text, ageMin, reports = 0, hidden = false, editedMinAgo]) => ({
+  id,
+  postId,
+  author: { id: authorId, fullName },
+  content: text,
+  status: hidden ? "Hidden" : "Visible",
+  reportCount: reports,
+  createdAt: minutesAgo(ageMin),
+  updatedAt: editedMinAgo === undefined ? null : minutesAgo(editedMinAgo),
+}));
+
+function toAdminComment(c: StoredComment): AdminComment {
+  return { ...c, author: { ...c.author }, postTitle: content.find((p) => p.id === c.postId)?.title ?? "(Bài viết đã bị xoá)" };
+}
+
+const commentExcerpt = (c: StoredComment) => `${c.author.fullName}: “${c.content.length > 48 ? `${c.content.slice(0, 48)}…` : c.content}”`;
+
+export async function listComments(query: CommentQuery): Promise<AdminComment[]> {
+  await sleep(400);
+  const q = SEARCH_FOLD(query.search.trim());
+  return comments
+    .filter((c) => !query.authorId || c.author.id === query.authorId)
+    .filter((c) => !query.postId || c.postId === query.postId)
+    .filter((c) => {
+      switch (query.view) {
+        case "reported":
+          return c.reportCount > 0 && c.status === "Visible";
+        case "hidden":
+          return c.status === "Hidden";
+        default:
+          return true;
+      }
+    })
+    .map(toAdminComment)
+    .filter((c) => !q || SEARCH_FOLD(`${c.content} ${c.author.fullName} ${c.postTitle}`).includes(q))
+    .sort((x, y) => (query.view === "reported" ? y.reportCount - x.reportCount : y.createdAt.localeCompare(x.createdAt)));
+}
+
+/** POST /admin/comments/{id}/actions { action: "hide" | "unhide" } */
+export async function applyCommentAction(id: string, action: "hide" | "unhide", session: AdminSession | null): Promise<AdminComment> {
+  await sleep(450);
+  const comment = comments.find((c) => c.id === id);
+  if (!comment) throw new ApiError("Bình luận không còn tồn tại.", 404);
+  comment.status = action === "hide" ? "Hidden" : "Visible";
+  logAction(session?.fullName ?? "Quản trị viên", action === "hide" ? "ẩn bình luận" : "hiện lại bình luận", commentExcerpt(comment));
+  return toAdminComment(comment);
+}
+
+/** DELETE /admin/comments/{id} { reason? } — the reason is sent to the author. */
+export async function deleteComment(id: string, reason: string | undefined, session: AdminSession | null): Promise<void> {
+  await sleep(550);
+  if (reason?.toLowerCase().includes("#fail")) {
+    throw new ApiError("Máy chủ đang bận, chưa xoá được bình luận. Thử lại sau.", 503, "unavailable");
+  }
+  const index = comments.findIndex((c) => c.id === id);
+  if (index < 0) throw new ApiError("Bình luận không còn tồn tại.", 404);
+  const [removed] = comments.splice(index, 1);
+  const post = content.find((p) => p.id === removed.postId);
+  if (post) post.commentCount = Math.max(0, post.commentCount - 1);
+  logAction(session?.fullName ?? "Quản trị viên", "xoá bình luận", commentExcerpt(removed));
 }
 
 /* ----------------------------------------------------------------- catalog */
@@ -484,6 +668,7 @@ const SIGNUPS = [38, 42, 35, 51, 47, 60, 72, 55, 49, 58, 63, 71, 88, 64];
 export async function getOverview(): Promise<OverviewStats> {
   await sleep(500);
   const flags = await getFlagCounts();
+  const published = content.filter((x) => x.status === "Published");
   return {
     totalUsers: 12486 + users.length,
     newUsers7d: SIGNUPS.slice(-7).reduce((s, n) => s + n, 0),
@@ -497,14 +682,15 @@ export async function getOverview(): Promise<OverviewStats> {
     pending: {
       aiFlags: flags.pending,
       chefApplications: chefApplications.filter((x) => x.status === "pending").length,
-      reportedContent: content.filter((x) => x.reportCount > 0 && !x.hidden).length,
+      reportedContent: content.filter((x) => x.status === "Published" && x.reportCount > 0 && !x.hidden).length,
       failedVideos: content.filter((x) => x.video?.aiStatus === "failed").length,
+      pendingPosts: countPendingPosts(),
     },
     signupsDaily: SIGNUPS.map((count, i) => ({ date: daysAgo(SIGNUPS.length - 1 - i), count })),
     contentMix: [
-      { kind: "recipe", count: content.filter((x) => x.kind === "recipe").length * 312 },
-      { kind: "video", count: content.filter((x) => x.kind === "video").length * 96 },
-      { kind: "discussion", count: content.filter((x) => x.kind === "discussion").length * 241 },
+      { kind: "recipe", count: published.filter((x) => x.kind === "recipe").length * 312 },
+      { kind: "video", count: published.filter((x) => x.kind === "video").length * 96 },
+      { kind: "discussion", count: published.filter((x) => x.kind === "discussion").length * 241 },
     ],
     recentActions: audit.slice(0, 6),
   };

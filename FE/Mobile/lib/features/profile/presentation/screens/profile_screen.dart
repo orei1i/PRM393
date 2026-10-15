@@ -8,12 +8,18 @@ import '../../../../core/settings/theme_mode_controller.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/labels.dart';
+import '../../../../core/widgets/floating_bar_clearance.dart';
 import '../../../../core/widgets/guest_gate.dart';
 import '../../../../core/widgets/shimmer.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/user_avatar.dart';
 import '../../../../core/widgets/vl_card.dart';
 import '../../../chef/presentation/screens/my_consultations_screen.dart';
+import '../../../chef_studio/presentation/screens/chef_bookings_screen.dart';
+import '../../../chef_studio/presentation/screens/chef_dashboard_screen.dart';
+import '../../../chef_studio/presentation/screens/chef_wallet_screen.dart';
+import '../../../commerce/presentation/screens/my_orders_screen.dart';
+import '../../../meal_planner/presentation/screens/health_profile_edit_screen.dart';
 import '../../domain/entities/user_profile.dart';
 import '../controllers/profile_controller.dart';
 import 'chef_application_screen.dart';
@@ -55,7 +61,9 @@ class _ProfileBody extends ConsumerWidget {
           onRefresh: () async {
             ref
               ..invalidate(profileControllerProvider)
-              ..invalidate(profileHealthProvider);
+              ..invalidate(profileHealthProvider)
+              ..invalidate(myPostsProvider)
+              ..invalidate(savedPostsProvider);
             await ref.read(profileControllerProvider.future);
           },
           child: _Loaded(profile: value),
@@ -136,26 +144,59 @@ class _Loaded extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeProvider);
+    final stats = ref.watch(profileStatsProvider);
+    // Chef studio is gated on the session role (D10).
+    final isChef = ref.watch(sessionControllerProvider.select((s) => s.isChef));
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+      padding: EdgeInsets.fromLTRB(16, 8, 16, floatingBarClearance(context)),
       physics: const AlwaysScrollableScrollPhysics(),
       children: [
         _AccountCard(profile: profile),
         const SizedBox(height: 12),
         Row(
           children: [
-            _StatTile(value: profile.postCount, label: 'Bài viết'),
+            _StatTile(
+                value: stats?.posts ?? profile.postCount, label: 'Bài viết'),
             const SizedBox(width: 8),
-            _StatTile(value: profile.likesReceived, label: 'Lượt thích'),
+            _StatTile(
+                value: stats?.likesReceived ?? profile.likesReceived,
+                label: 'Lượt thích'),
             const SizedBox(width: 8),
-            _StatTile(value: profile.savedCount, label: 'Đã lưu'),
+            _StatTile(
+                value: stats?.saved ?? profile.savedCount, label: 'Đã lưu'),
           ],
         ),
         const SizedBox(height: 12),
         const _HealthCard(),
         const SizedBox(height: 12),
-        _ChefApplicationCard(profile: profile),
+        _ChefApplicationCard(profile: profile, isChef: isChef),
         const SizedBox(height: 16),
+        if (isChef) ...[
+          _Section(
+            title: 'Chuyên gia',
+            children: [
+              _MenuTile(
+                icon: Icons.space_dashboard_outlined,
+                title: 'Bảng điều khiển chuyên gia',
+                onTap: () =>
+                    Navigator.of(context).push(ChefDashboardScreen.route()),
+              ),
+              _MenuTile(
+                icon: Icons.event_available_outlined,
+                title: 'Lịch hẹn & đơn hàng',
+                onTap: () =>
+                    Navigator.of(context).push(ChefBookingsScreen.route()),
+              ),
+              _MenuTile(
+                icon: Icons.account_balance_wallet_outlined,
+                title: 'Ví của tôi',
+                onTap: () =>
+                    Navigator.of(context).push(ChefWalletScreen.route()),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+        ],
         _Section(
           title: 'Nội dung & lịch hẹn',
           children: [
@@ -170,6 +211,11 @@ class _Loaded extends ConsumerWidget {
               title: 'Đã lưu',
               onTap: () => Navigator.of(context)
                   .push(MyPostsScreen.route(initialTab: 1)),
+            ),
+            _MenuTile(
+              icon: Icons.receipt_long_outlined,
+              title: 'Đơn hàng của tôi',
+              onTap: () => Navigator.of(context).push(MyOrdersScreen.route()),
             ),
             _MenuTile(
               icon: Icons.event_note_outlined,
@@ -246,8 +292,7 @@ class _AccountCard extends StatelessWidget {
                   spacing: 6,
                   runSpacing: 6,
                   children: [
-                    VLTag.neutral(context,
-                        profile.isVerifiedChef ? 'Chuyên gia' : 'Thành viên'),
+                    VLTag.neutral(context, profile.role.label),
                     if (profile.signedInWithGoogle)
                       VLTag.neutral(context, 'Google'),
                   ],
@@ -290,10 +335,17 @@ class _StatTile extends StatelessWidget {
 class _HealthCard extends ConsumerWidget {
   const _HealthCard();
 
+  Future<void> _edit(BuildContext context, WidgetRef ref) async {
+    final saved =
+        await Navigator.of(context).push(HealthProfileEditScreen.route());
+    if (saved == true) ref.invalidate(profileHealthProvider);
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(profileHealthProvider);
     return VLCard(
+      onTap: () => _edit(context, ref),
       child: switch (async) {
         AsyncData(:final value) => Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -303,7 +355,16 @@ class _HealthCard extends ConsumerWidget {
                   Icon(Icons.monitor_heart_outlined,
                       color: context.colors.primary),
                   const SizedBox(width: 8),
-                  Text('Hồ sơ sức khoẻ', style: context.textStyles.titleMedium),
+                  Expanded(
+                    child: Text('Hồ sơ sức khoẻ',
+                        style: context.textStyles.titleMedium),
+                  ),
+                  Text('Sửa',
+                      style: context.textStyles.labelLarge?.copyWith(
+                          color: context.colors.primary,
+                          fontWeight: FontWeight.w700)),
+                  Icon(Icons.chevron_right_rounded,
+                      color: context.colors.primary),
                 ],
               ),
               const SizedBox(height: 10),
@@ -341,9 +402,12 @@ class _HealthCard extends ConsumerWidget {
 }
 
 class _ChefApplicationCard extends StatelessWidget {
-  const _ChefApplicationCard({required this.profile});
+  const _ChefApplicationCard({required this.profile, required this.isChef});
 
   final UserProfile profile;
+
+  /// Signed in with the Chef role: the card opens the chef dashboard.
+  final bool isChef;
 
   @override
   Widget build(BuildContext context) {
@@ -356,6 +420,14 @@ class _ChefApplicationCard extends StatelessWidget {
       String body,
       String? action
     ) = switch (profile.chefApplication) {
+      _ when isChef => (
+          Icons.verified_rounded,
+          vl.successContainer,
+          vl.onSuccessContainer,
+          'Bạn là chuyên gia đã xác minh',
+          'Quản lý dịch vụ, lịch hẹn, đơn hàng và tài liệu kiến thức của bạn.',
+          'Mở bảng điều khiển',
+        ),
       ChefApplicationStatus.none => (
           Icons.workspace_premium_outlined,
           vl.aiContainer,
@@ -395,7 +467,9 @@ class _ChefApplicationCard extends StatelessWidget {
       borderColor: Colors.transparent,
       onTap: action == null
           ? null
-          : () => Navigator.of(context).push(ChefApplicationScreen.route()),
+          : () => Navigator.of(context).push(isChef
+              ? ChefDashboardScreen.route()
+              : ChefApplicationScreen.route()),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -411,15 +485,18 @@ class _ChefApplicationCard extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(body,
                     style: context.textStyles.bodySmall?.copyWith(color: fg)),
+                // Under the text rather than beside it, so a long label
+                // ("Mở bảng điều khiển") never squeezes the body at large
+                // text sizes.
+                if (action != null) ...[
+                  const SizedBox(height: 8),
+                  Text('$action ›',
+                      style: context.textStyles.labelLarge
+                          ?.copyWith(color: fg, fontWeight: FontWeight.w800)),
+                ],
               ],
             ),
           ),
-          if (action != null) ...[
-            const SizedBox(width: 8),
-            Text(action,
-                style: context.textStyles.labelLarge
-                    ?.copyWith(color: fg, fontWeight: FontWeight.w800)),
-          ],
         ],
       ),
     );
@@ -477,20 +554,19 @@ class _MenuTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = destructive ? context.colors.error : null;
+    // The value ("Theo hệ thống") goes under the title, not beside it, so
+    // it can wrap at large text sizes instead of eating the tile's width.
     return ListTile(
       leading: Icon(icon, color: color),
       title: Text(title, style: TextStyle(color: color)),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (trailing != null)
-            Text(trailing!,
-                style: context.textStyles.bodyMedium
-                    ?.copyWith(color: context.vl.muted)),
-          if (!destructive)
-            Icon(Icons.chevron_right_rounded, color: context.vl.muted),
-        ],
-      ),
+      subtitle: trailing == null
+          ? null
+          : Text(trailing!,
+              style: context.textStyles.bodyMedium
+                  ?.copyWith(color: context.vl.muted)),
+      trailing: destructive
+          ? null
+          : Icon(Icons.chevron_right_rounded, color: context.vl.muted),
       onTap: onTap,
     );
   }

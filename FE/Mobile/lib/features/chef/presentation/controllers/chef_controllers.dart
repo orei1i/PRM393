@@ -1,7 +1,6 @@
 // lib/features/chef/presentation/controllers/chef_controllers.dart
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../core/session/session_controller.dart';
 import '../../data/chef_api_service.dart';
 import '../../domain/entities/chef.dart';
 
@@ -69,11 +68,3 @@ class ChefDirectoryController extends AsyncNotifier<ChefDirectoryState> {
     if (id == _requestId) state = next; // drop stale responses while typing
   }
 }
-
-/// The member's own consultation requests (Tôi › Lịch tư vấn, Chuyên gia tab).
-final myConsultationsProvider = FutureProvider<List<Consultation>>((ref) async {
-  final isGuest = ref.watch(sessionControllerProvider.select((s) => s.isGuest));
-  if (isGuest) return const [];
-  final list = await ref.watch(chefApiProvider).myConsultations();
-  return list.map((c) => c.toEntity()).toList();
-});

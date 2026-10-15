@@ -10,6 +10,7 @@ import '../../domain/entities/health_profile.dart';
 import 'bmi_gauge.dart';
 
 /// Health Hub: BMI gauge, body stats, goal, restrictions and wearable sync.
+/// With [onEdit] the whole card opens the editor and shows a "Sửa" hint.
 class HealthHeaderCard extends StatelessWidget {
   const HealthHeaderCard({super.key, required this.profile, this.onEdit});
 
@@ -32,7 +33,26 @@ class HealthHeaderCard extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
+                      if (onEdit != null)
+                        Semantics(
+                          button: true,
+                          label: 'Sửa hồ sơ sức khoẻ',
+                          excludeSemantics: true,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.edit_outlined,
+                                  size: 16, color: context.colors.primary),
+                              const SizedBox(width: 4),
+                              Text('Sửa',
+                                  style: context.textStyles.labelLarge
+                                      ?.copyWith(
+                                          color: context.colors.primary)),
+                            ],
+                          ),
+                        ),
                       _StatRow(
                           label: 'Chiều cao',
                           value: '${profile.heightCm.round()} cm'),
@@ -149,8 +169,11 @@ class HealthSyncBadge extends StatelessWidget {
             children: [
               leading,
               const SizedBox(width: 6),
-              Text(text,
-                  style: context.textStyles.labelMedium?.copyWith(color: fg)),
+              Flexible(
+                child: Text(text,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.textStyles.labelMedium?.copyWith(color: fg)),
+              ),
             ],
           ),
         ),

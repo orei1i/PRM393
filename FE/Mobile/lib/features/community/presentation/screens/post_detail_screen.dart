@@ -2,17 +2,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/session/session_controller.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/labels.dart';
 import '../../../../core/widgets/food_cover.dart';
 import '../../../../core/widgets/vl_card.dart';
+import '../../../ads/domain/post_ad_picker.dart';
+import '../../../ads/presentation/controllers/ads_controller.dart';
+import '../../../ads/presentation/widgets/sponsored_store_card.dart';
 import '../../../video/presentation/screens/video_detail_screen.dart';
 import '../../data/community_api_service.dart';
 import '../../domain/entities/post.dart';
 import '../controllers/feed_controller.dart';
 import '../post_actions.dart';
-import '../widgets/comments_sheet.dart';
+import '../widgets/comment_tile.dart';
 import '../widgets/post_card.dart';
+import '../widgets/post_status_banner.dart';
 import '../widgets/video_status_chip.dart';
 
 class PostDetailScreen extends ConsumerStatefulWidget {
@@ -45,16 +50,26 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
     if (result == null && mounted) setState(() => _post = before);
   }
 
-  Future<void> _comments() => PostActions.openComments(
+  void _countChanged(int delta) {
+    if (!mounted) return;
+    setState(() => _post = _post.copyWith(
+        commentCount: (_post.commentCount + delta).clamp(0, 1 << 30)));
+    _previewKey.currentState?.reload();
+  }
+
+  Future<void> _comments({bool autofocus = false}) => PostActions.openComments(
         context,
         _post,
-        onAdded: (_) {
-          if (!mounted) return;
-          setState(() =>
-              _post = _post.copyWith(commentCount: _post.commentCount + 1));
-          _previewKey.currentState?.reload();
-        },
+        autofocus: autofocus,
+        onAdded: (_) => _countChanged(1),
+        onRemoved: (_) => _countChanged(-1),
+        onEdited: (_) => _countChanged(0),
       );
+
+  Future<void> _edit() async {
+    final updated = await PostActions.edit(context, ref, _post);
+    if (updated != null && mounted) setState(() => _post = updated);
+  }
 
   void _openVideo() {
     final id = _post.videoId;
@@ -71,22 +86,45 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
           .select((s) => s.hasValue ? s.requireValue.byId(_post.id) : null),
     );
     final post = fromFeed ?? _post;
+    final me = ref.watch(
+        sessionControllerProvider.select((s) => s.isGuest ? null : s.userId));
+    final own = me != null && me == post.author.id;
+    // One "Được tài trợ" card in food posts; never waits on or fails the page.
+    final ad = canCarrySponsoredCard(post)
+        ? sponsoredAdForPost(
+            post, ref.watch(postAdCandidatesProvider).valueOrNull ?? const [])
+        : null;
 
     return Scaffold(
       appBar: AppBar(
         title: Text(post.type.label),
         actions: [
-          IconButton(
-            tooltip: 'Báo cáo',
-            onPressed: () => PostActions.report(context, ref, post),
-            icon: const Icon(Icons.flag_outlined),
-          ),
+          if (!own)
+            IconButton(
+              tooltip: 'Báo cáo',
+              onPressed: () => PostActions.report(context, ref, post),
+              icon: const Icon(Icons.flag_outlined),
+            ),
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.only(bottom: 32),
+        padding:
+            EdgeInsets.only(bottom: 32 + MediaQuery.paddingOf(context).bottom),
         children: [
-          PostAuthorRow(post: post),
+          PostAuthorRow(
+            post: post,
+            onEdited: (updated) {
+              if (mounted) setState(() => _post = updated);
+            },
+            onDeleted: () {
+              if (mounted) Navigator.of(context).maybePop();
+            },
+          ),
+          if (own && !post.isPublished)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: PostStatusBanner(post: post, onResubmit: _edit),
+            ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Text(post.title,
@@ -166,23 +204,43 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
             ),
           const SizedBox(height: 6),
           PostActionsBar(
-              post: post, onLike: _like, onComment: _comments, onSave: _save),
+            post: post,
+            onLike: _like,
+            onComment: _comments,
+            onSave: _save,
+            enabled: post.isPublished,
+          ),
           const Divider(),
+          if (ad != null) ...[
+            SponsoredStoreCard(key: ValueKey('post-ad-${ad.id}'), ad: ad),
+            const Divider(),
+          ],
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
             child: Text('Bình luận', style: context.textStyles.titleMedium),
           ),
-          _CommentsPreview(key: _previewKey, postId: post.id),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: OutlinedButton.icon(
-              onPressed: _comments,
-              icon: const Icon(Icons.mode_comment_outlined),
-              label: Text(post.commentCount == 0
-                  ? 'Viết bình luận đầu tiên'
-                  : 'Xem tất cả & bình luận'),
+          if (!post.isPublished)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text(
+                'Bài chưa hiển thị trên bảng tin nên chưa nhận bình luận.',
+                style: context.textStyles.bodyMedium
+                    ?.copyWith(color: context.vl.muted),
+              ),
+            )
+          else ...[
+            _CommentsPreview(key: _previewKey, postId: post.id),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: OutlinedButton.icon(
+                onPressed: () => _comments(autofocus: post.commentCount == 0),
+                icon: const Icon(Icons.mode_comment_outlined),
+                label: Text(post.commentCount == 0
+                    ? 'Viết bình luận đầu tiên'
+                    : 'Xem tất cả & bình luận'),
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
