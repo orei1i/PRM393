@@ -9,13 +9,12 @@ import '../../../core/network/dio_client.dart';
 import 'mock_chef_repository.dart';
 import 'models/chef_model.dart';
 
-/// Public chef directory. Booking and buying go through `CommerceApiService`
-/// (`POST /orders`), which replaced the direct `POST /consultations`.
+/// Public chef directory (guests too). Booking a chef goes through
+/// `BookingApiService` (`POST /bookings`).
 abstract interface class ChefApiService {
   Future<List<ChefDto>> listChefs({String? query, String? specialty});
 
-  /// With `services`, `availableSlots` minus the ones held by unpaid
-  /// orders, and those held slots as `bookedSlots` (optional).
+  /// With bio, certificates and the booking prices.
   Future<ChefDto> getChef(String id);
 }
 

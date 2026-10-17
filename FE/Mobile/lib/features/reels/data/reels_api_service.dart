@@ -93,7 +93,8 @@ class MockReelsRepository implements ReelsApiService {
 
   @override
   Future<List<ReelDto>> getReels({int limit = 20}) async {
-    final page = await _community.getFeed(type: PostType.video, limit: limit);
+    final page =
+        await _community.getFeed(mediaType: PostMediaType.video, limit: limit);
     return [
       for (final (i, post) in page.items.indexed)
         ReelDto(

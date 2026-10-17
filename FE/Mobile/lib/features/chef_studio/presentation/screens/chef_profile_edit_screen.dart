@@ -1,9 +1,11 @@
 // lib/features/chef_studio/presentation/screens/chef_profile_edit_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
+import '../../../../core/utils/formatters.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../chef/domain/chef_specialties.dart';
 import '../../../chef/presentation/controllers/chef_controllers.dart';
@@ -14,8 +16,10 @@ import '../../domain/chef_studio_rules.dart';
 import '../controllers/chef_studio_controllers.dart';
 import '../widgets/chef_only_gate.dart';
 
-/// "Hồ sơ chuyên gia": main specialty + bio shown on the public profile
-/// (creates the profile when there is none yet).
+/// Tôi › Chuyên gia › "Hồ sơ & bảng giá": main specialty, bio and the
+/// booking prices shown on the public profile ("Giá mỗi ngày", "Giá có phản
+/// hồi mỗi ngày", plan length, "Đang nhận yêu cầu"). Creates the profile
+/// when there is none yet.
 class ChefProfileEditScreen extends StatelessWidget {
   const ChefProfileEditScreen({super.key});
 
@@ -25,7 +29,7 @@ class ChefProfileEditScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Hồ sơ chuyên gia')),
+      appBar: AppBar(title: const Text('Hồ sơ & bảng giá')),
       body: const ChefOnlyGate(child: _Loader()),
     );
   }
@@ -66,6 +70,15 @@ class _Form extends ConsumerStatefulWidget {
 class _FormState extends ConsumerState<_Form> {
   final _form = GlobalKey<FormState>();
   late final _bio = TextEditingController(text: widget.initial?.bio);
+  late final _price =
+      TextEditingController(text: '${widget.initial?.pricePerDay ?? 120000}');
+  late final _feedbackPrice = TextEditingController(
+      text: '${widget.initial?.feedbackPricePerDay ?? 180000}');
+  late final _minDays =
+      TextEditingController(text: '${widget.initial?.minPlanDays ?? 3}');
+  late final _maxDays =
+      TextEditingController(text: '${widget.initial?.maxPlanDays ?? 30}');
+  late bool _accepting = widget.initial?.acceptingBookings ?? true;
   late String? _specialty = chefSpecialties.contains(widget.initial?.specialty)
       ? widget.initial!.specialty
       : null;
@@ -75,26 +88,44 @@ class _FormState extends ConsumerState<_Form> {
   @override
   void dispose() {
     _bio.dispose();
+    _price.dispose();
+    _feedbackPrice.dispose();
+    _minDays.dispose();
+    _maxDays.dispose();
     super.dispose();
   }
+
+  static int? _int(TextEditingController c) => int.tryParse(c.text.trim());
+
+  String? get _daysError =>
+      ChefProfileRules.planDays(_int(_minDays), _int(_maxDays));
 
   Future<void> _save() async {
     final valid = _form.currentState?.validate() ?? false;
     final specialty = _specialty;
-    if (!valid || specialty == null) {
+    if (!valid || specialty == null || _daysError != null) {
       setState(() => _attempted = true);
       return;
     }
     setState(() => _saving = true);
     try {
-      await ref.read(chefStudioApiProvider).updateMyProfile(
-          ChefProfileRequestDto(specialty: specialty, bio: _bio.text.trim()));
+      await ref
+          .read(chefStudioApiProvider)
+          .updateMyProfile(ChefProfileRequestDto(
+            specialty: specialty,
+            bio: _bio.text.trim(),
+            pricePerDay: _int(_price)!,
+            feedbackPricePerDay: _int(_feedbackPrice)!,
+            minPlanDays: _int(_minDays)!,
+            maxPlanDays: _int(_maxDays)!,
+            acceptingBookings: _accepting,
+          ));
       ref
         ..invalidate(chefDirectoryProvider)
         ..read(commerceRevisionProvider.notifier).bump();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Đã lưu hồ sơ chuyên gia.')));
+          const SnackBar(content: Text('Đã lưu hồ sơ & bảng giá.')));
       Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
@@ -153,7 +184,67 @@ class _FormState extends ConsumerState<_Form> {
               ),
               validator: (v) => ChefProfileRules.bio(v ?? ''),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 8),
+            Text('Bảng giá thiết kế thực đơn',
+                style: context.textStyles.titleMedium),
+            Text(
+              'Giá tham khảo hiện trên hồ sơ công khai; giá cuối do bạn và thành viên thoả thuận trong chat.',
+              style: context.textStyles.bodySmall
+                  ?.copyWith(color: context.vl.muted),
+            ),
+            const SizedBox(height: 12),
+            _PriceField(controller: _price, label: 'Giá mỗi ngày'),
+            const SizedBox(height: 12),
+            _PriceField(
+                controller: _feedbackPrice, label: 'Giá có phản hồi mỗi ngày'),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _minDays,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    onChanged: (_) => setState(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'Số ngày tối thiểu',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextFormField(
+                    controller: _maxDays,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    onChanged: (_) => setState(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'Số ngày tối đa',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (_attempted && _daysError != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(_daysError!,
+                    style: context.textStyles.bodySmall
+                        ?.copyWith(color: context.colors.error)),
+              ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _accepting,
+              onChanged: (v) => setState(() => _accepting = v),
+              title: const Text('Đang nhận yêu cầu'),
+              subtitle: Text(_accepting
+                  ? 'Thành viên đặt được bạn từ hồ sơ công khai.'
+                  : 'Hồ sơ hiện "Chuyên gia đang tạm ngưng nhận yêu cầu".'),
+            ),
+            const SizedBox(height: 16),
             FilledButton(
               onPressed: _saving ? null : _save,
               style: FilledButton.styleFrom(
@@ -163,6 +254,30 @@ class _FormState extends ConsumerState<_Form> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _PriceField extends StatelessWidget {
+  const _PriceField({required this.controller, required this.label});
+
+  final TextEditingController controller;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: TextInputType.number,
+      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+      decoration: InputDecoration(
+        labelText: label,
+        suffixText: 'đ/ngày',
+        helperText:
+            'Từ ${formatVnd(ChefProfileRules.minDayPrice)} đến ${formatVnd(ChefProfileRules.maxDayPrice)}',
+        border: const OutlineInputBorder(),
+      ),
+      validator: (v) => ChefProfileRules.dayPrice(int.tryParse(v ?? '')),
     );
   }
 }

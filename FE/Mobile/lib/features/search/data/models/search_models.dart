@@ -3,7 +3,7 @@
 // GET /search?q=bún%20riêu&type=all|post|video|recipe|restaurant&lat=&lng=&limit=10
 // { "query": "bún riêu",
 //   "posts":  [PostDto…],          // mediaType Text/Image, status Published only
-//   "videos": [PostDto…],          // mediaType Video, status Published only
+//   "videos": [PostDto…],          // posts with a video (mediaType Video), Published only
 //   "recipes": [ { "id": "l5", "name": "Bún riêu chay", "caloriesCache": 520, "isVegan": true } ],
 //   "restaurants": [RestaurantDto…],
 //   "suggestion": { "recipe": RecipeSummaryDto, "relatedPosts": [PostDto…],
@@ -125,5 +125,99 @@ class SearchResultDto {
         recipes: [for (final r in recipes) r.toEntity()],
         restaurants: [for (final r in restaurants) r.toEntity()],
         suggestion: suggestion?.toEntity(),
+      );
+}
+
+/// GET /search/suggest?q=bu&limit=8 (guests allowed)
+/// `[{ "kind": "query|recipe|post|restaurant", "text": "bún riêu chay",
+///     "id": null, "subtitle": "Công thức" }]`
+class SearchSuggestItemDto {
+  const SearchSuggestItemDto({
+    required this.kind,
+    required this.text,
+    this.id,
+    this.subtitle,
+  });
+
+  factory SearchSuggestItemDto.fromJson(Map<String, dynamic> json) =>
+      SearchSuggestItemDto(
+        kind: SuggestKind.fromApi(json['kind']).apiValue,
+        text: json['text'] as String? ?? '',
+        id: json['id']?.toString(),
+        subtitle: json['subtitle'] as String?,
+      );
+
+  static List<SearchSuggestItemDto> listFromJson(Object? json) =>
+      _list(json, SearchSuggestItemDto.fromJson);
+
+  final String kind;
+  final String text;
+  final String? id;
+  final String? subtitle;
+
+  Map<String, dynamic> toJson() =>
+      {'kind': kind, 'text': text, 'id': id, 'subtitle': subtitle};
+
+  SearchSuggestItem toEntity() => SearchSuggestItem(
+      kind: SuggestKind.fromApi(kind), text: text, id: id, subtitle: subtitle);
+}
+
+/// GET /search/discover?lat=&lng= (guests allowed)
+/// { "trending": ["bún riêu", …],
+///   "categories": [{ "id": "main", "label": "Món chính", "query": "cơm" }],
+///   "seasonal": [{ "recipeId": "ds2", "name": "Súp bí đỏ đậu lăng",
+///                  "ingredient": "bí đỏ", "coverSeed": "ds2" }],
+///   "popularRecipes": [RecipeSummaryDto…],
+///   "nearbyRestaurants": [RestaurantDto…] }   // nearest first, with distanceKm
+/// "Xu hướng" can come from the optional `search_logs` table.
+class SearchDiscoverDto {
+  const SearchDiscoverDto({
+    this.trending = const [],
+    this.categories = const [],
+    this.seasonal = const [],
+    this.popularRecipes = const [],
+    this.nearbyRestaurants = const [],
+  });
+
+  factory SearchDiscoverDto.fromJson(Map<String, dynamic> json) =>
+      SearchDiscoverDto(
+        trending: readStringList(json['trending']),
+        categories: _list(json['categories'], (c) => c),
+        seasonal: _list(json['seasonal'], (s) => s),
+        popularRecipes:
+            _list(json['popularRecipes'], RecipeSummaryDto.fromJson),
+        nearbyRestaurants:
+            _list(json['nearbyRestaurants'], RestaurantDto.fromJson),
+      );
+
+  final List<String> trending;
+  final List<Map<String, dynamic>> categories;
+  final List<Map<String, dynamic>> seasonal;
+  final List<RecipeSummaryDto> popularRecipes;
+  final List<RestaurantDto> nearbyRestaurants;
+
+  SearchDiscover toEntity() => SearchDiscover(
+        trending: trending,
+        categories: [
+          for (final c in categories)
+            SearchCategory(
+              id: c['id']?.toString() ?? '',
+              label: c['label'] as String? ?? '',
+              query: c['query'] as String? ?? '',
+            ),
+        ],
+        seasonal: [
+          for (final s in seasonal)
+            if ((s['recipeId'] ?? '').toString().isNotEmpty)
+              SeasonalPick(
+                recipeId: s['recipeId'].toString(),
+                name: s['name'] as String? ?? '',
+                ingredient: s['ingredient'] as String? ?? '',
+                coverSeed:
+                    s['coverSeed'] as String? ?? s['recipeId'].toString(),
+              ),
+        ],
+        popularRecipes: [for (final r in popularRecipes) r.toEntity()],
+        nearbyRestaurants: [for (final r in nearbyRestaurants) r.toEntity()],
       );
 }

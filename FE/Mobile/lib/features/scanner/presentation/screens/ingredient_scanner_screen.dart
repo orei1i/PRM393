@@ -20,8 +20,8 @@ import '../widgets/scanned_ingredients_sheet.dart';
 /// Full-screen Smart Kitchen scanner (pushed as a fullscreen dialog route).
 /// [mode] is how it starts: the live camera ("Chụp hình"), a photo from the
 /// gallery ("Chọn ảnh") or the tray with manual entry ("Nhập tay"). Closes
-/// with [ScannerExit.openPlanner] when the member asks to see the Thực đơn
-/// tab.
+/// with [ScannerExit.openPlanner] once a week was generated from the fridge,
+/// so the shell shows the Thực đơn tab.
 class IngredientScannerScreen extends StatelessWidget {
   const IngredientScannerScreen({super.key, this.mode = ScanMode.camera});
 

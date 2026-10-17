@@ -100,9 +100,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
             ),
             const SizedBox(height: 6),
             Text(
-              widget.profile.signedInWithGoogle
-                  ? 'Email gắn với tài khoản Google nên không đổi được ở đây.'
-                  : 'Liên hệ hỗ trợ nếu cần đổi email đăng nhập.',
+              'Email dùng để đăng nhập nên không đổi được ở đây.',
               style: context.textStyles.bodySmall
                   ?.copyWith(color: context.vl.muted),
             ),

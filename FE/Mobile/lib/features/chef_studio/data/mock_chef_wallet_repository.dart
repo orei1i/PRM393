@@ -2,34 +2,45 @@
 import '../../../core/session/user_role.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/utils/mock_delay.dart';
-import '../../chef/domain/entities/chef.dart';
+import '../../booking/data/mock/mock_booking_db.dart';
+import '../../booking/domain/booking_enums.dart';
 import '../../commerce/data/mock/mock_commerce_db.dart';
-import '../../commerce/domain/commerce_status.dart';
 import '../domain/wallet_rules.dart';
 import 'chef_wallet_api_service.dart';
 import 'models/wallet_models.dart';
 
-/// One sale as the wallet sees it, derived from the orders in
-/// [MockCommerceDb] so the ledger always matches the chef's real orders.
+/// One paid booking as the wallet sees it (same derivation as the web
+/// `earningOf`): what the chef earns on and where that money is.
 class _Earning {
-  _Earning(this.order, this.paidAt, this.ref, this.status, this.refundedAt);
+  const _Earning({
+    required this.entry,
+    required this.gross,
+    required this.fee,
+    required this.status,
+    required this.at,
+    this.note,
+  });
 
-  final MockOrderRow order;
-  final DateTime paidAt;
-  final String ref;
+  final EscrowLedgerEntry entry;
+
+  /// Contract price, or price − refund after a Split decision.
+  final int gross;
+  final int fee;
   final LedgerStatus status;
-  final DateTime? refundedAt;
 
-  int get gross => order.amount;
-  int get fee => platformFee(gross);
+  /// When the money was held (payment) or became available (release).
+  final DateTime at;
+  final String? note;
+
   int get net => gross - fee;
 }
 
-/// Wallet on top of [MockCommerceDb]. Money becomes "Có thể rút" when a
-/// consult is completed, or [kPackageHoldDays] after a package is paid;
-/// refunds reverse it. Withdrawals up to [kAutoApproveLimit] are paid out
-/// 10 s after the request; bigger ones wait for an admin. `#fail` in the
-/// account holder name → 503.
+/// Wallet on top of the booking escrow holds ([MockBookingDb]): a paid
+/// booking is "Đang giữ" until its plan's end date 23:59 + [kEscrowHoldDays]
+/// days, "Tạm giữ do khiếu nại" while a complaint is open, then "Có thể rút"
+/// at net 90 % — or "Đã hoàn" when an admin refunds it in full. Withdrawals
+/// up to [kAutoApproveLimit] are paid out 10 s after the request; bigger
+/// ones wait for an admin. `#fail` in the account holder name → 503.
 class MockChefWalletRepository implements ChefWalletApiService {
   MockChefWalletRepository(
       {required this.currentUserId, required this.currentRole});
@@ -52,33 +63,50 @@ class MockChefWalletRepository implements ChefWalletApiService {
             404, 'Bạn chưa có hồ sơ chuyên gia.', 'chef_profile_missing'));
   }
 
-  List<_Earning> _earnings(String chefId) {
-    final now = _db.now;
-    final list = <_Earning>[];
-    for (final o in _db.orders.where((o) => o.chefId == chefId)) {
-      if (o.status != OrderStatus.paid && o.status != OrderStatus.refunded) {
-        continue;
-      }
-      final paid = _db.payments
-          .where((p) => p.orderId == o.id && p.paidAt != null)
-          .firstOrNull;
-      if (paid == null) continue;
-      final paidAt = paid.paidAt!;
-      final DateTime? releasedAt = o.type == ServiceType.consult
-          ? (_db.consultationOf(o.id)?.status == ConsultationStatus.completed
-              ? _db.consultationOf(o.id)!.completedAt
-              : null)
-          : paidAt.add(const Duration(days: kPackageHoldDays));
-      final status = o.status == OrderStatus.refunded
-          ? LedgerStatus.reversed
-          : releasedAt != null && !releasedAt.isAfter(now)
-              ? LedgerStatus.available
-              : LedgerStatus.pending;
-      list.add(_Earning(o, paidAt, paid.transactionRef, status,
-          o.status == OrderStatus.refunded ? (o.refundedAt ?? paidAt) : null));
-    }
-    return list;
-  }
+  static _Earning _earningOf(EscrowLedgerEntry e) => switch (e.status) {
+        EscrowStatus.held || EscrowStatus.frozen => _Earning(
+            entry: e,
+            gross: e.amount,
+            fee: platformFee(e.amount),
+            status: e.status == EscrowStatus.held
+                ? LedgerStatus.held
+                : LedgerStatus.frozen,
+            at: e.heldAt,
+          ),
+        EscrowStatus.released => _Earning(
+            entry: e,
+            gross: e.releasedAmount,
+            fee: e.feeAmount,
+            status: LedgerStatus.available,
+            at: e.releasedAt ?? e.releaseAt,
+            note: e.complaintId == null
+                ? null
+                : 'Giải ngân theo quyết định khiếu nại',
+          ),
+        EscrowStatus.partiallyRefunded => _Earning(
+            entry: e,
+            gross: e.releasedAmount,
+            fee: e.feeAmount,
+            status: LedgerStatus.available,
+            at: e.releasedAt ?? e.decidedAt ?? e.heldAt,
+            note:
+                'Hoàn ${formatVnd(e.refundedAmount)} cho thành viên theo quyết định khiếu nại',
+          ),
+        EscrowStatus.refunded => _Earning(
+            entry: e,
+            gross: e.amount,
+            fee: platformFee(e.amount),
+            status: LedgerStatus.reversed,
+            at: e.decidedAt ?? e.heldAt,
+            note:
+                'Đã hoàn toàn bộ ${formatVnd(e.refundedAmount)} cho thành viên',
+          ),
+      };
+
+  List<_Earning> _earnings(String chefId) => [
+        for (final e in _db.bookingDb.escrowLedger())
+          if (e.chefId == chefId) _earningOf(e),
+      ];
 
   List<MockWithdrawalRow> _withdrawals(String chefId) {
     final list = _db.withdrawals.where((w) => w.chefId == chefId).toList()
@@ -92,9 +120,8 @@ class MockChefWalletRepository implements ChefWalletApiService {
   WalletDto _wallet(MockChefRow chef) {
     final earnings = _earnings(chef.id);
     final withdrawals = _withdrawals(chef.id);
-    final released = _sum(earnings
-        .where((e) => e.status == LedgerStatus.available)
-        .map((e) => e.net));
+    int netOf(LedgerStatus status) =>
+        _sum(earnings.where((e) => e.status == status).map((e) => e.net));
     final withdrawn = _sum(
         withdrawals.where((w) => w.status == 'Completed').map((w) => w.amount));
     final processing = _sum(withdrawals
@@ -102,14 +129,13 @@ class MockChefWalletRepository implements ChefWalletApiService {
         .map((w) => w.amount));
     final account = _db.bankAccounts[chef.id];
     return WalletDto.fromJson({
-      'available': released - withdrawn - processing,
-      'pending': _sum(earnings
-          .where((e) => e.status == LedgerStatus.pending)
-          .map((e) => e.net)),
+      'available': netOf(LedgerStatus.available) - withdrawn - processing,
+      'pending': netOf(LedgerStatus.held),
+      'frozen': netOf(LedgerStatus.frozen),
       'withdrawn': withdrawn,
       'processing': processing,
       'feeRate': kPlatformFeeRate,
-      'holdDays': kPackageHoldDays,
+      'holdDays': kEscrowHoldDays,
       'bankAccount': account == null ? null : _accountJson(account),
     });
   }
@@ -152,48 +178,37 @@ class MockChefWalletRepository implements ChefWalletApiService {
     await mockDelay(500);
     final chef = _chef();
     if (MockCommerceDb.emptyScenario()) return const [];
-    final rows = <Map<String, dynamic>>[];
-    for (final e in _earnings(chef.id)) {
-      final common = {
-        'orderId': e.order.id,
-        'transactionRef': e.ref,
-        'serviceTitle': e.order.serviceTitle,
-        'buyerName': e.order.buyerName,
-      };
-      rows.add({
-        'id': 'tx_in_${e.order.id}',
-        'type': 'Income',
-        'createdAt': _iso(e.paidAt),
-        'status': e.status.apiValue,
-        'gross': e.gross,
-        'fee': e.fee,
-        'net': e.net,
-        ...common,
-      });
-      if (e.refundedAt != null) {
-        rows.add({
-          'id': 'tx_rf_${e.order.id}',
-          'type': 'Refund',
-          'createdAt': _iso(e.refundedAt!),
-          'status': LedgerStatus.reversed.apiValue,
-          'gross': -e.gross,
-          'fee': -e.fee,
-          'net': -e.net,
-          ...common,
-        });
-      }
-    }
-    for (final w in _withdrawals(chef.id)) {
-      rows.add({
-        'id': 'tx_wd_${w.id}',
-        'type': 'Withdrawal',
-        'createdAt': _iso(w.createdAt),
-        'status': w.status,
-        'net': -w.amount,
-        'bankName': '${w.bankName} ${_mask(w.accountNumber)}',
-        'note': w.reason,
-      });
-    }
+    final rows = <Map<String, dynamic>>[
+      for (final e in _earnings(chef.id))
+        {
+          'id': 'tx_in_${e.entry.bookingId}',
+          'type': 'Income',
+          'status': e.status.apiValue,
+          'createdAt': _iso(e.at),
+          'gross': e.gross,
+          'fee': e.fee,
+          'net': e.net,
+          'bookingId': e.entry.bookingId,
+          'orderId': e.entry.orderId,
+          'transactionRef': e.entry.transactionRef,
+          'planTitle': e.entry.planTitle,
+          'memberName': e.entry.memberName,
+          'releaseAt':
+              e.status == LedgerStatus.held ? _iso(e.entry.releaseAt) : null,
+          'complaintId': e.entry.complaintId,
+          'note': e.note,
+        },
+      for (final w in _withdrawals(chef.id))
+        {
+          'id': 'tx_wd_${w.id}',
+          'type': 'Withdrawal',
+          'status': w.status,
+          'createdAt': _iso(w.createdAt),
+          'net': -w.amount,
+          'bankName': '${w.bankName} ${_mask(w.accountNumber)}',
+          'note': w.reason,
+        },
+    ];
     final list = rows.map(WalletTransactionDto.fromJson).where((t) {
       if (month == null) return true;
       final d = t.createdAt;

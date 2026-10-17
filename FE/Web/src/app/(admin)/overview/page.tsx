@@ -12,6 +12,7 @@ import {
   Flag,
   Hourglass,
   Library,
+  Scale,
   ShieldAlert,
   UserPlus,
   Users,
@@ -28,6 +29,7 @@ import { MetricCard } from "@/components/telemetry/metric-card";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/form-controls";
 import { useOverview } from "@/lib/hooks/use-admin";
+import { useEscrowSummary } from "@/lib/hooks/use-bookings";
 import { useKnowledgeCounts } from "@/lib/hooks/use-knowledge";
 import { usePayoutSummary } from "@/lib/hooks/use-payouts";
 import { formatAge, formatNumber } from "@/lib/utils";
@@ -44,6 +46,7 @@ export default function OverviewPage() {
   const overview = useOverview();
   const knowledgeCounts = useKnowledgeCounts();
   const payoutSummary = usePayoutSummary();
+  const escrowSummary = useEscrowSummary();
   const data = overview.data;
   // Format the date on the client only: the page is prerendered at build time.
   const [todayLabel, setTodayLabel] = React.useState<string | null>(null);
@@ -58,8 +61,9 @@ export default function OverviewPage() {
     { href: "/content?view=pending", label: "Bài chờ duyệt", hint: "Bài AI giữ lại khi đăng, chưa lên bảng tin", count: data?.pending.pendingPosts, icon: Hourglass },
     { href: "/chefs", label: "Hồ sơ chuyên gia", hint: "Thành viên xin xác minh đầu bếp / chuyên gia", count: data?.pending.chefApplications, icon: BadgeCheck },
     { href: "/content?view=reported", label: "Bài bị báo cáo", hint: "Người dùng báo cáo từ ứng dụng di động", count: data?.pending.reportedContent, icon: Flag },
-    { href: "/content?kind=video", label: "Video AI lỗi", hint: "Không trích xuất được công thức từ video", count: data?.pending.failedVideos, icon: VideoOff },
+    { href: "/content?kind=video", label: "Video AI lỗi", hint: "Không trích xuất được công thức từ video đính kèm", count: data?.pending.failedVideos, icon: VideoOff },
     { href: "/knowledge", label: "Tài liệu chờ duyệt", hint: "Chuyên gia đóng góp cho chatbot", count: knowledgeCounts.data?.Pending, icon: Library },
+    { href: "/disputes", label: "Khiếu nại chờ xử lý", hint: "Tiền đặt chuyên gia đang tạm giữ, chờ quyết định", count: escrowSummary.data?.openComplaints, icon: Scale },
     { href: "/payouts", label: "Yêu cầu rút tiền chờ duyệt", hint: "Trên 5.000.000đ, cần chuyển khoản và xác nhận", count: payoutSummary.data?.awaitingApproval, icon: Wallet },
   ];
 

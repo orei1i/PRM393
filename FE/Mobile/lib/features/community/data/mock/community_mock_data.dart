@@ -29,9 +29,27 @@ const _thuHa = {
   'isVerifiedChef': true
 };
 
+/// Same id and name as the restaurant mock (`rs_an_lac`): the post's
+/// check-in, organic and unpaid.
+const _anLac = {
+  'id': 'rs_an_lac',
+  'name': 'Quán Chay An Lạc',
+  'district': 'Q.1',
+  'isCertified': true,
+};
+
+const _hanhTam = {
+  'id': 'rs_hanh_tam',
+  'name': 'Bún Riêu Chay Hạnh Tâm',
+  'district': 'Q. Bình Thạnh',
+  'isCertified': true,
+};
+
 String _ago(Duration d) => DateTime.now().subtract(d).toUtc().toIso8601String();
 
-/// Newest first. `video` blocks point at [seedVideos].
+/// Newest first. Types are only `recipe` / `discussion`; a video is an
+/// attachment (`mediaType: Video`) whose `video` block points at
+/// [seedVideos] (the AI recipe, Công thức only).
 List<Map<String, dynamic>> buildSeedPosts() => [
       {
         'id': 'p_pin_rules',
@@ -48,7 +66,8 @@ List<Map<String, dynamic>> buildSeedPosts() => [
       },
       {
         'id': 'p_video_cha_lua',
-        'type': 'video',
+        'type': 'recipe',
+        'mediaType': 'Video',
         'author': chefTam,
         'title': 'Chả lụa chay từ đậu hũ ky — không cần máy xay',
         'body':
@@ -58,6 +77,7 @@ List<Map<String, dynamic>> buildSeedPosts() => [
         'likeCount': 842,
         'commentCount': 63,
         'createdAt': _ago(const Duration(hours: 2)),
+        'restaurant': _anLac,
         'video': {
           'id': 'vid_cha_lua',
           'durationSeconds': 724,
@@ -95,7 +115,8 @@ List<Map<String, dynamic>> buildSeedPosts() => [
       },
       {
         'id': 'p_video_meal_prep',
-        'type': 'video',
+        'type': 'recipe',
+        'mediaType': 'Video',
         'author': bepNhaMay,
         'title': 'Meal prep 5 hộp cơm chay cho cả tuần với 150.000đ',
         'body':
@@ -125,6 +146,20 @@ List<Map<String, dynamic>> buildSeedPosts() => [
         'createdAt': _ago(const Duration(days: 1, hours: 9)),
       },
       {
+        'id': 'p_checkin_hanh_tam',
+        'type': 'discussion',
+        'author': _ngocTram,
+        'title': 'Có ai ăn thử bún riêu chay ở Hạnh Tâm chưa?',
+        'body':
+            'Trưa nay mình ghé quán, tô 35k đầy đặn, nước dùng ngọt từ rau củ, mắm tôm chay để riêng. '
+                'Quán còn món nào ngon nữa không mọi người?',
+        'tags': <String>[],
+        'likeCount': 41,
+        'commentCount': 9,
+        'createdAt': _ago(const Duration(days: 1, hours: 14)),
+        'restaurant': _hanhTam,
+      },
+      {
         'id': 'p_quan_chay_q9',
         'type': 'discussion',
         'author': _ducHuy,
@@ -139,7 +174,8 @@ List<Map<String, dynamic>> buildSeedPosts() => [
       },
       {
         'id': 'p_video_sua_hat',
-        'type': 'video',
+        'type': 'recipe',
+        'mediaType': 'Video',
         'author': thaoVy,
         'title': 'Sữa hạt điều yến mạch 5 phút, không cần máy làm sữa',
         'body': 'Bữa sáng 5 phút cho ngày bận rộn.',
@@ -174,7 +210,8 @@ List<Map<String, dynamic>> buildSeedPosts() => [
         'author': _thuHa,
         'title': '5 nguồn đạm thực vật rẻ mà chợ nào cũng có',
         'body': 'Đậu hũ (8 g/100 g), đậu xanh nguyên vỏ (24 g), đậu phộng (26 g), mè đen (18 g) và tàu hũ ky (45 g khô). '
-            'Kết hợp ngũ cốc nguyên hạt trong ngày để đủ axit amin thiết yếu. Nguồn: Bảng thành phần thực phẩm Việt Nam (Viện Dinh dưỡng).',
+            'Kết hợp ngũ cốc nguyên hạt trong ngày để đủ axit amin thiết yếu. Nguồn: Bảng thành phần thực phẩm Việt Nam (Viện Dinh dưỡng), '
+            'https://viendinhduong.vn',
         'tags': ['high_protein'],
         'likeCount': 521,
         'commentCount': 44,
@@ -195,7 +232,8 @@ List<Map<String, dynamic>> buildSeedPosts() => [
       },
       {
         'id': 'p_me_banh_xeo',
-        'type': 'video',
+        'type': 'recipe',
+        'mediaType': 'Video',
         'author': currentUserAuthor,
         'title': 'Bánh xèo chay nhân nấm — video đầu tay của mình',
         'body': 'Lần đầu quay video nấu ăn, mọi người góp ý giúp mình nha!',
@@ -226,7 +264,8 @@ List<Map<String, dynamic>> buildSeedPosts() => [
       // sample clips here) with their AI recipe ready.
       {
         'id': 'p_reel_goi_cuon',
-        'type': 'video',
+        'type': 'recipe',
+        'mediaType': 'Video',
         'author': chefChau,
         'title':
             'Gỏi cuốn chay 60 giây: cuốn chặt tay mà không rách bánh tráng',
@@ -237,7 +276,6 @@ List<Map<String, dynamic>> buildSeedPosts() => [
         'likeCount': 655,
         'commentCount': 14,
         'createdAt': _ago(const Duration(days: 7)),
-        'mediaType': 'Video',
         'mediaUrl': sampleVideoUrlC,
         'video': {
           'id': 'vid_goi_cuon',
@@ -247,7 +285,8 @@ List<Map<String, dynamic>> buildSeedPosts() => [
       },
       {
         'id': 'p_reel_nam_kho_tieu',
-        'type': 'video',
+        'type': 'recipe',
+        'mediaType': 'Video',
         'author': bepNhaMay,
         'title': 'Nấm kho tiêu kiểu miền Tây, đưa cơm cả nhà',
         'body':
@@ -257,7 +296,6 @@ List<Map<String, dynamic>> buildSeedPosts() => [
         'likeCount': 402,
         'commentCount': 9,
         'createdAt': _ago(const Duration(days: 8)),
-        'mediaType': 'Video',
         'mediaUrl': sampleVideoUrlB,
         'video': {
           'id': 'vid_nam_kho_tieu',
@@ -267,7 +305,8 @@ List<Map<String, dynamic>> buildSeedPosts() => [
       },
       {
         'id': 'p_reel_che_dau_xanh',
-        'type': 'video',
+        'type': 'recipe',
+        'mediaType': 'Video',
         'author': thaoVy,
         'title': 'Chè đậu xanh nước cốt dừa, nấu bằng nồi cơm điện',
         'body':
@@ -277,7 +316,6 @@ List<Map<String, dynamic>> buildSeedPosts() => [
         'likeCount': 288,
         'commentCount': 7,
         'createdAt': _ago(const Duration(days: 9)),
-        'mediaType': 'Video',
         'mediaUrl': sampleVideoUrlA,
         'video': {
           'id': 'vid_che_dau_xanh',
@@ -287,7 +325,8 @@ List<Map<String, dynamic>> buildSeedPosts() => [
       },
       {
         'id': 'p_reel_salad_tempeh',
-        'type': 'video',
+        'type': 'recipe',
+        'mediaType': 'Video',
         'author': chefTam,
         'title': 'Salad tempeh áp chảo sốt mè rang cho bữa trưa văn phòng',
         'body':
@@ -297,7 +336,6 @@ List<Map<String, dynamic>> buildSeedPosts() => [
         'likeCount': 517,
         'commentCount': 11,
         'createdAt': _ago(const Duration(days: 10)),
-        'mediaType': 'Video',
         'mediaUrl': sampleVideoUrlC,
         'video': {
           'id': 'vid_salad_tempeh',
@@ -337,13 +375,34 @@ List<Map<String, dynamic>> buildSeedPosts() => [
       },
     ];
 
+/// Hand-written top-level comments per post (oldest first), each with its
+/// optional `replies` (one level deep, oldest first). `minutesAgo` sets the
+/// time; a reply is always newer than its comment.
 const Map<String, List<Map<String, Object>>> seedComments = {
   'p_b12': [
     {
       'author': _thuHa,
       'text':
           'Nên dùng B12 dạng cyanocobalamin 250 µg/ngày hoặc 2.500 µg/tuần. Xét nghiệm nếu mệt kéo dài nhé.',
-      'minutesAgo': 300
+      'minutesAgo': 300,
+      'replies': [
+        {
+          'author': _ngocTram,
+          'text': 'Cảm ơn chị, em sẽ đi xét nghiệm trước rồi mới uống ạ.',
+          'minutesAgo': 290
+        },
+        {
+          'author': _hoangNam,
+          'text':
+              '@ThS. DD Phạm Thu Hà Liều 2.500 µg/tuần thì uống một lần luôn được không chị?',
+          'minutesAgo': 280
+        },
+        {
+          'author': _thuHa,
+          'text': '@Hoàng Nam Được bạn nhé, một lần mỗi tuần là đủ.',
+          'minutesAgo': 270
+        },
+      ],
     },
     {
       'author': _hoangNam,
@@ -383,7 +442,14 @@ const Map<String, List<Map<String, Object>>> seedComments = {
     {
       'author': bepNhaMay,
       'text': 'Thay bột năng bằng bột khoai mì được không anh?',
-      'minutesAgo': 40
+      'minutesAgo': 40,
+      'replies': [
+        {
+          'author': chefTam,
+          'text': 'Được nhé, chả sẽ dẻo hơn một chút, nhớ giảm bớt nước.',
+          'minutesAgo': 30
+        },
+      ],
     },
   ],
 };
@@ -443,7 +509,7 @@ const _discussionReplies = [
   'Ai có thêm kinh nghiệm thì chia sẻ cho mọi người với nhé.',
   'Mình ăn chay được 2 năm, thấy quan trọng nhất là ăn đa dạng.',
   'Cộng đồng ở đây dễ thương ghê, hỏi gì cũng có người trả lời.',
-  'Bạn thử đặt lịch với chuyên gia dinh dưỡng trên app, mình được tư vấn kỹ lắm.',
+  'Bạn thử nhờ chuyên gia dinh dưỡng trên app thiết kế thực đơn, mình được tư vấn kỹ lắm.',
   'Đọc bình luận của mọi người học thêm được nhiều điều.',
   'Thông tin có nguồn rõ ràng nên mình yên tâm hơn.',
   'Hóng thêm chia sẻ từ mọi người.',
@@ -451,9 +517,12 @@ const _discussionReplies = [
   'Mình cũng từng thắc mắc y hệt, giờ thì rõ rồi.',
 ];
 
-/// Generated replies that, with [seedComments], make each mock thread as long
-/// as the post's `commentCount`. Same output for the same [postId]; no two
-/// neighbours share an author or a text, and [postAuthorId] never comments.
+/// Generated comments that, with [seedComments], make each mock thread as
+/// long as the post's `commentCount` (replies included; the repository turns
+/// some of them into replies). [postType] is `recipe`, `discussion`, or
+/// `video` for a post with a video attachment. Same output for the same
+/// [postId]; no two neighbours share an author or a text, and
+/// [postAuthorId] never comments.
 List<Map<String, Object>> buildFillerComments({
   required String postId,
   required String postType,

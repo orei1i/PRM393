@@ -1,7 +1,11 @@
 // lib/features/chef_studio/data/models/chef_studio_models.dart
 //
 // GET/PUT /chefs/me/profile          ChefProfileDto (chef_profiles; 404 when none)
-// { "id": 3, "userId": 12, "specialty": "Ẩm thực chay Việt", "bio": "…" }
+// { "id": 3, "userId": 12, "specialty": "Ẩm thực chay Việt", "bio": "…",
+//   "pricePerDay": 150000, "feedbackPricePerDay": 180000,      // "Hồ sơ & bảng giá"
+//   "minPlanDays": 3, "maxPlanDays": 30, "acceptingBookings": true }
+// Proposed chef_profiles columns: price_per_day, feedback_price_per_day,
+// min_plan_days (3), max_plan_days (30), accepting_bookings BIT.
 // GET/POST /chefs/me/knowledge-docs  KnowledgeDocDto (knowledge_docs + proposed
 //                                    status / review_note columns; chunkCount computed by BE)
 // { "id": 40, "chefId": 3, "title": "…", "source": "Chef", "fileUrl": "https://…pdf",
@@ -15,31 +19,80 @@ class ChefProfileDto {
     required this.userId,
     required this.specialty,
     required this.bio,
+    this.pricePerDay = 120000,
+    this.feedbackPricePerDay = 180000,
+    this.minPlanDays = 3,
+    this.maxPlanDays = 30,
+    this.acceptingBookings = true,
   });
 
-  factory ChefProfileDto.fromJson(Map<String, dynamic> json) => ChefProfileDto(
-        id: json['id']?.toString() ?? '',
-        userId: json['userId']?.toString() ?? '',
-        specialty: json['specialty'] as String? ??
-            readStringList(json['specialties']).firstOrNull ??
-            '',
-        bio: json['bio'] as String? ?? '',
-      );
+  factory ChefProfileDto.fromJson(Map<String, dynamic> json) {
+    int orDefault(Object? value, int fallback) {
+      final n = readInt(value);
+      return n > 0 ? n : fallback;
+    }
+
+    return ChefProfileDto(
+      id: json['id']?.toString() ?? '',
+      userId: json['userId']?.toString() ?? '',
+      specialty: json['specialty'] as String? ??
+          readStringList(json['specialties']).firstOrNull ??
+          '',
+      bio: json['bio'] as String? ?? '',
+      pricePerDay: orDefault(json['pricePerDay'], 120000),
+      feedbackPricePerDay: orDefault(json['feedbackPricePerDay'], 180000),
+      minPlanDays: orDefault(json['minPlanDays'], 3),
+      maxPlanDays: orDefault(json['maxPlanDays'], 30),
+      acceptingBookings: json['acceptingBookings'] as bool? ?? true,
+    );
+  }
 
   final String id;
   final String userId;
   final String specialty;
   final String bio;
+
+  /// "Giá mỗi ngày" (one-shot plans).
+  final int pricePerDay;
+
+  /// "Giá có phản hồi mỗi ngày".
+  final int feedbackPricePerDay;
+  final int minPlanDays;
+  final int maxPlanDays;
+
+  /// "Đang nhận yêu cầu".
+  final bool acceptingBookings;
 }
 
 /// PUT /chefs/me/profile (upsert).
 class ChefProfileRequestDto {
-  const ChefProfileRequestDto({required this.specialty, required this.bio});
+  const ChefProfileRequestDto({
+    required this.specialty,
+    required this.bio,
+    this.pricePerDay = 120000,
+    this.feedbackPricePerDay = 180000,
+    this.minPlanDays = 3,
+    this.maxPlanDays = 30,
+    this.acceptingBookings = true,
+  });
 
   final String specialty;
   final String bio;
+  final int pricePerDay;
+  final int feedbackPricePerDay;
+  final int minPlanDays;
+  final int maxPlanDays;
+  final bool acceptingBookings;
 
-  Map<String, dynamic> toJson() => {'specialty': specialty, 'bio': bio};
+  Map<String, dynamic> toJson() => {
+        'specialty': specialty,
+        'bio': bio,
+        'pricePerDay': pricePerDay,
+        'feedbackPricePerDay': feedbackPricePerDay,
+        'minPlanDays': minPlanDays,
+        'maxPlanDays': maxPlanDays,
+        'acceptingBookings': acceptingBookings,
+      };
 }
 
 /// `knowledge_docs.status` (proposed). WHO uploads start Approved.

@@ -1,5 +1,6 @@
 // src/lib/mock_ads.ts
-// In-memory store-ad campaigns for /ads, plus the public feed the mobile app reads.
+// In-memory store-ad campaigns for /ads, plus the public feed the mobile "Quán chay gần bạn"
+// list reads (placement "nearby", one sponsored row at most).
 // Restaurants come from mock_restaurants.ts (read-only): every campaign keeps a snapshot that is
 // refreshed from the live list on each read, so a rename or a certification change on /restaurants
 // shows up here; a deleted restaurant keeps its last snapshot.
@@ -7,8 +8,8 @@
 // QA: `#fail` in the headline on create / edit → 503. The seeded "Chiến dịch thử nghiệm QA #fail"
 // fails pause / resume / delete with 503, so the optimistic rollback can be checked. `#fail` in search → 503.
 import type { AdminSession } from "@/types/admin";
-import type { AdCampaign, AdCtaType, AdFeedItem, AdInput, AdQuery, AdRestaurant, AdStatus } from "@/types/ads";
-import { AD_CTA_LABEL, adInputErrors, deriveAdStatus } from "@/types/ads";
+import type { AdCampaign, AdCtaType, AdFeedItem, AdInput, AdPlacement, AdQuery, AdRestaurant, AdStatus } from "@/types/ads";
+import { AD_CTA_LABEL, AD_NEARBY_LIMIT, adInputErrors, deriveAdStatus } from "@/types/ads";
 import type { AdminRestaurant } from "@/types/restaurants";
 
 import { ApiError } from "./api_error";
@@ -199,6 +200,7 @@ let ads: Row[] = SEEDS.map(([id, restaurantId, headline, message, ctaType, targe
     id,
     restaurantId,
     restaurant: { ...SEED_RESTAURANTS[restaurantId] },
+    placement: "nearby",
     headline,
     message,
     ctaType,
@@ -283,12 +285,18 @@ const haversineKm = (lat1: number, lng1: number, lat2: number, lng2: number) => 
   return 2 * 6371 * Math.asin(Math.sqrt(a));
 };
 
-/** GET /ads/feed?city=&lat=&lng=&limit= — what the mobile feed shows as "Được tài trợ" cards. */
-export async function getFeed(city: string | null, coords: { lat: number; lng: number } | null, limit = 3): Promise<AdFeedItem[]> {
+/** GET /ads/feed?placement=nearby&city=&lat=&lng=&limit=1 — the "Được tài trợ" row of "Quán chay gần bạn". */
+export async function getFeed(
+  city: string | null,
+  coords: { lat: number; lng: number } | null,
+  limit = AD_NEARBY_LIMIT,
+  placement: AdPlacement = "nearby",
+): Promise<AdFeedItem[]> {
   const [restaurants] = await Promise.all([loadRestaurants(), sleep(150)]);
   const now = Date.now();
   const wanted = city ? fold(city.trim()) : null;
   return ads
+    .filter((a) => a.placement === placement)
     .filter((a) => deriveAdStatus(a, now) === "Running")
     .filter((a) => a.targetCity === null || wanted === null || fold(a.targetCity) === wanted)
     .map((a): AdFeedItem => {
@@ -301,6 +309,7 @@ export async function getFeed(city: string | null, coords: { lat: number; lng: n
       return {
         id: a.id,
         restaurantId: a.restaurantId,
+        placement: a.placement,
         restaurant: { ...r, averageRating: live?.averageRating ?? null, reviewCount: live?.reviewCount ?? 0 },
         headline: a.headline,
         message: a.message,
@@ -350,6 +359,7 @@ export async function updateAd(id: string, patch: Partial<AdInput>, session: Adm
   const row = find(id);
   const next: AdInput = {
     restaurantId: patch.restaurantId ?? row.restaurantId,
+    placement: patch.placement ?? row.placement,
     headline: (patch.headline ?? row.headline).trim(),
     message: (patch.message ?? row.message).trim(),
     ctaType: patch.ctaType ?? row.ctaType,

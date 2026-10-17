@@ -11,7 +11,8 @@ import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/vl_card.dart';
-import '../../../chef/presentation/screens/my_consultations_screen.dart';
+import '../../../booking/domain/booking_rules.dart';
+import '../../../booking/presentation/screens/booking_history_screen.dart';
 import '../../data/commerce_api_service.dart';
 import '../../data/models/order_model.dart';
 import '../../data/models/payment_model.dart';
@@ -19,19 +20,17 @@ import '../../domain/commerce_status.dart';
 import '../controllers/commerce_controllers.dart';
 import '../widgets/commerce_ui.dart';
 import '../widgets/mock_qr_view.dart';
-import 'my_orders_screen.dart';
-import 'service_content_screen.dart';
 
-/// PaymentOS QR for one order. Polls the payment every 3 s while it is
-/// pending (the real confirmation is the PaymentOS webhook on the BE) and
-/// counts down to its expiry.
+/// PaymentOS QR for one booking order (the agreed contract price). Polls
+/// the payment every 3 s while it is pending (the real confirmation is the
+/// PaymentOS webhook on the BE) and counts down to its expiry. Once paid,
+/// the money is held in escrow until the plan's end date + 3 days.
 class PaymentScreen extends ConsumerStatefulWidget {
   const PaymentScreen({
     super.key,
     required this.orderId,
     bool? showMockControls,
     this.autoRenew = false,
-    this.fromOrders = false,
   }) : showMockControls = showMockControls ?? Env.useMockData;
 
   final String orderId;
@@ -42,14 +41,9 @@ class PaymentScreen extends ConsumerStatefulWidget {
   /// "Thanh toán tiếp": an expired or failed QR is replaced right away.
   final bool autoRenew;
 
-  /// Opened from "Đơn hàng của tôi": its button goes back there.
-  final bool fromOrders;
-
-  static Route<void> route(String orderId,
-          {bool autoRenew = false, bool fromOrders = false}) =>
+  static Route<void> route(String orderId, {bool autoRenew = false}) =>
       MaterialPageRoute<void>(
-        builder: (_) => PaymentScreen(
-            orderId: orderId, autoRenew: autoRenew, fromOrders: fromOrders),
+        builder: (_) => PaymentScreen(orderId: orderId, autoRenew: autoRenew),
       );
 
   @override
@@ -130,7 +124,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     }
   }
 
-  /// Lists elsewhere (orders, consultations, the chef's bookings) refetch.
+  /// Lists elsewhere (bookings, the chef's inbox and wallet) refetch.
   void _changed() => ref.read(commerceRevisionProvider.notifier).bump();
 
   void _onTick() {
@@ -186,37 +180,13 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         await _reloadOrder();
       });
 
-  Future<void> _cancel() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Huỷ đơn hàng?'),
-        content: const Text(
-            'Mã QR sẽ ngừng hiệu lực. Với lịch tư vấn, khung giờ được nhả cho người khác.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Giữ đơn')),
-          FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Huỷ đơn')),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
-    await _run(() async {
-      await _api.cancelOrder(widget.orderId);
-      await _reloadOrder();
-    });
-  }
-
   Future<void> _confirmLeave() async {
     final leave = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Rời màn thanh toán?'),
-        content:
-            const Text('Bạn có thể thanh toán tiếp trong Đơn hàng của tôi.'),
+        content: const Text(
+            'Bạn có thể thanh toán tiếp trong Lịch sử tư vấn trước hạn thanh toán.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(dialogContext, false),
@@ -230,15 +200,11 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     if (leave == true && mounted) Navigator.of(context).pop();
   }
 
-  void _openOrders() {
-    final navigator = Navigator.of(context);
-    if (widget.fromOrders) {
-      navigator.popUntil(
-          (r) => r.settings.name == MyOrdersScreen.routeName || r.isFirst);
-    } else {
-      navigator.pushReplacement(MyOrdersScreen.route());
-    }
-  }
+  void _openHistory() =>
+      Navigator.of(context).pushReplacement(BookingHistoryScreen.route());
+
+  /// Back to the booking that opened this screen.
+  void _back() => Navigator.of(context).pop();
 
   @override
   Widget build(BuildContext context) {
@@ -278,14 +244,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     switch (order.status) {
       case OrderStatus.paid:
         return _PaidView(
-          order: order,
-          onOpenConsultations: () => Navigator.of(context)
-              .pushReplacement(MyConsultationsScreen.route()),
-          onOpenContent: () => Navigator.of(context).pushReplacement(
-              ServiceContentScreen.route(order.serviceId,
-                  title: order.service.title)),
-          onOpenOrders: _openOrders,
-        );
+            order: order, onBack: _back, onOpenHistory: _openHistory);
       case OrderStatus.cancelled:
         return _Outcome(
           icon: Icons.cancel_outlined,
@@ -293,20 +252,22 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
           message: 'Không có khoản tiền nào bị trừ.',
           actions: [
             OutlinedButton(
-                onPressed: _openOrders, child: const Text('Đơn hàng của tôi')),
+                onPressed: _openHistory, child: const Text('Lịch sử tư vấn')),
           ],
         );
       case OrderStatus.refunded:
-        final reason = order.consultation?.declineReason;
+      case OrderStatus.partiallyRefunded:
+        final refunded = order.escrow?.refundedAmount ?? order.amount;
         return _Outcome(
           icon: Icons.currency_exchange_rounded,
-          title: 'Đơn đã hoàn tiền',
-          message: reason == null
-              ? 'Tiền đã được hoàn về tài khoản của bạn (mô phỏng).'
-              : 'Chuyên gia từ chối: $reason\nTiền đã được hoàn về tài khoản của bạn (mô phỏng).',
+          title: order.status == OrderStatus.refunded
+              ? 'Đã hoàn tiền'
+              : 'Đã hoàn một phần',
+          message:
+              '${formatVnd(refunded)} đã được hoàn về phương thức thanh toán ban đầu.',
           actions: [
             OutlinedButton(
-                onPressed: _openOrders, child: const Text('Đơn hàng của tôi')),
+                onPressed: _openHistory, child: const Text('Lịch sử tư vấn')),
           ],
         );
       case OrderStatus.pending:
@@ -323,7 +284,6 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
             },
             onMockPaid: () => _mockPay(success: true),
             onMockFailed: () => _mockPay(success: false),
-            onCancel: _cancel,
           );
         }
         final failed = payment?.status == PaymentStatus.failed;
@@ -343,8 +303,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                       : 'Tạo mã mới'),
             ),
             OutlinedButton(
-                onPressed: _busy ? null : _cancel,
-                child: const Text('Huỷ đơn')),
+                onPressed: _busy ? null : _back, child: const Text('Để sau')),
           ],
         );
     }
@@ -360,12 +319,12 @@ class _OrderHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(order.service.title,
+        Text(order.booking.title,
             textAlign: TextAlign.center,
             style: context.textStyles.titleMedium
                 ?.copyWith(fontWeight: FontWeight.w700)),
         const SizedBox(height: 2),
-        Text('${order.service.chefName} · ${order.type.label}',
+        Text('${order.booking.chefName} · ${order.booking.bookingType.label}',
             textAlign: TextAlign.center,
             style: context.textStyles.bodyMedium
                 ?.copyWith(color: context.vl.muted)),
@@ -390,7 +349,6 @@ class _PendingView extends StatelessWidget {
     required this.onCopy,
     required this.onMockPaid,
     required this.onMockFailed,
-    required this.onCancel,
   });
 
   final OrderDto order;
@@ -400,7 +358,6 @@ class _PendingView extends StatelessWidget {
   final VoidCallback onCopy;
   final VoidCallback onMockPaid;
   final VoidCallback onMockFailed;
-  final VoidCallback onCancel;
 
   String _countdown() {
     final expiresAt = payment.expiresAt;
@@ -414,7 +371,7 @@ class _PendingView extends StatelessWidget {
   Widget build(BuildContext context) {
     final vl = context.vl;
     final qrUrl = payment.qrCodeUrl;
-    final consultation = order.consultation;
+    final booking = order.booking;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -422,12 +379,12 @@ class _PendingView extends StatelessWidget {
           child: Column(
             children: [
               _OrderHeader(order: order),
-              if (consultation != null) ...[
-                const SizedBox(height: 4),
-                Text('Lịch hẹn ${formatSlot(consultation.startAt)}',
-                    textAlign: TextAlign.center,
-                    style: context.textStyles.bodyMedium),
-              ],
+              const SizedBox(height: 4),
+              Text(
+                  'Kế hoạch ${formatDayMonth(booking.startDate)} – ${formatDayMonth(booking.endDate)} · '
+                  'tiền được giữ đến ${formatVnStamp(escrowReleaseAt(booking.endDate))}',
+                  textAlign: TextAlign.center,
+                  style: context.textStyles.bodyMedium),
               const SizedBox(height: 16),
               if (showMockControls || qrUrl == null)
                 MockQrView(data: payment.transactionRef)
@@ -535,13 +492,6 @@ class _PendingView extends StatelessWidget {
             ),
           ),
         ],
-        const SizedBox(height: 12),
-        OutlinedButton(
-          onPressed: busy ? null : onCancel,
-          style:
-              OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
-          child: const Text('Huỷ đơn'),
-        ),
       ],
     );
   }
@@ -550,21 +500,19 @@ class _PendingView extends StatelessWidget {
 class _PaidView extends StatelessWidget {
   const _PaidView({
     required this.order,
-    required this.onOpenConsultations,
-    required this.onOpenContent,
-    required this.onOpenOrders,
+    required this.onBack,
+    required this.onOpenHistory,
   });
 
   final OrderDto order;
-  final VoidCallback onOpenConsultations;
-  final VoidCallback onOpenContent;
-  final VoidCallback onOpenOrders;
+  final VoidCallback onBack;
+  final VoidCallback onOpenHistory;
 
   @override
   Widget build(BuildContext context) {
     final paidAt = order.payment?.paidAt;
-    final grantEnd = order.accessGrant?.expiresAt;
-    final consultation = order.consultation;
+    final releaseAt =
+        order.escrow?.releaseAt ?? escrowReleaseAt(order.booking.endDate);
     return _Outcome(
       icon: Icons.check_circle_rounded,
       iconColor: context.vl.success,
@@ -574,40 +522,27 @@ class _PaidView extends StatelessWidget {
         if (paidAt != null) 'lúc ${formatStamp(paidAt)}',
       ].join(' '),
       details: [
-        if (grantEnd != null)
-          Text('Quyền truy cập: đến ${formatFullDate(grantEnd)}',
-              textAlign: TextAlign.center,
-              style: context.textStyles.bodyLarge
-                  ?.copyWith(fontWeight: FontWeight.w600)),
-        if (consultation != null) ...[
-          const SizedBox(height: 12),
-          VLCard(
-            color: context.vl.successContainer,
-            borderColor: Colors.transparent,
-            child: Text(
-              'Lịch tư vấn ${formatSlot(consultation.startAt)} với ${order.service.chefName}. '
-              'Chuyên gia sẽ xác nhận trong 24 giờ; nếu chuyên gia từ chối, bạn được hoàn tiền.',
-              style: context.textStyles.bodyMedium
-                  ?.copyWith(color: context.vl.onSuccessContainer),
-            ),
+        VLCard(
+          color: context.vl.successContainer,
+          borderColor: Colors.transparent,
+          child: Text(
+            'Đang giữ đến ${formatVnStamp(releaseAt)} '
+            '(${BookingRules.holdDays} ngày sau khi kế hoạch kết thúc). '
+            '${order.booking.chefName} bắt đầu soạn kế hoạch; nếu kế hoạch có vấn đề, '
+            'bạn khiếu nại trước thời điểm này để VeganLife giữ tiền lại.',
+            style: context.textStyles.bodyMedium
+                ?.copyWith(color: context.vl.onSuccessContainer),
           ),
-        ],
+        ),
       ],
       actions: [
-        if (order.type.isPackage)
-          FilledButton.icon(
-            onPressed: onOpenContent,
-            icon: const Icon(Icons.play_circle_outline_rounded),
-            label: const Text('Mở nội dung'),
-          )
-        else
-          FilledButton.icon(
-            onPressed: onOpenConsultations,
-            icon: const Icon(Icons.event_note_outlined),
-            label: const Text('Xem lịch tư vấn'),
-          ),
+        FilledButton.icon(
+          onPressed: onBack,
+          icon: const Icon(Icons.restaurant_menu_rounded),
+          label: const Text('Về kế hoạch'),
+        ),
         OutlinedButton(
-            onPressed: onOpenOrders, child: const Text('Đơn hàng của tôi')),
+            onPressed: onOpenHistory, child: const Text('Lịch sử tư vấn')),
       ],
     );
   }

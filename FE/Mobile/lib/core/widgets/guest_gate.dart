@@ -2,13 +2,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../features/auth/presentation/auth_navigation.dart';
+import '../../features/auth/presentation/widgets/auth_widgets.dart';
 import '../config/env.dart';
 import '../session/session_controller.dart';
 import '../theme/vl_colors.dart';
-import 'google_sign_in_button.dart';
 
-/// Shows [child] to members. Guests see what they'd unlock + 1-tap sign-in.
-/// Gates sit on intent (personal plan, fridge scan), never on reading.
+/// Shows [child] to members. Guests see what they'd unlock, with "Đăng nhập"
+/// and "Tạo tài khoản"; the gate turns into [child] as soon as they are
+/// signed in. Gates sit on intent (personal plan, fridge scan, Tôi), never
+/// on reading.
 class GuestGate extends ConsumerWidget {
   const GuestGate({
     super.key,
@@ -77,10 +80,16 @@ class GuestGate extends ConsumerWidget {
                     ),
                   ),
                 const SizedBox(height: 16),
-                const GoogleSignInButton(),
+                AuthChoiceButtons(
+                  onLogin: () => AuthNavigation.login(Navigator.of(context)),
+                  onRegister: () =>
+                      AuthNavigation.register(Navigator.of(context)),
+                ),
                 const SizedBox(height: 12),
                 Text(
-                  'Bạn vẫn xem công thức và hỏi AI ${Env.guestTrialLimit} lần miễn phí mà không cần tài khoản.',
+                  Env.guestTrialLimit > 0
+                      ? 'Bạn vẫn xem bài viết, công thức và hỏi AI ${Env.guestTrialLimit} lần miễn phí mà không cần tài khoản.'
+                      : 'Bạn vẫn xem bài viết và công thức mà không cần tài khoản.',
                   style: context.textStyles.bodySmall
                       ?.copyWith(color: context.vl.muted),
                 ),

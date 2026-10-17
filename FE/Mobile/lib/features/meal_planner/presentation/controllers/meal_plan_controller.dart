@@ -1,4 +1,6 @@
 // lib/features/meal_planner/presentation/controllers/meal_plan_controller.dart
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/network/api_exception.dart';
@@ -8,16 +10,25 @@ import '../../data/models/health_profile_model.dart';
 import '../../data/models/meal_plan_model.dart';
 import '../../domain/entities/health_profile.dart';
 import '../../domain/entities/meal_plan.dart';
+import '../../domain/entities/plan_adjustment.dart';
 
 class MealPlannerState {
   const MealPlannerState({
-    required this.profile,
+    required this.healthProfile,
     required this.plan,
     required this.selectedDate,
     this.swappingSlot,
   });
 
-  final HealthProfile profile;
+  /// `null` → the member hasn't set a health profile up yet (new account):
+  /// the planner asks for one ("Thiết lập hồ sơ sức khoẻ").
+  final HealthProfile? healthProfile;
+
+  bool get hasHealthProfile => healthProfile != null;
+
+  /// The saved profile, or [HealthProfile.empty] (no allergies, 3 meals a
+  /// day) before there is one.
+  HealthProfile get profile => healthProfile ?? HealthProfile.empty;
 
   /// `null` → user has no plan for this week yet (empty state).
   final MealPlan? plan;
@@ -28,15 +39,24 @@ class MealPlannerState {
 
   MealPlanDay? get selectedDay => plan?.dayFor(selectedDate);
 
+  /// The member's meals of the day ("Các bữa trong ngày").
+  List<MealSlot> get pattern => profile.mealPattern;
+
+  /// Slots shown for [day]: the pattern plus any extra meal added that day.
+  List<MealSlot> slotsFor(MealPlanDay day) => day.slotsFor(pattern);
+
+  /// A slot outside the pattern, added to one day only ("Bữa thêm").
+  bool isExtraSlot(MealSlot slot) => !pattern.contains(slot);
+
   MealPlannerState copyWith({
-    HealthProfile? profile,
+    HealthProfile? healthProfile,
     MealPlan? plan,
     DateTime? selectedDate,
     MealSlot? swappingSlot,
     bool clearSwapping = false,
   }) {
     return MealPlannerState(
-      profile: profile ?? this.profile,
+      healthProfile: healthProfile ?? this.healthProfile,
       plan: plan ?? this.plan,
       selectedDate: selectedDate ?? this.selectedDate,
       swappingSlot: clearSwapping ? null : (swappingSlot ?? this.swappingSlot),
@@ -69,6 +89,8 @@ final mealPlanControllerProvider =
 class MealPlanController extends AsyncNotifier<MealPlannerState> {
   MealPlannerApiService get _api => ref.read(mealPlannerApiProvider);
 
+  DateTime _now() => ref.read(plannerClockProvider)();
+
   @override
   Future<MealPlannerState> build() async {
     final api = ref.watch(mealPlannerApiProvider);
@@ -76,12 +98,12 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
       api.getHealthProfile(),
       api.getCurrentMealPlan(),
     ]);
-    final profile = (results[0]! as HealthProfileDto).toEntity();
+    final profile = (results[0] as HealthProfileDto?)?.toEntity();
     final plan = (results[1] as MealPlanDto?)?.toEntity();
     return MealPlannerState(
-      profile: profile,
+      healthProfile: profile,
       plan: plan,
-      selectedDate: _initialDate(plan),
+      selectedDate: _initialDate(plan, _now()),
     );
   }
 
@@ -102,9 +124,10 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     state = const AsyncLoading<MealPlannerState>();
     state = await AsyncValue.guard(() async {
       final dto = await _api.generateMealPlan(
-          startDate: startOfWeek(DateTime.now()), fromPantry: fromPantry);
+          startDate: startOfWeek(_now()), fromPantry: fromPantry);
       final plan = dto.toEntity();
-      return previous.copyWith(plan: plan, selectedDate: _initialDate(plan));
+      return previous.copyWith(
+          plan: plan, selectedDate: _initialDate(plan, _now()));
     });
     return state.hasValue && !state.hasError;
   }
@@ -114,38 +137,95 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     final previous = state.valueOrNull ?? await future;
     state = const AsyncLoading<MealPlannerState>();
     state = await AsyncValue.guard(() async {
-      final dto = await _api.createEmptyMealPlan(
-          startDate: startOfWeek(DateTime.now()));
+      final dto =
+          await _api.createEmptyMealPlan(startDate: startOfWeek(_now()));
       final plan = dto.toEntity();
-      return previous.copyWith(plan: plan, selectedDate: _initialDate(plan));
+      return previous.copyWith(
+          plan: plan, selectedDate: _initialDate(plan, _now()));
     });
   }
 
   /// Saves the health profile, keeps the plan on screen with the new
   /// profile and refreshes the allergies other features read. Throws on
-  /// failure so the form keeps the input.
+  /// failure so the form keeps the input. When the meals of the day changed
+  /// and a week exists, a new AI week is generated for the new slots (in the
+  /// background; the planner shows it loading).
   Future<HealthProfile> updateHealthProfile({
     required double heightCm,
     required double weightKg,
     required HealthGoal goal,
     required List<String> allergies,
     required List<String> dietaryRestrictions,
+    Gender? gender,
+    int? birthYear,
+    ActivityLevel? activityLevel,
+    List<MealSlot>? mealPattern,
   }) async {
+    // Only a change of an existing profile's meals regenerates the week.
+    final before = state.valueOrNull?.healthProfile?.mealPattern;
     final saved = (await _api.updateHealthProfile(UpdateHealthProfileRequestDto(
       heightCm: heightCm,
       weightKg: weightKg,
       goal: goal,
       allergies: allergies,
       dietaryRestrictions: dietaryRestrictions,
+      gender: gender,
+      birthYear: birthYear,
+      activityLevel: activityLevel,
+      mealPattern: mealPattern,
     )))
         .toEntity();
-    if (state.valueOrNull case final current?) {
-      state = AsyncData(current.copyWith(profile: saved));
+    final current = state.valueOrNull;
+    if (current != null) {
+      state = AsyncData(current.copyWith(healthProfile: saved));
     } else {
       ref.invalidateSelf();
     }
     ref.invalidate(userAllergiesProvider);
+    final patternChanged = before != null &&
+        (before.length != saved.mealPattern.length ||
+            !before.toSet().containsAll(saved.mealPattern));
+    if (patternChanged && current?.plan != null) {
+      unawaited(generatePlan());
+    } else if (current?.plan != null) {
+      unawaited(_reloadTargets());
+    }
     return saved;
+  }
+
+  /// After a profile save the server re-aims the week at the new daily
+  /// target; the day cards follow it. Keeps the old week if that fails.
+  Future<void> _reloadTargets() async {
+    try {
+      final plan = (await _api.getCurrentMealPlan())?.toEntity();
+      final current = state.valueOrNull;
+      if (plan != null && current != null) {
+        state = AsyncData(current.copyWith(plan: plan));
+      }
+    } on ApiException {
+      // The profile is saved; the targets refresh on the next load.
+    }
+  }
+
+  /// "Chỉnh thực đơn với AI": asks for changes to the selected day or the
+  /// whole week. Nothing changes until [applyAdjustment].
+  Future<PlanAdjustment> proposeAdjustment(
+      String message, AdjustScope scope) async {
+    final s = state.valueOrNull ?? await future;
+    final dto = await _api.adjustPlan(AdjustPlanRequestDto(
+        message: message.trim(), scope: scope, date: s.selectedDate));
+    return dto.toEntity();
+  }
+
+  /// "Áp dụng thay đổi": applies the ticked changes of [proposal]. Returns
+  /// how many were applied; throws (state unchanged) on failure.
+  Future<int> applyAdjustment(
+      PlanAdjustment proposal, Set<String> changeIds) async {
+    final dto = await _api.applyAdjustment(
+        proposalId: proposal.proposalId, changeIds: changeIds.toList());
+    final latest = state.requireValue;
+    state = AsyncData(latest.copyWith(plan: dto.toEntity()));
+    return proposal.changes.where((c) => changeIds.contains(c.id)).length;
   }
 
   /// AI alternatives for the selected day's [slot]. Filters allergens again on
@@ -186,6 +266,7 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
           slot: slot,
           recipeId: replacement.id,
           source: replacement.source,
+          portion: replacement.portion,
         ),
       );
       _applyServerDay(serverDay.toEntity());
@@ -238,7 +319,7 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     String? sourceId,
   }) async {
     final s = await future;
-    final today = dateOnly(DateTime.now());
+    final today = dateOnly(_now());
     final day = s.plan?.dayFor(today);
     if (day == null) {
       throw const ApiException(
@@ -277,6 +358,28 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     );
   }
 
+  /// Puts several dishes into the current week by date and slot (e.g. a
+  /// delivered chef plan, "Áp dụng kế hoạch vào Thực đơn") in one batched
+  /// request; each replaces what that slot held. Days outside the current
+  /// week are skipped by the server and counted out. Returns how many were
+  /// placed.
+  Future<int> addMeals(List<AddMealRequestDto> requests) async {
+    if (requests.isEmpty) return 0;
+    await future;
+    final result = await _api.addMealsToCurrentPlan(requests);
+    final latest = state.valueOrNull;
+    final current = latest?.plan;
+    if (latest != null && current != null) {
+      var plan = current;
+      for (final dto in result.days) {
+        final day = dto.toEntity();
+        if (plan.dayFor(day.date) != null) plan = plan.replaceDay(day);
+      }
+      state = AsyncData(latest.copyWith(plan: plan));
+    }
+    return result.placed;
+  }
+
   /// Undo for [addMealToToday] / [addManualMeal]: puts the replaced recipe
   /// back, or empties the slot again if it was empty.
   Future<void> undoAddMeal(AddedMeal added) async {
@@ -293,6 +396,7 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
               slot: added.slot,
               recipeId: replaced.id,
               source: replaced.source,
+              portion: replaced.portion,
             ),
           );
     _applyServerDay(serverDay.toEntity());
@@ -382,8 +486,8 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
         latest.copyWith(plan: plan.replaceDay(day), clearSwapping: true));
   }
 
-  static DateTime _initialDate(MealPlan? plan) {
-    final today = dateOnly(DateTime.now());
+  static DateTime _initialDate(MealPlan? plan, DateTime now) {
+    final today = dateOnly(now);
     if (plan == null || plan.days.isEmpty) return today;
     return plan.dayFor(today) != null ? today : plan.days.first.date;
   }

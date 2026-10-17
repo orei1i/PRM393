@@ -20,6 +20,10 @@ import 'models/post_model.dart';
 /// Posts follow the "publish unless AI flags" rule: [preScreenFlags] holds a
 /// new or edited post as `Pending` (hidden from the feed, shown to its
 /// author); an edited `Rejected` post always goes back to `Pending`.
+///
+/// Comments are one flat list per post with `parentId` (one level deep),
+/// paged like the API: top-level newest first with a 2-reply preview,
+/// replies oldest first.
 class MockCommunityRepository implements CommunityApiService {
   MockCommunityRepository({
     required this.currentUserName,
@@ -36,6 +40,9 @@ class MockCommunityRepository implements CommunityApiService {
 
   static String _demoMemberId() => 'u_me';
   static final _db = _MockCommunityDb();
+
+  /// Replies shown under each top-level comment before "Xem thêm".
+  static const replyPreview = 2;
 
   /// What the server's synchronous AI pre-screen flags (matched on folded
   /// text, so "chua khoi" counts too).
@@ -82,8 +89,8 @@ class MockCommunityRepository implements CommunityApiService {
       ..['savedByMe'] = me != null && _db.savedBy(me).contains(post.id)
       // Seed counts don't include likes given in this session.
       ..['likeCount'] = post.likeCount + _db.sessionLikes(post.id)
-      // The thread is the source of truth, so the card, the detail screen
-      // and the comments sheet always agree.
+      // The thread (replies included) is the source of truth, so the card,
+      // the detail screen and the comments sheet always agree.
       ..['commentCount'] = _db.comments[post.id]?.length ?? 0;
     return PostDto.fromJson(json);
   }
@@ -100,6 +107,9 @@ class MockCommunityRepository implements CommunityApiService {
 
   static const _notYours = ApiException(
       message: 'Bạn chỉ sửa được nội dung của mình.', statusCode: 403);
+
+  static const _commentGone =
+      ApiException(message: 'Bình luận đã bị xoá.', statusCode: 404);
 
   bool _isPublished(PostDto p) => p.status == PostStatus.published.apiValue;
 
@@ -123,12 +133,17 @@ class MockCommunityRepository implements CommunityApiService {
       (_isMine(p) || p.videoAiStatus == null || p.videoAiStatus == 'ready');
 
   @override
-  Future<FeedPageDto> getFeed(
-      {PostType? type, String? cursor, int limit = 6}) async {
+  Future<FeedPageDto> getFeed({
+    PostType? type,
+    PostMediaType? mediaType,
+    String? cursor,
+    int limit = 6,
+  }) async {
     await mockDelay(cursor == null ? 800 : 600);
     final all = _db.posts
         .where(_visibleInFeed)
         .where((p) => type == null || p.type == type.apiValue)
+        .where((p) => mediaType == null || p.mediaType == mediaType.apiValue)
         .toList()
       ..sort((a, b) {
         if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
@@ -137,7 +152,7 @@ class MockCommunityRepository implements CommunityApiService {
     final start = cursor == null ? 0 : int.tryParse(cursor) ?? 0;
     final end = math.min(start + limit, all.length);
     return FeedPageDto(
-      items: all.sublist(start, end).map(_decorate).toList(),
+      items: all.sublist(math.min(start, end), end).map(_decorate).toList(),
       nextCursor: end < all.length ? '$end' : null,
     );
   }
@@ -174,26 +189,93 @@ class MockCommunityRepository implements CommunityApiService {
     }
   }
 
-  @override
-  Future<List<CommentDto>> getComments(String postId) async {
-    await mockDelay(500);
-    return List.of(_db.comments[postId] ?? const <CommentDto>[]);
+  // ------------------------------------------------------------ comments --
+
+  List<CommentDto> _thread(String postId) =>
+      _db.comments[postId] ?? const <CommentDto>[];
+
+  List<CommentDto> _repliesOf(String postId, String commentId) =>
+      _thread(postId).where((c) => c.parentId == commentId).toList()
+        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+
+  CommentDto _withPreview(String postId, CommentDto top) {
+    final replies = _repliesOf(postId, top.id);
+    return top.copyWith(
+      replyCount: replies.length,
+      replies: replies.take(replyPreview).toList(),
+    );
+  }
+
+  static (int, int, String?) _window(int total, String? cursor, int limit) {
+    final start =
+        math.min(total, cursor == null ? 0 : int.tryParse(cursor) ?? 0);
+    final end = math.min(start + (limit < 1 ? 1 : limit), total);
+    return (start, end, end < total ? '$end' : null);
   }
 
   @override
-  Future<CommentDto> addComment(String postId, String text) async {
+  Future<CommentPageDto> getComments(String postId,
+      {String? cursor, int limit = 10}) async {
+    await mockDelay(cursor == null ? 500 : 450);
+    _findVisible(postId);
+    final top = _thread(postId).where((c) => c.parentId == null).toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final (start, end, next) = _window(top.length, cursor, limit);
+    return CommentPageDto(
+      items: [for (final c in top.sublist(start, end)) _withPreview(postId, c)],
+      nextCursor: next,
+    );
+  }
+
+  @override
+  Future<CommentPageDto> getReplies(String postId, String commentId,
+      {String? cursor, int limit = 20}) async {
+    await mockDelay(400);
+    _findVisible(postId);
+    if (!_thread(postId).any((c) => c.id == commentId)) throw _commentGone;
+    final replies = _repliesOf(postId, commentId);
+    final (start, end, next) = _window(replies.length, cursor, limit);
+    return CommentPageDto(items: replies.sublist(start, end), nextCursor: next);
+  }
+
+  static String _validText(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) {
+      throw const ApiException(
+          message: 'Bình luận không được để trống.', statusCode: 400);
+    }
+    return trimmed;
+  }
+
+  @override
+  Future<CommentDto> addComment(String postId, String text,
+      {String? parentId}) async {
     await mockDelay(450);
     _requireMember();
-    if (_fails(text)) {
+    final content = _validText(text);
+    if (_fails(content)) {
       throw const ApiException(
           message: 'Chưa gửi được bình luận. Thử lại nhé.', statusCode: 503);
     }
-    _findVisible(postId);
+    final post = _findVisible(postId);
+    if (!_isPublished(post)) {
+      throw const ApiException(
+          message: 'Bài chưa hiển thị trên bảng tin nên chưa nhận bình luận.',
+          statusCode: 409);
+    }
+    String? parent;
+    if (parentId != null) {
+      final target = _thread(postId).where((c) => c.id == parentId).firstOrNull;
+      if (target == null) throw _commentGone;
+      // One level deep: a reply to a reply joins the same top-level comment.
+      parent = target.parentId ?? target.id;
+    }
     final comment = CommentDto(
       id: 'c_${DateTime.now().microsecondsSinceEpoch}',
       postId: postId,
+      parentId: parent,
       author: _me,
-      text: text,
+      text: content,
       createdAt: DateTime.now(),
     );
     (_db.comments[postId] ??= []).add(comment);
@@ -209,11 +291,12 @@ class MockCommunityRepository implements CommunityApiService {
           message: 'Chưa đăng được bài. Thử lại nhé.', statusCode: 503);
     }
     final id = 'p_${DateTime.now().millisecondsSinceEpoch}';
-    final url = request.resolvedMediaUrl;
+    final url = request.mediaUrl;
+    final mediaType = url == null ? PostMediaType.text : request.mediaType;
     String? videoId;
     int? duration;
-    if (request.type == PostType.video && url != null) {
-      duration = MockMediaRepository.durationOf(url) ?? 300;
+    if (request.wantsAiRecipe) {
+      duration = MockMediaRepository.durationOf(url!) ?? 300;
       videoId = MockVideoStore.instance.createFromLink(
           title: request.title,
           author: _me,
@@ -221,6 +304,7 @@ class MockCommunityRepository implements CommunityApiService {
           durationSeconds: duration);
     }
     final flagged = preScreenFlags(request.title, request.body);
+    final restaurant = request.restaurant;
     final post = PostDto(
       id: id,
       type: request.type.apiValue,
@@ -234,8 +318,11 @@ class MockCommunityRepository implements CommunityApiService {
       videoDurationSeconds: duration,
       videoAiStatus: videoId == null ? null : 'queued',
       status: (flagged ? PostStatus.pending : PostStatus.published).apiValue,
-      mediaType: request.resolvedMediaType.apiValue,
+      mediaType: mediaType.apiValue,
       mediaUrl: url,
+      restaurant: restaurant == null
+          ? null
+          : TaggedRestaurantDto.fromEntity(restaurant),
     );
     _db.posts.insert(0, post);
     return _decorate(post);
@@ -257,12 +344,14 @@ class MockCommunityRepository implements CommunityApiService {
       PostStatus.rejected || PostStatus.pending => PostStatus.pending,
       PostStatus.published => flagged ? PostStatus.pending : before,
     };
+    final restaurant = request.restaurant;
     final updated = PostDto.fromJson(post.toJson()
       ..['title'] = request.title
       ..['body'] = request.body
       ..['tags'] = request.tags
-      ..['mediaType'] = request.mediaType.apiValue
-      ..['mediaUrl'] = request.mediaUrl ?? post.mediaUrl
+      ..['restaurant'] = restaurant == null
+          ? null
+          : TaggedRestaurantDto.fromEntity(restaurant).toJson()
       ..['status'] = after.apiValue
       ..['rejectionReason'] = null
       ..['updatedAt'] = DateTime.now().toUtc().toIso8601String());
@@ -308,13 +397,10 @@ class MockCommunityRepository implements CommunityApiService {
         .toList();
   }
 
-  (List<CommentDto>, int) _findComment(String postId, String commentId) {
-    final thread = _db.comments[postId] ?? const <CommentDto>[];
+  (List<CommentDto>, int) _findOwnComment(String postId, String commentId) {
+    final thread = _db.comments[postId] ?? <CommentDto>[];
     final index = thread.indexWhere((c) => c.id == commentId);
-    if (index < 0) {
-      throw const ApiException(
-          message: 'Bình luận đã bị xoá.', statusCode: 404);
-    }
+    if (index < 0) throw _commentGone;
     if (thread[index].author.id != _meId) throw _notYours;
     return (thread, index);
   }
@@ -324,26 +410,25 @@ class MockCommunityRepository implements CommunityApiService {
       String postId, String commentId, String text) async {
     await mockDelay(450);
     _requireMember();
-    final (thread, index) = _findComment(postId, commentId);
-    final trimmed = text.trim();
-    if (trimmed.isEmpty) {
-      throw const ApiException(
-          message: 'Bình luận không được để trống.', statusCode: 400);
-    }
-    if (_fails(trimmed)) {
+    final (thread, index) = _findOwnComment(postId, commentId);
+    final content = _validText(text);
+    if (_fails(content)) {
       throw const ApiException(
           message: 'Chưa lưu được bình luận. Thử lại nhé.', statusCode: 503);
     }
-    return thread[index] =
-        thread[index].copyWith(text: trimmed, updatedAt: DateTime.now());
+    thread[index] =
+        thread[index].copyWith(text: content, updatedAt: DateTime.now());
+    final saved = thread[index];
+    return saved.parentId == null ? _withPreview(postId, saved) : saved;
   }
 
   @override
   Future<void> deleteComment(String postId, String commentId) async {
     await mockDelay(400);
     _requireMember();
-    final (thread, index) = _findComment(postId, commentId);
-    thread.removeAt(index);
+    final (thread, _) = _findOwnComment(postId, commentId);
+    // A top-level comment takes its replies with it.
+    thread.removeWhere((c) => c.id == commentId || c.parentId == commentId);
   }
 
   @override
@@ -363,6 +448,7 @@ class MockCommunityRepository implements CommunityApiService {
                 postTitle: title,
                 text: c.text,
                 createdAt: c.createdAt,
+                parentId: c.parentId,
                 updatedAt: c.updatedAt,
               ),
     ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
@@ -380,45 +466,75 @@ class _MockCommunityDb {
     }
   }
 
-  /// Hand-written comments first, then generated replies up to the seed
-  /// `commentCount`, spread between the last of those and now.
+  /// Every [replyEvery]-th generated comment answers the newest top-level
+  /// comment before it, so long threads have replies too.
+  static const replyEvery = 4;
+
+  /// Hand-written comments (with their replies) first, then generated ones
+  /// up to the seed `commentCount`, spread between the last of those and
+  /// now. The count includes replies.
   static List<CommentDto> _seedThread(PostDto post, DateTime now) {
     var i = 0;
     AuthorSummary author(Object? json) =>
         AuthorSummary.fromJson(Map<String, dynamic>.from(json! as Map));
+    DateTime ago(Object? minutes) =>
+        now.subtract(Duration(minutes: minutes! as int));
 
-    final written = [
-      for (final c in seedComments[post.id] ?? const <Map<String, Object>>[])
-        CommentDto(
+    final written = <CommentDto>[];
+    for (final c in seedComments[post.id] ?? const <Map<String, Object>>[]) {
+      final top = CommentDto(
+        id: 'c_${post.id}_${i++}',
+        postId: post.id,
+        author: author(c['author']),
+        text: c['text']! as String,
+        createdAt: ago(c['minutesAgo']),
+      );
+      written.add(top);
+      for (final r in (c['replies'] as List<Object?>? ?? const [])
+          .cast<Map<String, Object>>()) {
+        written.add(CommentDto(
           id: 'c_${post.id}_${i++}',
           postId: post.id,
-          author: author(c['author']),
-          text: c['text']! as String,
-          createdAt: now.subtract(Duration(minutes: c['minutesAgo']! as int)),
-        ),
-    ];
+          parentId: top.id,
+          author: author(r['author']),
+          text: r['text']! as String,
+          createdAt: ago(r['minutesAgo']),
+        ));
+      }
+    }
     final fillers = buildFillerComments(
       postId: post.id,
-      postType: post.type,
+      postType: post.hasVideo ? 'video' : post.type,
       postAuthorId: post.author.id,
       count: post.commentCount - written.length,
     );
-    final from = written.isEmpty ? post.createdAt : written.last.createdAt;
+    final from = written.isEmpty
+        ? post.createdAt
+        : written
+            .map((c) => c.createdAt)
+            .reduce((a, b) => a.isAfter(b) ? a : b);
     final span = now.subtract(const Duration(minutes: 1)).difference(from);
-    return [
-      ...written,
-      for (var k = 0; k < fillers.length; k++)
-        CommentDto(
-          id: 'c_${post.id}_${i++}',
-          postId: post.id,
-          author: author(fillers[k]['author']),
-          text: fillers[k]['text']! as String,
-          createdAt: from.add(span * ((k + 1) / (fillers.length + 1))),
-        ),
-    ];
+    final generated = <CommentDto>[];
+    String? lastTop;
+    for (var k = 0; k < fillers.length; k++) {
+      final reply = k % replyEvery == replyEvery - 1 && lastTop != null;
+      final c = CommentDto(
+        id: 'c_${post.id}_${i++}',
+        postId: post.id,
+        parentId: reply ? lastTop : null,
+        author: author(fillers[k]['author']),
+        text: fillers[k]['text']! as String,
+        createdAt: from.add(span * ((k + 1) / (fillers.length + 1))),
+      );
+      if (!reply) lastTop = c.id;
+      generated.add(c);
+    }
+    return [...written, ...generated];
   }
 
   final List<PostDto> posts = [];
+
+  /// Flat per post: top-level comments and replies (`parentId`).
   final Map<String, List<CommentDto>> comments = {};
 
   /// Per user: likes and saves follow the account, not the device.

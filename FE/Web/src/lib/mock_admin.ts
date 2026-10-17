@@ -339,32 +339,44 @@ export async function reviewChefApplication(input: ChefReviewInput, session: Adm
 
 const a = (id: string, fullName: string, isVerifiedChef = false) => ({ id, fullName, isVerifiedChef });
 
-type ContentSeed = Omit<ContentItem, "status" | "mediaType" | "mediaUrl"> & Partial<Pick<ContentItem, "status" | "mediaType" | "mediaUrl">>;
+type ContentSeed = Omit<ContentItem, "status" | "mediaType" | "mediaUrl" | "restaurant"> &
+  Partial<Pick<ContentItem, "status" | "mediaType" | "mediaUrl" | "restaurant">>;
 
 const MEDIA_BASE = "https://res.cloudinary.com/veganlife";
 
-/** Legacy rows have no status (→ Published); media_type is derived from the FE kind. */
+/** Legacy rows have no status (→ Published); a `video` block means a video attachment, recipes otherwise get a photo. */
 function withPostDefaults(seed: ContentSeed): ContentItem {
-  const mediaType: MediaType = seed.mediaType ?? (seed.kind === "video" ? "Video" : seed.kind === "recipe" ? "Image" : "Text");
+  const mediaType: MediaType = seed.mediaType ?? (seed.video ? "Video" : seed.kind === "recipe" ? "Image" : "Text");
   const derivedUrl =
     mediaType === "Video" ? `${MEDIA_BASE}/video/upload/v1/${seed.id}.mp4` : mediaType === "Image" ? `${MEDIA_BASE}/image/upload/v1/${seed.id}.jpg` : null;
-  return { ...seed, status: seed.status ?? "Published", mediaType, mediaUrl: seed.mediaUrl !== undefined ? seed.mediaUrl : derivedUrl };
+  return {
+    ...seed,
+    status: seed.status ?? "Published",
+    mediaType,
+    mediaUrl: seed.mediaUrl !== undefined ? seed.mediaUrl : derivedUrl,
+    restaurant: seed.restaurant ?? null,
+  };
 }
+
+/** Restaurants tagged by posts ("Gắn quán"); same ids and names as mock_restaurants.ts, same posts as the mobile seeds (p_video_cha_lua, p_checkin_hanh_tam). */
+const TAG_AN_LAC = { id: "rs_an_lac", name: "Quán Chay An Lạc", district: "Q.1", isCertified: true };
+const TAG_HANH_TAM = { id: "rs_hanh_tam", name: "Bún Riêu Chay Hạnh Tâm", district: "Q. Bình Thạnh", isCertified: true };
 
 const CONTENT_SEED: ContentSeed[] = [
   { id: "p_pin_rules", kind: "discussion", title: "Nội quy cộng đồng & cách báo cáo bài sai thông tin", excerpt: "Chia sẻ công thức, kinh nghiệm và câu hỏi về ăn chay — nhớ ghi nguồn khi nói về sức khoẻ…", author: a("u_admin", "Ban quản trị VeganLife"), createdAt: daysAgo(12), likeCount: 312, commentCount: 18, reportCount: 0, hidden: false, pinned: true },
-  { id: "p_video_cha_lua", kind: "video", title: "Chả lụa chay từ đậu hũ ky — không cần máy xay", excerpt: "Công thức mình bán ở quán 6 năm nay, chia sẻ cả nhà…", author: a("u_chef_tam", "Lê Quang Tâm", true), createdAt: minutesAgo(120), likeCount: 842, commentCount: 63, reportCount: 0, hidden: false, pinned: false, video: { durationSeconds: 724, aiStatus: "ready" } },
+  { id: "p_video_cha_lua", kind: "recipe", title: "Chả lụa chay từ đậu hũ ky — không cần máy xay", excerpt: "Công thức mình bán ở quán 6 năm nay, chia sẻ cả nhà…", author: a("u_chef_tam", "Lê Quang Tâm", true), createdAt: minutesAgo(120), likeCount: 842, commentCount: 63, reportCount: 0, hidden: false, pinned: false, video: { durationSeconds: 724, aiStatus: "ready" }, restaurant: TAG_AN_LAC },
   { id: "p_detox", kind: "discussion", title: "Uống nước ép cần tây 7 ngày, mình đã ngưng thuốc tiểu đường!", excerpt: "Bác sĩ bảo phải uống thuốc suốt đời nhưng nước ép cần tây đã chữa khỏi cho mình…", author: a("u_detox", "Detox Xanh Mỗi Ngày"), createdAt: minutesAgo(200), likeCount: 41, commentCount: 37, reportCount: 9, hidden: false, pinned: false },
   { id: "p_bun_rieu", kind: "recipe", title: "Bún riêu chay cà chua đậu hũ — nước dùng ngọt từ củ quả", excerpt: "Nguyên liệu (4 người): 6 quả cà chua, 2 bìa đậu hũ, 300 g nấm rơm…", author: a("u_hoang_nam", "Hoàng Nam"), createdAt: minutesAgo(300), likeCount: 214, commentCount: 27, reportCount: 0, hidden: false, pinned: false },
-  { id: "p_video_lau", kind: "video", title: "Lẩu nấm chay 15 phút cho ngày mưa", excerpt: "Nước lẩu từ nấm đông cô và củ cải…", author: a("u_thao_vy", "Thảo Vy"), createdAt: minutesAgo(25), likeCount: 3, commentCount: 0, reportCount: 0, hidden: false, pinned: false, video: { durationSeconds: 412, aiStatus: "extracting" } },
+  { id: "p_checkin_hanh_tam", kind: "discussion", title: "Có ai ăn thử bún riêu chay ở Hạnh Tâm chưa?", excerpt: "Trưa nay mình ghé quán, tô 35k đầy đặn, nước dùng ngọt từ rau củ, mắm tôm chay để riêng…", author: a("u_ngoc_tram", "Ngọc Trâm"), createdAt: minutesAgo(38 * 60), likeCount: 41, commentCount: 9, reportCount: 0, hidden: false, pinned: false, restaurant: TAG_HANH_TAM },
+  { id: "p_video_lau", kind: "recipe", title: "Lẩu nấm chay 15 phút cho ngày mưa", excerpt: "Nước lẩu từ nấm đông cô và củ cải…", author: a("u_thao_vy", "Thảo Vy"), createdAt: minutesAgo(25), likeCount: 3, commentCount: 0, reportCount: 0, hidden: false, pinned: false, video: { durationSeconds: 412, aiStatus: "extracting" } },
   { id: "p_b12", kind: "discussion", title: "Mới ăn chay 3 tuần, nên bổ sung B12 thế nào?", excerpt: "Mình ăn chay trường được 3 tuần, hay bị mệt buổi chiều…", author: a("u_ngoc_tram", "Ngọc Trâm"), createdAt: minutesAgo(480), likeCount: 46, commentCount: 31, reportCount: 0, hidden: false, pinned: false },
   { id: "p_spam", kind: "discussion", title: "Trà giảm cân thảo mộc — giảm 8 kg/tháng, inbox Zalo 09xx", excerpt: "Cam kết hoàn tiền, 100% thiên nhiên, liên hệ ngay…", author: a("u_spam_1", "thuocgiamcan.official"), createdAt: daysAgo(1), likeCount: 2, commentCount: 5, reportCount: 14, hidden: true, pinned: false },
-  { id: "p_video_meal_prep", kind: "video", title: "Meal prep 5 hộp cơm chay cho cả tuần với 150.000đ", excerpt: "Đi chợ một lần, nấu 90 phút…", author: a("u_bep_may", "Bếp Chay Nhà Mây"), createdAt: daysAgo(1), likeCount: 1290, commentCount: 88, reportCount: 1, hidden: false, pinned: false, video: { durationSeconds: 572, aiStatus: "ready" } },
+  { id: "p_video_meal_prep", kind: "recipe", title: "Meal prep 5 hộp cơm chay cho cả tuần với 150.000đ", excerpt: "Đi chợ một lần, nấu 90 phút…", author: a("u_bep_may", "Bếp Chay Nhà Mây"), createdAt: daysAgo(1), likeCount: 1290, commentCount: 88, reportCount: 1, hidden: false, pinned: false, video: { durationSeconds: 572, aiStatus: "ready" } },
   { id: "p_flan", kind: "recipe", title: "Bánh flan chay mềm mịn (dùng trứng gà ta cho béo)", excerpt: "Mình thêm 2 lòng đỏ trứng gà ta để bánh mịn hơn…", author: a("u_gen_3", "Hồ Ngọc Linh"), createdAt: daysAgo(2), likeCount: 19, commentCount: 12, reportCount: 3, hidden: false, pinned: false, status: "Pending", aiFlag: { reason: "Công thức gắn nhãn chay nhưng dùng lòng đỏ trứng gà.", score: 0.88, category: "not_vegan", createdAt: daysAgo(2) } },
   { id: "p_iq", kind: "discussion", title: "Ăn chay lâu năm có làm giảm trí nhớ không?", excerpt: "Đọc trên mạng thấy bảo ăn chay thiếu B12 dễ giảm trí nhớ…", author: a("u_gen_8", "Vũ Hữu Phúc"), createdAt: daysAgo(2), likeCount: 33, commentCount: 40, reportCount: 4, hidden: false, pinned: false },
-  { id: "p_video_sua_hat", kind: "video", title: "Sữa hạt điều yến mạch 5 phút, không cần máy làm sữa", excerpt: "Bữa sáng 5 phút cho ngày bận rộn.", author: a("u_thao_vy", "Thảo Vy"), createdAt: daysAgo(2), likeCount: 376, commentCount: 21, reportCount: 0, hidden: false, pinned: false, video: { durationSeconds: 251, aiStatus: "ready" } },
+  { id: "p_video_sua_hat", kind: "recipe", title: "Sữa hạt điều yến mạch 5 phút, không cần máy làm sữa", excerpt: "Bữa sáng 5 phút cho ngày bận rộn.", author: a("u_thao_vy", "Thảo Vy"), createdAt: daysAgo(2), likeCount: 376, commentCount: 21, reportCount: 0, hidden: false, pinned: false, video: { durationSeconds: 251, aiStatus: "ready" } },
   { id: "p_dam_thuc_vat", kind: "discussion", title: "5 nguồn đạm thực vật rẻ mà chợ nào cũng có", excerpt: "Đậu hũ, đậu xanh nguyên vỏ, đậu phộng, mè đen và tàu hũ ky…", author: a("u_thu_ha", "ThS. DD Phạm Thu Hà", true), createdAt: daysAgo(3), likeCount: 521, commentCount: 44, reportCount: 0, hidden: false, pinned: false },
-  { id: "p_me_banh_xeo", kind: "video", title: "Bánh xèo chay nhân nấm — video đầu tay của mình", excerpt: "Lần đầu quay video nấu ăn, mọi người góp ý giúp mình nha!", author: a("u_me", "Minh Anh"), createdAt: daysAgo(5), likeCount: 12, commentCount: 3, reportCount: 0, hidden: false, pinned: false, video: { durationSeconds: 486, aiStatus: "failed", failureReason: "Âm thanh quá nhỏ để nhận dạng giọng nói." } },
+  { id: "p_me_banh_xeo", kind: "recipe", title: "Bánh xèo chay nhân nấm — video đầu tay của mình", excerpt: "Lần đầu quay video nấu ăn, mọi người góp ý giúp mình nha!", author: a("u_me", "Minh Anh"), createdAt: daysAgo(5), likeCount: 12, commentCount: 3, reportCount: 0, hidden: false, pinned: false, video: { durationSeconds: 486, aiStatus: "failed", failureReason: "Âm thanh quá nhỏ để nhận dạng giọng nói." } },
   { id: "p_dau_hu_sot_ca", kind: "recipe", title: "Đậu hũ sốt cà chua kiểu Bắc — 15 phút", excerpt: "Rán vàng 2 bìa đậu, xào 3 quả cà chua với hành lá…", author: a("u_bep_may", "Bếp Chay Nhà Mây"), createdAt: daysAgo(3), likeCount: 98, commentCount: 6, reportCount: 0, hidden: false, pinned: false },
   // Held by the AI pre-screen (ids and titles mirror the mobile seeds).
   { id: "p_me_pending_celery", kind: "discussion", title: "Nước ép cần tây có chữa khỏi tiểu đường không?", excerpt: "Mẹ mình đọc trên mạng thấy uống nước ép cần tây mỗi sáng chữa khỏi tiểu đường, có ai thử chưa ạ?", author: a("u_me", "Minh Anh"), createdAt: minutesAgo(95), likeCount: 0, commentCount: 0, reportCount: 0, hidden: false, pinned: false, status: "Pending", aiFlag: { reason: "Có cụm “chữa khỏi tiểu đường” — dễ lan truyền thông tin sức khoẻ sai lệch nếu không có nguồn.", score: 0.82, category: "health_misinformation", createdAt: minutesAgo(95) } },
@@ -379,6 +391,7 @@ export async function listContent(query: ContentQuery): Promise<ContentItem[]> {
   const q = SEARCH_FOLD(query.search.trim());
   return content
     .filter((c) => query.kind === "all" || c.kind === query.kind)
+    .filter((c) => !query.hasVideo || c.mediaType === "Video")
     .filter((c) => !query.authorId || c.author.id === query.authorId)
     .filter((c) => {
       switch (query.view) {
@@ -396,14 +409,14 @@ export async function listContent(query: ContentQuery): Promise<ContentItem[]> {
           return true;
       }
     })
-    .filter((c) => !q || SEARCH_FOLD(`${c.title} ${c.author.fullName}`).includes(q))
+    .filter((c) => !q || SEARCH_FOLD(`${c.title} ${c.author.fullName} ${c.restaurant?.name ?? ""}`).includes(q))
     .sort((x, y) => {
       if (query.view === "reported") return y.reportCount - x.reportCount;
       // Oldest flag first, like the moderation queue.
       if (query.view === "pending") return (x.aiFlag?.createdAt ?? x.createdAt).localeCompare(y.aiFlag?.createdAt ?? y.createdAt);
       return y.createdAt.localeCompare(x.createdAt);
     })
-    .map((c) => ({ ...c }));
+    .map((c) => ({ ...c, restaurant: c.restaurant && { ...c.restaurant } }));
 }
 
 export function countPendingPosts(): number {
@@ -486,7 +499,7 @@ export async function applyContentAction(id: string, action: ContentAction, sess
 
 /* ---------------------------------------------------------------- comments */
 
-type StoredComment = Omit<AdminComment, "postTitle">;
+type StoredComment = Omit<AdminComment, "postTitle" | "replyTo" | "replyCount">;
 
 type CommentSeed = [id: string, postId: string, authorId: string, author: string, text: string, ageMin: number, reports?: number, hidden?: boolean, editedMinAgo?: number];
 
@@ -519,11 +532,26 @@ const COMMENT_SEED: CommentSeed[] = [
   ["c_23", "p_me_banh_xeo", "u_thao_vy", "Thảo Vy", "Video đầu tay mà quay đẹp ghê!", 4 * D + 3 * H],
   ["c_24", "p_dau_hu_sot_ca", "u_duc_huy", "Đức Huy", "Món cứu đói cuối tháng của sinh viên đây rồi.", 3 * D - H],
   ["c_25", "p_pin_rules", "u_hoang_nam", "Hoàng Nam", "Đề nghị thêm mục báo cáo riêng cho bình luận spam bán hàng.", 10 * D],
+  ["c_26", "p_video_cha_lua", "u_me", "Minh Anh", "@Lê Quang Tâm Dạ em cảm ơn anh, mai em thử loại tươi.", 80],
+  ["c_27", "p_b12", "u_ngoc_tram", "Ngọc Trâm", "@ThS. DD Phạm Thu Hà Dạ em sẽ đi xét nghiệm tuần này, cảm ơn chị.", 6 * H + 50],
 ];
+
+/** Replies (one level deep): reply id → top-level comment id. A reply to a reply keeps the same parent and an "@Tên " prefix. */
+const PARENT: Record<string, string> = {
+  c_02: "c_01",
+  c_26: "c_01",
+  c_07: "c_06",
+  c_27: "c_06",
+  c_12: "c_11",
+  c_14: "c_13",
+  c_17: "c_16",
+  c_10: "c_09",
+};
 
 const comments: StoredComment[] = COMMENT_SEED.map(([id, postId, authorId, fullName, text, ageMin, reports = 0, hidden = false, editedMinAgo]) => ({
   id,
   postId,
+  parentId: PARENT[id] ?? null,
   author: { id: authorId, fullName },
   content: text,
   status: hidden ? "Hidden" : "Visible",
@@ -533,7 +561,14 @@ const comments: StoredComment[] = COMMENT_SEED.map(([id, postId, authorId, fullN
 }));
 
 function toAdminComment(c: StoredComment): AdminComment {
-  return { ...c, author: { ...c.author }, postTitle: content.find((p) => p.id === c.postId)?.title ?? "(Bài viết đã bị xoá)" };
+  const parent = c.parentId ? comments.find((x) => x.id === c.parentId) : undefined;
+  return {
+    ...c,
+    author: { ...c.author },
+    postTitle: content.find((p) => p.id === c.postId)?.title ?? "(Bài viết đã bị xoá)",
+    replyTo: parent ? { id: parent.id, authorName: parent.author.fullName } : null,
+    replyCount: c.parentId ? 0 : comments.filter((x) => x.parentId === c.id).length,
+  };
 }
 
 const commentExcerpt = (c: StoredComment) => `${c.author.fullName}: “${c.content.length > 48 ? `${c.content.slice(0, 48)}…` : c.content}”`;
@@ -569,18 +604,24 @@ export async function applyCommentAction(id: string, action: "hide" | "unhide", 
   return toAdminComment(comment);
 }
 
-/** DELETE /admin/comments/{id} { reason? } — the reason is sent to the author. */
+/** DELETE /admin/comments/{id} { reason? } — the reason is sent to the author; a top-level comment takes its replies with it. */
 export async function deleteComment(id: string, reason: string | undefined, session: AdminSession | null): Promise<void> {
   await sleep(550);
   if (reason?.toLowerCase().includes("#fail")) {
     throw new ApiError("Máy chủ đang bận, chưa xoá được bình luận. Thử lại sau.", 503, "unavailable");
   }
-  const index = comments.findIndex((c) => c.id === id);
-  if (index < 0) throw new ApiError("Bình luận không còn tồn tại.", 404);
-  const [removed] = comments.splice(index, 1);
+  const removed = comments.find((c) => c.id === id);
+  if (!removed) throw new ApiError("Bình luận không còn tồn tại.", 404);
+  const gone = new Set([id, ...comments.filter((c) => c.parentId === id).map((c) => c.id)]);
+  for (let i = comments.length - 1; i >= 0; i--) if (gone.has(comments[i].id)) comments.splice(i, 1);
   const post = content.find((p) => p.id === removed.postId);
-  if (post) post.commentCount = Math.max(0, post.commentCount - 1);
-  logAction(session?.fullName ?? "Quản trị viên", "xoá bình luận", commentExcerpt(removed));
+  // commentCount includes replies.
+  if (post) post.commentCount = Math.max(0, post.commentCount - gone.size);
+  logAction(
+    session?.fullName ?? "Quản trị viên",
+    gone.size > 1 ? `xoá bình luận và ${gone.size - 1} phản hồi` : "xoá bình luận",
+    commentExcerpt(removed),
+  );
 }
 
 /* ----------------------------------------------------------------- catalog */
@@ -689,7 +730,6 @@ export async function getOverview(): Promise<OverviewStats> {
     signupsDaily: SIGNUPS.map((count, i) => ({ date: daysAgo(SIGNUPS.length - 1 - i), count })),
     contentMix: [
       { kind: "recipe", count: published.filter((x) => x.kind === "recipe").length * 312 },
-      { kind: "video", count: published.filter((x) => x.kind === "video").length * 96 },
       { kind: "discussion", count: published.filter((x) => x.kind === "discussion").length * 241 },
     ],
     recentActions: audit.slice(0, 6),

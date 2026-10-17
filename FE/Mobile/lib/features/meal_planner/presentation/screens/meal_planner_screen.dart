@@ -4,22 +4,25 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
+import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/labels.dart';
 import '../../../../core/widgets/account_button.dart';
 import '../../../../core/widgets/floating_bar_clearance.dart';
 import '../../../../core/widgets/guest_gate.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/vl_card.dart';
+import '../../../booking/presentation/widgets/request_chef_plan_card.dart';
 import '../../../recipe/presentation/screens/recipe_detail_screen.dart';
 import '../../domain/entities/meal_plan.dart';
 import '../controllers/meal_plan_controller.dart';
+import '../widgets/adjust_plan_sheet.dart';
 import '../widgets/allergy_guard_banner.dart';
 import '../widgets/health_header_card.dart';
 import '../widgets/macro_progress_bar.dart';
 import '../widgets/meal_picker_sheet.dart';
 import '../widgets/meal_planner_skeleton.dart';
 import '../widgets/meal_slot_card.dart';
-import '../widgets/pantry_section.dart';
+import '../widgets/pantry_summary_card.dart';
 import '../widgets/week_date_picker.dart';
 import 'health_profile_edit_screen.dart';
 
@@ -79,7 +82,7 @@ class _MealPlannerBody extends ConsumerWidget {
   }
 }
 
-enum _PlanAction { regenerate, fromPantry, manual }
+enum _PlanAction { regenerate, fromPantry, manual, adjust }
 
 class _Loaded extends ConsumerWidget {
   const _Loaded({required this.state});
@@ -116,9 +119,19 @@ class _Loaded extends ConsumerWidget {
                   _PlanAction.fromPantry =>
                     _replaceWeek(context, ref, fromPantry: true),
                   _PlanAction.manual => _startManual(context, ref),
+                  _PlanAction.adjust => _adjust(context),
                 },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(
+                itemBuilder: (_) => [
+                  if (plan != null)
+                    const PopupMenuItem(
+                      value: _PlanAction.adjust,
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.auto_fix_high_outlined),
+                        title: Text('Chỉnh với AI'),
+                      ),
+                    ),
+                  const PopupMenuItem(
                     value: _PlanAction.regenerate,
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
@@ -126,7 +139,7 @@ class _Loaded extends ConsumerWidget {
                       title: Text('Tạo lại bằng AI'),
                     ),
                   ),
-                  PopupMenuItem(
+                  const PopupMenuItem(
                     value: _PlanAction.fromPantry,
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
@@ -134,7 +147,7 @@ class _Loaded extends ConsumerWidget {
                       title: Text('Tạo thực đơn từ tủ lạnh'),
                     ),
                   ),
-                  PopupMenuItem(
+                  const PopupMenuItem(
                     value: _PlanAction.manual,
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
@@ -152,11 +165,17 @@ class _Loaded extends ConsumerWidget {
                 EdgeInsets.fromLTRB(16, 4, 16, floatingBarClearance(context)),
             sliver: SliverList.list(
               children: [
-                HealthHeaderCard(
-                  profile: state.profile,
-                  onEdit: () => Navigator.of(context)
-                      .push(HealthProfileEditScreen.route()),
-                ),
+                if (state.healthProfile case final profile?)
+                  HealthHeaderCard(
+                    profile: profile,
+                    onEdit: () => Navigator.of(context)
+                        .push(HealthProfileEditScreen.route()),
+                  )
+                else
+                  HealthProfileSetupCard(
+                    onSetUp: () => Navigator.of(context)
+                        .push(HealthProfileEditScreen.route()),
+                  ),
                 const SizedBox(height: 16),
                 if (plan == null || day == null)
                   VLCard(
@@ -165,8 +184,9 @@ class _Loaded extends ConsumerWidget {
                         EmptyStateView(
                           icon: Icons.auto_awesome,
                           title: 'Chưa có thực đơn tuần này',
-                          message:
-                              'AI sẽ tạo 7 ngày thực đơn thuần chay phù hợp mục tiêu "${state.profile.goal.label}" và loại trừ món bạn dị ứng.',
+                          message: state.hasHealthProfile
+                              ? 'AI sẽ tạo 7 ngày thực đơn thuần chay phù hợp mục tiêu "${state.profile.goal.label}" và loại trừ món bạn dị ứng.'
+                              : 'AI sẽ tạo 7 ngày thực đơn thuần chay. Thiết lập hồ sơ sức khoẻ để thực đơn theo mục tiêu của bạn và loại trừ món bạn dị ứng.',
                           actionLabel: 'Tạo thực đơn',
                           onAction: controller.generatePlan,
                         ),
@@ -186,6 +206,8 @@ class _Loaded extends ConsumerWidget {
                     userAllergies: allergies,
                     onSelected: controller.selectDate,
                   ),
+                  const SizedBox(height: 10),
+                  _AdjustWithAiPill(onTap: () => _adjust(context)),
                   const SizedBox(height: 12),
                   DailyMacroCard(
                     date: day.date,
@@ -201,7 +223,7 @@ class _Loaded extends ConsumerWidget {
                       allergies: allergies,
                       conflictCount: day.conflictCount(allergies)),
                   const SizedBox(height: 12),
-                  for (final slot in MealSlot.values)
+                  for (final slot in state.slotsFor(day))
                     Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: switch (day.meals[slot]) {
@@ -210,6 +232,10 @@ class _Loaded extends ConsumerWidget {
                             recipe: recipe,
                             userAllergies: allergies,
                             isSwapping: state.swappingSlot == slot,
+                            extra: state.isExtraSlot(slot),
+                            onRemove: state.isExtraSlot(slot)
+                                ? () => _remove(context, ref, slot)
+                                : null,
                             onOpen: recipe.hasDetail
                                 ? () => Navigator.of(context).push(
                                     RecipeDetailScreen.route(recipe.id,
@@ -228,12 +254,24 @@ class _Loaded extends ConsumerWidget {
                           ),
                       },
                     ),
+                  if (day.missingSlots(state.pattern).isNotEmpty)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _addSlot(context, ref, day),
+                        icon: const Icon(Icons.add_rounded),
+                        label: const Text('Thêm bữa'),
+                      ),
+                    ),
+                  const SizedBox(height: 12),
                 ],
                 const SizedBox(height: 4),
-                PantrySection(
+                PantrySummaryCard(
                   onGenerate: () => _replaceWeek(context, ref,
                       fromPantry: true, ask: plan != null),
                 ),
+                const SizedBox(height: 12),
+                const RequestChefPlanCard(),
                 const SizedBox(height: 12),
                 Text(
                   'Thông tin chỉ mang tính tham khảo, không thay thế tư vấn y tế.',
@@ -247,6 +285,50 @@ class _Loaded extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  /// "Chỉnh thực đơn với AI".
+  Future<void> _adjust(BuildContext context) => AdjustPlanSheet.show(context);
+
+  /// "＋ Thêm bữa": a slot outside the member's pattern, for this day only.
+  /// It shows once it holds a dish.
+  Future<void> _addSlot(
+      BuildContext context, WidgetRef ref, MealPlanDay day) async {
+    final missing = day.missingSlots(state.pattern);
+    final slot = await showModalBottomSheet<MealSlot>(
+      context: context,
+      useSafeArea: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+              child: Text('Thêm bữa cho ${formatLongDate(day.date)}',
+                  style: context.textStyles.titleMedium),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text(
+                'Chỉ thêm cho ngày này. Đổi các bữa mỗi ngày trong Hồ sơ sức khoẻ.',
+                style: context.textStyles.bodySmall
+                    ?.copyWith(color: context.vl.muted),
+              ),
+            ),
+            for (final s in missing)
+              ListTile(
+                leading: Icon(mealSlotIcon(s)),
+                title: Text(s.label),
+                onTap: () => Navigator.of(context).pop(s),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (slot == null || !context.mounted) return;
+    await _pick(context, ref, slot, null);
   }
 
   /// "Tạo lại bằng AI" / "Tạo thực đơn từ tủ lạnh": confirms before
@@ -333,6 +415,7 @@ class _Loaded extends ConsumerWidget {
   Future<void> _addManual(BuildContext context, WidgetRef ref, MealSlot slot,
       ManualPick pick) async {
     final messenger = ScaffoldMessenger.of(context);
+    final keepSnack = MediaQuery.accessibleNavigationOf(context);
     final notifier = ref.read(mealPlanControllerProvider.notifier);
     try {
       final added = await notifier.addManualMeal(
@@ -351,6 +434,7 @@ class _Loaded extends ConsumerWidget {
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(
           duration: const Duration(seconds: 5),
+          persist: keepSnack,
           content: Text(
               'Đã thêm "${pick.name}" vào ${slot.label.toLowerCase()}.$warning'),
           action: SnackBarAction(
@@ -369,6 +453,7 @@ class _Loaded extends ConsumerWidget {
   Future<void> _remove(
       BuildContext context, WidgetRef ref, MealSlot slot) async {
     final messenger = ScaffoldMessenger.of(context);
+    final keepSnack = MediaQuery.accessibleNavigationOf(context);
     final notifier = ref.read(mealPlanControllerProvider.notifier);
     try {
       final removed = await notifier.removeMeal(slot);
@@ -376,6 +461,7 @@ class _Loaded extends ConsumerWidget {
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(
           duration: const Duration(seconds: 5),
+          persist: keepSnack,
           content: Text('Đã bỏ món khỏi ${slot.label.toLowerCase()}'),
           action: removed == null
               ? null
@@ -401,6 +487,7 @@ class _Loaded extends ConsumerWidget {
       BuildContext context, WidgetRef ref, MealSlot slot, Recipe recipe,
       {bool seasonal = false}) async {
     final messenger = ScaffoldMessenger.of(context);
+    final keepSnack = MediaQuery.accessibleNavigationOf(context);
     final notifier = ref.read(mealPlanControllerProvider.notifier);
     final wasEmpty = state.selectedDay?.meals[slot] == null;
     try {
@@ -415,6 +502,7 @@ class _Loaded extends ConsumerWidget {
         ..showSnackBar(
           SnackBar(
             duration: const Duration(seconds: 5),
+            persist: keepSnack,
             content: Text(wasEmpty
                 ? 'Đã thêm $newName vào ${slot.label.toLowerCase()}'
                 : 'Đã đổi ${slot.label.toLowerCase()} sang $newName'),
@@ -437,5 +525,41 @@ class _Loaded extends ConsumerWidget {
       messenger.showSnackBar(
           SnackBar(content: Text('Chưa đổi được món. ${describeError(e)}')));
     }
+  }
+}
+
+/// "✨ Chỉnh thực đơn với AI" under the week.
+class _AdjustWithAiPill extends StatelessWidget {
+  const _AdjustWithAiPill({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final vl = context.vl;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Material(
+        color: vl.aiContainer,
+        shape: StadiumBorder(side: BorderSide(color: vl.aiBorder)),
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const StadiumBorder(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.auto_awesome, size: 18, color: vl.onAiContainer),
+                const SizedBox(width: 6),
+                Text('Chỉnh thực đơn với AI',
+                    style: context.textStyles.labelLarge
+                        ?.copyWith(color: vl.onAiContainer)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

@@ -8,8 +8,19 @@ import '../../../../core/utils/labels.dart';
 import '../../../../core/widgets/vl_card.dart';
 import '../../domain/entities/meal_plan.dart';
 
+/// Icon for a meal of the day.
+IconData mealSlotIcon(MealSlot slot) => switch (slot) {
+      MealSlot.breakfast => Icons.wb_twilight_rounded,
+      MealSlot.snackAm => Icons.coffee_outlined,
+      MealSlot.lunch => Icons.wb_sunny_outlined,
+      MealSlot.snackPm => Icons.cookie_outlined,
+      MealSlot.dinner => Icons.nightlight_outlined,
+      MealSlot.snackLate => Icons.bedtime_outlined,
+    };
+
 /// One meal slot: recipe, calories/macros, source badge, allergy chips,
-/// seasonal swap, swap action. [onOpen] opens the recipe.
+/// seasonal swap, swap action. [onOpen] opens the recipe. An [extra] slot
+/// (added to this day only) is marked "Bữa thêm" and offers [onRemove].
 class MealSlotCard extends StatelessWidget {
   const MealSlotCard({
     super.key,
@@ -20,6 +31,8 @@ class MealSlotCard extends StatelessWidget {
     required this.onSwap,
     this.onSeasonalSwap,
     this.onOpen,
+    this.extra = false,
+    this.onRemove,
   });
 
   final MealSlot slot;
@@ -29,12 +42,12 @@ class MealSlotCard extends StatelessWidget {
   final VoidCallback onSwap;
   final VoidCallback? onSeasonalSwap;
   final VoidCallback? onOpen;
+  final bool extra;
 
-  IconData get _slotIcon => switch (slot) {
-        MealSlot.breakfast => Icons.wb_twilight_rounded,
-        MealSlot.lunch => Icons.wb_sunny_outlined,
-        MealSlot.dinner => Icons.nightlight_outlined,
-      };
+  /// "Bỏ món" on an extra slot: the slot disappears with its dish.
+  final VoidCallback? onRemove;
+
+  IconData get _slotIcon => mealSlotIcon(slot);
 
   @override
   Widget build(BuildContext context) {
@@ -63,7 +76,9 @@ class MealSlotCard extends StatelessWidget {
                       Text.rich(
                         TextSpan(children: [
                           TextSpan(
-                              text: '${slot.label} · ',
+                              text: extra
+                                  ? '${slot.label} (bữa thêm) · '
+                                  : '${slot.label} · ',
                               style: context.textStyles.bodySmall
                                   ?.copyWith(color: vl.muted)),
                           TextSpan(
@@ -90,9 +105,13 @@ class MealSlotCard extends StatelessWidget {
                       const SizedBox(height: 4),
                       // Only the macros the dish really has: a typed-in dish
                       // with just "Đạm" shows just "Đạm".
-                      if (n.summary() != null || recipe.prepMinutes != null)
+                      if (n.summary() != null ||
+                          recipe.prepMinutes != null ||
+                          recipe.portionLabel != null)
                         Text(
                           [
+                            if (recipe.portionLabel case final portion?)
+                              portion,
                             if (n.summary() case final macros?) macros,
                             if (recipe.prepMinutes != null)
                               '${recipe.prepMinutes} phút',
@@ -122,11 +141,26 @@ class MealSlotCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 4),
-                IconButton.filledTonal(
-                  tooltip: 'Đổi ${slot.label.toLowerCase()}',
-                  onPressed: isSwapping ? null : onSwap,
-                  style: IconButton.styleFrom(minimumSize: const Size(44, 44)),
-                  icon: const Icon(Icons.swap_horiz_rounded),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton.filledTonal(
+                      tooltip: 'Đổi ${slot.label.toLowerCase()}',
+                      onPressed: isSwapping ? null : onSwap,
+                      style:
+                          IconButton.styleFrom(minimumSize: const Size(44, 44)),
+                      icon: const Icon(Icons.swap_horiz_rounded),
+                    ),
+                    if (onRemove != null)
+                      IconButton(
+                        tooltip: 'Bỏ món ${slot.label.toLowerCase()}',
+                        onPressed: isSwapping ? null : onRemove,
+                        style: IconButton.styleFrom(
+                            minimumSize: const Size(44, 44)),
+                        icon: Icon(Icons.remove_circle_outline_rounded,
+                            color: vl.muted),
+                      ),
+                  ],
                 ),
               ],
             ),

@@ -21,7 +21,7 @@ enum ScanMode {
 
 /// What the scanner asks the screen below to do when it closes.
 enum ScannerExit {
-  /// "Xem trong Thực đơn" / after "Tạo thực đơn từ tủ lạnh": show the
-  /// Thực đơn tab.
+  /// After "Tạo thực đơn từ tủ lạnh" (in the tray or in "Xem tủ lạnh"):
+  /// show the Thực đơn tab.
   openPlanner,
 }

@@ -1,6 +1,6 @@
 // lib/features/restaurant/data/models/restaurant_model.dart
 //
-// GET /restaurants?lat=&lng=&q=&certifiedOnly=&sort=distance|rating&limit=
+// GET /restaurants?lat=&lng=&q=&certifiedOnly=&sort=distance|rating&radiusKm=&limit=
 // [ { "id": 21, "createdBy": 7, "createdByName": "Minh Anh", "name": "Quán Chay An Lạc",
 //     "address": "12 Nguyễn Thị Minh Khai, Q.1, TP.HCM", "isVeganCertified": true,
 //     "latitude": 10.7812, "longitude": 106.699, "distanceKm": 0.6,
@@ -11,6 +11,19 @@
 // `reviewCount` and `createdByName` are computed by BE. `createdBy` may also
 // arrive as the joined user `{ "id", "fullName" }` (web admin shape).
 // `q` matches the name, the address, or a dish mentioned in the reviews.
+// `radiusKm` (with lat/lng) keeps only places within that distance, so
+// places without coordinates drop out.
+//
+// GET /restaurants/{id}/media   (restaurant_media, oldest first)
+// [ { "id": "rm_1", "mediaType": "Image",
+//     "mediaUrl": "https://res.cloudinary.com/veganlife/image/upload/v1/restaurants/an_lac_mat_tien.jpg",
+//     "uploadedBy": { "id": 7, "fullName": "Minh Anh" } /* null = admin team */,
+//     "createdAt": "…" } ]
+//
+// POST /restaurants
+// { "name": "…", "address": "…", "latitude": 10.77, "longitude": 106.70,
+//   "media": [ { "mediaType": "Image", "mediaUrl": "…" }, { "mediaType": "Video", "mediaUrl": "…" } ] }
+// at most 5 images and 1 video, uploaded first with POST /media/images|videos.
 //
 // GET /restaurants/{id}/reviews
 // [ { "id": 301, "userId": 7, "restaurantId": 21, "rating": 5, "comment": "Bún riêu chay đậm vị…",
@@ -167,20 +180,89 @@ class ReviewDto {
       );
 }
 
+class RestaurantMediaDto {
+  const RestaurantMediaDto({
+    required this.id,
+    required this.mediaType,
+    required this.mediaUrl,
+    this.uploadedById,
+    this.uploadedByName,
+    this.createdAt,
+  });
+
+  factory RestaurantMediaDto.fromJson(Map<String, dynamic> json) {
+    final by = json['uploadedBy'];
+    final person = by is Map<String, dynamic> ? by : null;
+    return RestaurantMediaDto(
+      id: json['id']?.toString() ?? '',
+      mediaType: RestaurantMediaType.fromApi(json['mediaType']),
+      mediaUrl: json['mediaUrl'] as String? ?? '',
+      uploadedById: person?['id']?.toString() ?? by?.toString(),
+      uploadedByName:
+          person?['fullName'] as String? ?? person?['name'] as String?,
+      createdAt: readDateTime(json['createdAt']),
+    );
+  }
+
+  final String id;
+  final RestaurantMediaType mediaType;
+  final String mediaUrl;
+  final String? uploadedById;
+  final String? uploadedByName;
+  final DateTime? createdAt;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'mediaType': mediaType.apiValue,
+        'mediaUrl': mediaUrl,
+        'uploadedBy': uploadedById == null
+            ? null
+            : {'id': apiId(uploadedById!), 'fullName': uploadedByName},
+        'createdAt': createdAt?.toUtc().toIso8601String(),
+      };
+
+  RestaurantMedia toEntity() => RestaurantMedia(
+        id: id,
+        type: mediaType,
+        url: mediaUrl,
+        uploadedByName: uploadedByName,
+        createdAt: createdAt,
+      );
+}
+
+/// One uploaded file attached to a suggestion (`media[]` of POST
+/// /restaurants).
+class NewRestaurantMediaDto {
+  const NewRestaurantMediaDto(
+      {required this.mediaType, required this.mediaUrl});
+
+  final RestaurantMediaType mediaType;
+  final String mediaUrl;
+
+  Map<String, dynamic> toJson() =>
+      {'mediaType': mediaType.apiValue, 'mediaUrl': mediaUrl};
+}
+
 /// POST /restaurants. The server sets `createdBy` = me and
-/// `isVeganCertified` = false; the coordinates are optional.
+/// `isVeganCertified` = false; the coordinates and media are optional.
 class CreateRestaurantRequestDto {
   const CreateRestaurantRequestDto({
     required this.name,
     required this.address,
     this.latitude,
     this.longitude,
+    this.media = const [],
   });
+
+  /// At most this many photos and videos per suggestion.
+  static const maxImages = 5;
+  static const maxVideos = 1;
 
   final String name;
   final String address;
   final double? latitude;
   final double? longitude;
+  final List<NewRestaurantMediaDto> media;
 
   Map<String, dynamic> toJson() => {
         'name': name,
@@ -189,5 +271,6 @@ class CreateRestaurantRequestDto {
           'latitude': latitude,
           'longitude': longitude,
         },
+        if (media.isNotEmpty) 'media': [for (final m in media) m.toJson()],
       };
 }

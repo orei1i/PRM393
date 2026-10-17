@@ -17,17 +17,22 @@ import 'models/restaurant_model.dart';
 abstract interface class RestaurantApiService {
   /// [near] adds `distanceKm`. [query] matches the name, the address or a
   /// dish mentioned in the reviews. Restaurants without coordinates come last
-  /// when sorting by distance.
+  /// when sorting by distance. [radiusKm] (with [near]) keeps only places
+  /// within that distance, so places without coordinates drop out.
   Future<List<RestaurantDto>> listRestaurants({
     GeoPoint? near,
     String? query,
     bool certifiedOnly = false,
     RestaurantSort sort = RestaurantSort.distance,
+    double? radiusKm,
     int? limit,
   });
 
   /// 404 when it was removed by an admin.
   Future<RestaurantDto> getRestaurant(String id, {GeoPoint? near});
+
+  /// Photos and the intro video (`restaurant_media`), oldest first.
+  Future<List<RestaurantMediaDto>> getMedia(String restaurantId);
 
   /// Newest first.
   Future<List<ReviewDto>> getReviews(String restaurantId);
@@ -65,6 +70,7 @@ class RemoteRestaurantApiService implements RestaurantApiService {
     String? query,
     bool certifiedOnly = false,
     RestaurantSort sort = RestaurantSort.distance,
+    double? radiusKm,
     int? limit,
   }) =>
       guardApi(() async {
@@ -75,10 +81,22 @@ class RemoteRestaurantApiService implements RestaurantApiService {
             if (query != null && query.trim().isNotEmpty) 'q': query.trim(),
             if (certifiedOnly) 'certifiedOnly': true,
             'sort': sort.apiValue,
+            if (radiusKm != null && near != null) 'radiusKm': radiusKm,
             if (limit != null) 'limit': limit,
           },
         );
         return _restaurants(res.data);
+      });
+
+  @override
+  Future<List<RestaurantMediaDto>> getMedia(String restaurantId) =>
+      guardApi(() async {
+        final res = await _dio
+            .get<List<dynamic>>(ApiEndpoints.restaurantMedia(restaurantId));
+        return (res.data ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(RestaurantMediaDto.fromJson)
+            .toList();
       });
 
   @override

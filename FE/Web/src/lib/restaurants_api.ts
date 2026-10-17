@@ -2,7 +2,7 @@
 // Vegan restaurants submitted from the app or added by admins, their certification
 // flag and reviews. Remote rows are normalised: INT ids → strings, `createdBy` as an
 // id (+ `createdByName`) or a nested user, nullable coordinates.
-import type { AdminRestaurant, AdminReview, RestaurantPerson, RestaurantQuery } from "@/types/restaurants";
+import type { AdminRestaurant, AdminReview, RestaurantMedia, RestaurantPerson, RestaurantQuery } from "@/types/restaurants";
 
 import { qs, request, USE_MOCK_DATA } from "./api_client";
 import { readSession } from "./auth";
@@ -25,6 +25,16 @@ function readPerson(raw: unknown, fallbackName?: unknown): RestaurantPerson | nu
   return { id: readId(raw), fullName: typeof fallbackName === "string" && fallbackName ? fallbackName : `Người dùng #${readId(raw)}` };
 }
 
+function normalizeMedia(raw: Raw): RestaurantMedia {
+  return {
+    id: readId(raw.id),
+    mediaType: typeof raw.mediaType === "string" && raw.mediaType.toLowerCase() === "video" ? "Video" : "Image",
+    mediaUrl: String(raw.mediaUrl ?? raw.url ?? ""),
+    uploadedBy: readPerson(raw.uploadedBy, raw.uploadedByName),
+    createdAt: typeof raw.createdAt === "string" ? raw.createdAt : new Date(0).toISOString(),
+  };
+}
+
 export function normalizeRestaurant(raw: Raw): AdminRestaurant {
   const reviewCount = optNumber(raw.reviewCount) ?? 0;
   return {
@@ -37,6 +47,11 @@ export function normalizeRestaurant(raw: Raw): AdminRestaurant {
     longitude: optNumber(raw.longitude),
     averageRating: reviewCount > 0 ? optNumber(raw.averageRating) : null,
     reviewCount,
+    media: (Array.isArray(raw.media) ? raw.media : [])
+      .map((m) => obj(m))
+      .filter((m): m is Raw => m !== null)
+      .map(normalizeMedia)
+      .filter((m) => m.mediaUrl !== ""),
   };
 }
 

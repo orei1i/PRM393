@@ -48,9 +48,9 @@ abstract final class MockRecipeBook {
   static List<Map<String, Object?>> chefSuggestions(String userId) =>
       List.unmodifiable(_chefSuggestions[userId] ?? const []);
 
-  /// For the chef side ("Đề xuất món cho khách"): suggest [recipe] (detail
-  /// wire format, without an id) to the member [userId]. [targetDate]
-  /// (`yyyy-MM-dd`) is the day the chef had in mind, if any.
+  /// A dish of a delivered chef plan (booking plan day, D15b) for the
+  /// member [userId]'s "Từ chuyên gia": [recipe] in the detail wire format,
+  /// without an id. [targetDate] (`yyyy-MM-dd`) is the plan day, if any.
   static Map<String, Object?> addChefSuggestion({
     required String userId,
     required String chefId,

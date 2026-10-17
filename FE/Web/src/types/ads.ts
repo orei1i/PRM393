@@ -1,8 +1,11 @@
 // src/types/ads.ts
-// Store ads: sponsored restaurant cards shown in the mobile forum / feed ("Được tài trợ").
+// Store ads: one sponsored restaurant row ("Được tài trợ") at the top of the mobile
+// "Quán chay gần bạn" list (and a highlighted marker in its map mode). Ads no longer appear in the
+// home feed or post detail.
 //
 // ┌ For the BE team: NOT in the 26-table SQL design. Proposed table:
-// │ ad_campaigns  id, restaurant_id (FK restaurants), headline NVARCHAR(60), message NVARCHAR(140),
+// │ ad_campaigns  id, restaurant_id (FK restaurants), placement VARCHAR(16) DEFAULT 'nearby',
+// │               headline NVARCHAR(60), message NVARCHAR(140),
 // │               cta_type VARCHAR(16) (ViewStore | Directions | Book), target_city NVARCHAR(64) NULL
 // │               (NULL = toàn quốc), start_at, end_at, is_paused BIT, budget INT (VND), spent INT,
 // │               impressions INT, clicks INT, created_by (FK users), created_at, updated_at
@@ -23,10 +26,21 @@ export const AD_STATUS_LABEL: Record<AdStatus, string> = {
   Ended: "Đã kết thúc",
 };
 
+/** Where the app shows the campaign. Only one placement today. */
+export const AD_PLACEMENTS = ["nearby"] as const;
+export type AdPlacement = (typeof AD_PLACEMENTS)[number];
+
+export const AD_PLACEMENT_LABEL: Record<AdPlacement, string> = {
+  nearby: "Đầu danh sách Quán chay gần bạn",
+};
+
+/** At most this many sponsored rows per list (GET /ads/feed?placement=nearby&limit=1). */
+export const AD_NEARBY_LIMIT = 1;
+
 export const AD_CTA_TYPES = ["ViewStore", "Directions", "Book"] as const;
 export type AdCtaType = (typeof AD_CTA_TYPES)[number];
 
-/** Button label on the mobile card. ViewStore → restaurant detail, Directions → Google Maps, Book → booking / call. */
+/** Action label on the sponsored row. ViewStore → restaurant detail, Directions → in-app route, Book → booking / call. */
 export const AD_CTA_LABEL: Record<AdCtaType, string> = {
   ViewStore: "Xem quán",
   Directions: "Chỉ đường",
@@ -58,6 +72,7 @@ export interface AdCampaign {
   id: string;
   restaurantId: string;
   restaurant: AdRestaurant;
+  placement: AdPlacement;
   headline: string;
   message: string;
   ctaType: AdCtaType;
@@ -87,6 +102,7 @@ export interface AdQuery {
 /** POST /admin/ads, and PATCH /admin/ads/{id} with any subset. */
 export interface AdInput {
   restaurantId: string;
+  placement: AdPlacement;
   headline: string;
   message: string;
   ctaType: AdCtaType;
@@ -97,13 +113,16 @@ export interface AdInput {
 }
 
 /**
- * GET /ads/feed?city=&lat=&lng=&limit= (public, guests allowed) — what the mobile feed renders
- * as a "Được tài trợ" card. Only Running campaigns whose targetCity is null or equals `city`
- * (case / diacritic-insensitive). With lat/lng the server adds `distanceKm` and sorts nearest first.
+ * GET /ads/feed?placement=nearby&city=&lat=&lng=&limit=1 (public, guests allowed) — what the mobile
+ * "Quán chay gần bạn" list renders as its single "Được tài trợ" row. Only Running campaigns of that
+ * placement whose targetCity is null or equals `city` (case / diacritic-insensitive). With lat/lng
+ * the server adds `distanceKm` and sorts nearest first. `placement` is optional (default nearby).
+ * The app reports POST /ads/{id}/impression on first display and /click on tap.
  */
 export interface AdFeedItem {
   id: string;
   restaurantId: string;
+  placement: AdPlacement;
   restaurant: AdRestaurant & { averageRating: number | null; reviewCount: number };
   headline: string;
   message: string;
@@ -144,6 +163,7 @@ export function adInputErrors(input: AdInput, opts: { isNew: boolean; spent?: nu
   const headline = input.headline.trim();
   const message = input.message.trim();
   if (!input.restaurantId) errors.restaurantId = "Chọn quán được quảng cáo.";
+  if (!(AD_PLACEMENTS as readonly string[]).includes(input.placement)) errors.placement = "Vị trí hiển thị không hợp lệ.";
   if (headline.length < AD_HEADLINE_MIN || headline.length > AD_HEADLINE_MAX) {
     errors.headline = `Tiêu đề ${AD_HEADLINE_MIN}–${AD_HEADLINE_MAX} ký tự.`;
   }

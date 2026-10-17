@@ -10,8 +10,9 @@ import '../../../core/session/session_controller.dart';
 import 'mock_chef_wallet_repository.dart';
 import 'models/wallet_models.dart';
 
-/// "Ví của tôi" (role Chef): earnings from paid orders minus the platform
-/// fee, and withdrawals to the chef's bank account.
+/// "Ví của tôi" (role Chef): booking escrow holds (Đang giữ / Tạm giữ do
+/// khiếu nại / Có thể rút after the 10 % fee) and withdrawals to the chef's
+/// bank account.
 abstract interface class ChefWalletApiService {
   Future<WalletDto> getWallet();
 

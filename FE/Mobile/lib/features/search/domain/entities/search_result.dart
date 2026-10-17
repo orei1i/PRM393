@@ -77,3 +77,112 @@ class SearchResult {
       restaurants.isEmpty &&
       suggestion == null;
 }
+
+/// What an autocomplete row opens: a query to search, or the item itself.
+enum SuggestKind {
+  query('query'),
+  recipe('recipe'),
+  post('post'),
+  restaurant('restaurant');
+
+  const SuggestKind(this.apiValue);
+  final String apiValue;
+
+  static SuggestKind fromApi(Object? value) =>
+      values.firstWhere((k) => k.apiValue == value?.toString(),
+          orElse: () => SuggestKind.query);
+}
+
+/// One autocomplete row while typing ("bún riêu chay" · Công thức).
+class SearchSuggestItem {
+  const SearchSuggestItem({
+    required this.kind,
+    required this.text,
+    this.id,
+    this.subtitle,
+  });
+
+  final SuggestKind kind;
+  final String text;
+
+  /// The recipe, post or restaurant to open; `null` for a query.
+  final String? id;
+  final String? subtitle;
+}
+
+/// A tile of the "Danh mục" grid: searches [query].
+class SearchCategory {
+  const SearchCategory(
+      {required this.id, required this.label, required this.query});
+
+  final String id;
+  final String label;
+  final String query;
+}
+
+/// "Món theo mùa": a recipe built on an in-season [ingredient].
+class SeasonalPick {
+  const SeasonalPick({
+    required this.recipeId,
+    required this.name,
+    required this.ingredient,
+    required this.coverSeed,
+  });
+
+  final String recipeId;
+  final String name;
+  final String ingredient;
+  final String coverSeed;
+}
+
+/// The idle search page: what to look for before typing anything.
+class SearchDiscover {
+  const SearchDiscover({
+    this.trending = const [],
+    this.categories = const [],
+    this.seasonal = const [],
+    this.popularRecipes = const [],
+    this.nearbyRestaurants = const [],
+  });
+
+  /// "Xu hướng tìm kiếm", most searched first.
+  final List<String> trending;
+  final List<SearchCategory> categories;
+  final List<SeasonalPick> seasonal;
+
+  /// "Công thức được yêu thích".
+  final List<RecipeSummary> popularRecipes;
+
+  /// "Quán chay gần bạn", nearest first.
+  final List<Restaurant> nearbyRestaurants;
+}
+
+/// "Đã xem gần đây": an item opened from search (kept on the device).
+class RecentView {
+  const RecentView({
+    required this.kind,
+    required this.id,
+    required this.title,
+    this.subtitle,
+  });
+
+  factory RecentView.fromJson(Map<String, dynamic> json) => RecentView(
+        kind: SuggestKind.fromApi(json['kind']),
+        id: json['id']?.toString() ?? '',
+        title: json['title'] as String? ?? '',
+        subtitle: json['subtitle'] as String?,
+      );
+
+  /// [SuggestKind.recipe], [SuggestKind.post] or [SuggestKind.restaurant].
+  final SuggestKind kind;
+  final String id;
+  final String title;
+  final String? subtitle;
+
+  Map<String, dynamic> toJson() => {
+        'kind': kind.apiValue,
+        'id': id,
+        'title': title,
+        if (subtitle != null) 'subtitle': subtitle,
+      };
+}

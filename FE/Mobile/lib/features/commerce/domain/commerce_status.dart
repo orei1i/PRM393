@@ -13,12 +13,14 @@ T _fromApi<T extends Enum>(
       orElse: () => values.first);
 }
 
-/// `orders.status`.
+/// `orders.status`. The only order left is a booking payment ("Đặt chuyên
+/// gia"); "Hoàn một phần" comes from a Split complaint decision.
 enum OrderStatus {
   pending('Pending', 'Chờ thanh toán'),
   paid('Paid', 'Đã thanh toán'),
   cancelled('Cancelled', 'Đã huỷ'),
-  refunded('Refunded', 'Đã hoàn tiền');
+  refunded('Refunded', 'Đã hoàn tiền'),
+  partiallyRefunded('PartiallyRefunded', 'Hoàn một phần');
 
   const OrderStatus(this.apiValue, this.label);
   final String apiValue;
@@ -41,46 +43,5 @@ enum PaymentStatus {
   final String label;
 
   static PaymentStatus fromApi(Object? value) =>
-      _fromApi(values, (e) => e.apiValue, value);
-}
-
-/// `access_grants.status`.
-enum GrantStatus {
-  active('Active', 'Đang hiệu lực'),
-  expired('Expired', 'Hết hạn'),
-  revoked('Revoked', 'Đã thu hồi');
-
-  const GrantStatus(this.apiValue, this.label);
-  final String apiValue;
-  final String label;
-
-  static GrantStatus fromApi(Object? value) =>
-      _fromApi(values, (e) => e.apiValue, value);
-}
-
-/// `consultations.status`. A consult order creates its consultation in
-/// [awaitingPayment], which holds the slot until the payment succeeds,
-/// expires or the order is cancelled.
-enum ConsultationStatus {
-  awaitingPayment('AwaitingPayment', 'Chờ thanh toán'),
-  pending('Pending', 'Chờ chuyên gia xác nhận'),
-  confirmed('Confirmed', 'Đã xác nhận'),
-  inProgress('InProgress', 'Đang tư vấn'),
-  completed('Completed', 'Đã hoàn thành'),
-  declined('Declined', 'Chuyên gia từ chối'),
-  cancelled('Cancelled', 'Đã huỷ');
-
-  const ConsultationStatus(this.apiValue, this.label);
-  final String apiValue;
-  final String label;
-
-  /// Still on the calendar (paid or being paid, not finished).
-  bool get isOpen =>
-      this == awaitingPayment ||
-      this == pending ||
-      this == confirmed ||
-      this == inProgress;
-
-  static ConsultationStatus fromApi(Object? value) =>
       _fromApi(values, (e) => e.apiValue, value);
 }

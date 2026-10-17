@@ -10,18 +10,15 @@ import '../../../../core/widgets/sign_in_sheet.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/user_avatar.dart';
 import '../../../../core/widgets/vl_card.dart';
-import '../../../commerce/data/models/order_model.dart';
-import '../../../commerce/presentation/controllers/commerce_controllers.dart';
-import '../../../commerce/presentation/screens/payment_screen.dart';
-import '../../../commerce/presentation/screens/service_content_screen.dart';
+import '../../../booking/presentation/screens/book_chef_plan_screen.dart';
 import '../../../commerce/presentation/widgets/commerce_ui.dart';
 import '../../data/chef_api_service.dart';
 import '../../domain/entities/chef.dart';
-import '../widgets/booking_sheet.dart';
 import '../widgets/chef_card.dart';
-import '../widgets/purchase_sheet.dart';
-import '../widgets/service_tile.dart';
 
+/// A chef's public page: bio, certificates and "Thiết kế thực đơn theo yêu
+/// cầu" with the listed prices and "Đặt chuyên gia lên thực đơn" (members
+/// only; guests are asked to sign in).
 class ChefProfileScreen extends ConsumerStatefulWidget {
   const ChefProfileScreen({super.key, required this.chefId, this.preview});
 
@@ -54,58 +51,19 @@ class _ChefProfileScreenState extends ConsumerState<ChefProfileScreen> {
     return !me.isGuest && chef.userId != null && chef.userId == me.userId;
   }
 
-  /// Order created in a sheet → refresh slots and lists, then pay.
-  Future<void> _pay(OrderDto? order) async {
-    if (order == null || !mounted) return;
-    ref.read(commerceRevisionProvider.notifier).bump();
-    _reload(); // the held slot leaves the calendar
-    await Navigator.of(context).push(PaymentScreen.route(order.id));
-    if (mounted) _reload(); // expired / cancelled orders release it again
-  }
-
-  Future<bool> _signedInBuyer(Chef chef, String reason) async {
-    if (!await ensureSignedIn(context, ref, reason: reason)) return false;
-    if (!mounted) return false;
+  Future<void> _book(Chef chef) async {
+    if (!await ensureSignedIn(context, ref,
+        reason: 'Đăng nhập để đặt chuyên gia lên thực đơn cho bạn.')) {
+      return;
+    }
+    if (!mounted) return;
     if (_isOwn(chef)) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Đây là dịch vụ của bạn, không tự đặt được.')));
-      return false;
-    }
-    return true;
-  }
-
-  Future<void> _book(Chef chef, {ChefService? service}) async {
-    if (!await _signedInBuyer(
-        chef, 'Đăng nhập để đặt lịch tư vấn với chuyên gia.')) {
+          content: Text('Đây là hồ sơ của bạn, không tự đặt được.')));
       return;
     }
-    if (!mounted) return;
-    final order = await showModalBottomSheet<OrderDto>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (_) => BookingSheet(chef: chef, initialService: service),
-    );
-    await _pay(order);
+    await Navigator.of(context).push(BookChefPlanScreen.route(chef));
   }
-
-  Future<void> _buy(Chef chef, ChefService service) async {
-    if (!await _signedInBuyer(
-        chef, 'Đăng nhập để mua khoá học, thực đơn của chuyên gia.')) {
-      return;
-    }
-    if (!mounted) return;
-    final order = await showModalBottomSheet<OrderDto>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (_) => PurchaseSheet(chef: chef, service: service),
-    );
-    await _pay(order);
-  }
-
-  void _openContent(ChefService service) => Navigator.of(context)
-      .push(ServiceContentScreen.route(service.id, title: service.title));
 
   @override
   Widget build(BuildContext context) {
@@ -114,6 +72,7 @@ class _ChefProfileScreenState extends ConsumerState<ChefProfileScreen> {
       builder: (context, snapshot) {
         final chef = snapshot.data ?? widget.preview;
         final loadingDetail = snapshot.connectionState != ConnectionState.done;
+        final own = chef != null && _isOwn(chef);
 
         return Scaffold(
           body: chef == null
@@ -146,21 +105,15 @@ class _ChefProfileScreenState extends ConsumerState<ChefProfileScreen> {
                     else
                       SliverToBoxAdapter(
                         child: _Details(
-                          chef: chef,
-                          isOwn: _isOwn(chef),
-                          owned: ref.watch(ownedServiceIdsProvider),
-                          onBook: (s) => _book(chef, service: s),
-                          onBuy: (s) => _buy(chef, s),
-                          onOpenContent: _openContent,
-                        ),
+                            chef: chef, isOwn: own, onBook: () => _book(chef)),
                       ),
                   ],
                 ),
           bottomNavigationBar: chef == null ||
                   loadingDetail ||
                   snapshot.hasError ||
-                  chef.consultServices.isEmpty ||
-                  _isOwn(chef)
+                  own ||
+                  !chef.acceptingBookings
               ? null
               : SafeArea(
                   child: Padding(
@@ -175,7 +128,7 @@ class _ChefProfileScreenState extends ConsumerState<ChefProfileScreen> {
                                 style: context.textStyles.bodySmall
                                     ?.copyWith(color: context.vl.muted)),
                             Text(
-                              formatVnd(chef.startingPriceVnd),
+                              '${formatVnd(chef.startingPriceVnd)}/ngày',
                               style: context.textStyles.titleMedium
                                   ?.copyWith(fontWeight: FontWeight.w800),
                             ),
@@ -184,10 +137,9 @@ class _ChefProfileScreenState extends ConsumerState<ChefProfileScreen> {
                         const SizedBox(width: 16),
                         Expanded(
                           child: FilledButton.icon(
-                            onPressed: () => _book(chef,
-                                service: chef.consultServices.first),
-                            icon: const Icon(Icons.event_available_rounded),
-                            label: const Text('Đặt lịch tư vấn'),
+                            onPressed: () => _book(chef),
+                            icon: const Icon(Icons.edit_calendar_outlined),
+                            label: const Text('Đặt chuyên gia lên thực đơn'),
                           ),
                         ),
                       ],
@@ -247,48 +199,14 @@ class _Header extends StatelessWidget {
 }
 
 class _Details extends StatelessWidget {
-  const _Details({
-    required this.chef,
-    required this.isOwn,
-    required this.owned,
-    required this.onBook,
-    required this.onBuy,
-    required this.onOpenContent,
-  });
+  const _Details(
+      {required this.chef, required this.isOwn, required this.onBook});
 
   final Chef chef;
 
   /// The signed-in chef looking at their own public page.
   final bool isOwn;
-
-  /// Packages the member can already open.
-  final Set<String> owned;
-  final ValueChanged<ChefService> onBook;
-  final ValueChanged<ChefService> onBuy;
-  final ValueChanged<ChefService> onOpenContent;
-
-  Widget? _action(ChefService s) {
-    if (isOwn) return null;
-    if (s.type == ServiceType.consult) {
-      return FilledButton.tonalIcon(
-        onPressed: () => onBook(s),
-        icon: const Icon(Icons.event_available_rounded, size: 18),
-        label: const Text('Đặt lịch tư vấn'),
-      );
-    }
-    if (owned.contains(s.id)) {
-      return OutlinedButton.icon(
-        onPressed: () => onOpenContent(s),
-        icon: const Icon(Icons.play_circle_outline_rounded, size: 18),
-        label: const Text('Mở nội dung'),
-      );
-    }
-    return FilledButton.tonalIcon(
-      onPressed: () => onBuy(s),
-      icon: const Icon(Icons.shopping_bag_outlined, size: 18),
-      label: const Text('Mua gói'),
-    );
-  }
+  final VoidCallback onBook;
 
   @override
   Widget build(BuildContext context) {
@@ -299,13 +217,15 @@ class _Details extends StatelessWidget {
         children: [
           Row(
             children: [
-              _Stat(value: formatInt(chef.consultCount), label: 'buổi tư vấn'),
+              _Stat(value: formatInt(chef.consultCount), label: 'lượt tư vấn'),
               _Stat(value: '${chef.yearsExperience} năm', label: 'kinh nghiệm'),
               _Stat(
                   value: formatDecimal(chef.rating),
                   label: '${formatInt(chef.reviewCount)} đánh giá'),
             ],
           ),
+          const SizedBox(height: 16),
+          _BookingOffer(chef: chef, isOwn: isOwn, onBook: onBook),
           const SizedBox(height: 20),
           Text('Giới thiệu', style: context.textStyles.titleMedium),
           const SizedBox(height: 6),
@@ -338,30 +258,79 @@ class _Details extends StatelessWidget {
                 title: Text(c),
               ),
           ],
-          const SizedBox(height: 16),
-          Text('Dịch vụ', style: context.textStyles.titleMedium),
-          const SizedBox(height: 8),
-          if (isOwn)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: VLCard(
-                color: context.vl.aiContainer,
-                borderColor: Colors.transparent,
-                child: Text(
-                  'Đây là trang công khai của bạn. Sửa dịch vụ trong Tôi › Bảng điều khiển chuyên gia.',
-                  style: context.textStyles.bodyMedium
-                      ?.copyWith(color: context.vl.onAiContainer),
-                ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "Thiết kế thực đơn theo yêu cầu": listed prices, plan length and the
+/// booking button (or why there is none).
+class _BookingOffer extends StatelessWidget {
+  const _BookingOffer(
+      {required this.chef, required this.isOwn, required this.onBook});
+
+  final Chef chef;
+  final bool isOwn;
+  final VoidCallback onBook;
+
+  @override
+  Widget build(BuildContext context) {
+    final vl = context.vl;
+    return VLCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.restaurant_menu_rounded,
+                  color: context.colors.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('Thiết kế thực đơn theo yêu cầu',
+                    style: context.textStyles.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w800)),
               ),
-            ),
-          if (chef.services.isEmpty)
-            Text('Chuyên gia chưa mở dịch vụ nào.',
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Từ ${formatVnd(chef.pricePerDay)}/ngày · Có phản hồi mỗi ngày: '
+            '${formatVnd(chef.feedbackPricePerDay)}/ngày · '
+            '${chef.minPlanDays}–${chef.maxPlanDays} ngày · '
+            'Giá cuối do hai bên thoả thuận',
+            style: context.textStyles.bodyMedium,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Bạn gửi nhu cầu, trao đổi và thoả thuận giá trong chat. Tiền được VeganLife giữ '
+            'đến 3 ngày sau khi kế hoạch kết thúc; có vấn đề thì bạn khiếu nại kèm bằng chứng.',
+            style: context.textStyles.bodySmall?.copyWith(color: vl.muted),
+          ),
+          const SizedBox(height: 12),
+          if (isOwn)
+            VLCard(
+              color: vl.aiContainer,
+              borderColor: Colors.transparent,
+              child: Text(
+                'Đây là hồ sơ của bạn. Sửa giá trong Tôi › Chuyên gia › Hồ sơ & bảng giá.',
                 style: context.textStyles.bodyMedium
-                    ?.copyWith(color: context.vl.muted)),
-          for (final s in chef.services)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: ServiceTile(service: s, action: _action(s)),
+                    ?.copyWith(color: vl.onAiContainer),
+              ),
+            )
+          else if (!chef.acceptingBookings)
+            VLCard(
+              color: vl.cautionContainer,
+              borderColor: Colors.transparent,
+              child: Text('Chuyên gia đang tạm ngưng nhận yêu cầu',
+                  style: context.textStyles.bodyMedium
+                      ?.copyWith(color: vl.onCautionContainer)),
+            )
+          else
+            FilledButton.tonalIcon(
+              onPressed: onBook,
+              icon: const Icon(Icons.edit_calendar_outlined, size: 18),
+              label: const Text('Đặt chuyên gia lên thực đơn'),
             ),
         ],
       ),

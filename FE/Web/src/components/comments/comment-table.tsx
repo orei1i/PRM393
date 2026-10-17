@@ -1,7 +1,7 @@
 // src/components/comments/comment-table.tsx
 "use client";
 
-import { Eye, EyeOff, Flag } from "lucide-react";
+import { CornerDownRight, Eye, EyeOff, Flag } from "lucide-react";
 
 import { InitialsAvatar } from "@/components/admin/initials-avatar";
 import { Badge } from "@/components/ui/badge";
@@ -77,8 +77,16 @@ export function CommentTable({
                 aria-label={`Mở bình luận của ${c.author.fullName}`}
               >
                 <TableCell className="whitespace-normal">
+                  {c.parentId && (
+                    <span className="mb-0.5 inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground">
+                      <CornerDownRight className="size-3.5" aria-hidden />
+                      Trả lời {c.replyTo?.authorName ?? "một bình luận"}
+                    </span>
+                  )}
                   <p className={c.status === "Hidden" ? "line-clamp-2 text-muted-foreground" : "line-clamp-2"}>{c.content}</p>
-                  {c.updatedAt && <span className="text-xs text-muted-foreground">(đã sửa)</span>}
+                  <span className="text-xs text-muted-foreground">
+                    {[c.updatedAt ? "(đã sửa)" : "", c.replyCount > 0 ? `${c.replyCount} phản hồi` : ""].filter(Boolean).join(" · ")}
+                  </span>
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">

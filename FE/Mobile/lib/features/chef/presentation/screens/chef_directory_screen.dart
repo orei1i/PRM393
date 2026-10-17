@@ -6,24 +6,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/vl_colors.dart';
-import '../../../../core/utils/formatters.dart';
 import '../../../../core/widgets/floating_bar_clearance.dart';
 import '../../../../core/widgets/shimmer.dart';
+import '../../../../core/widgets/sign_in_sheet.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/vl_card.dart';
-import '../../../commerce/data/models/consultation_model.dart';
-import '../../../commerce/presentation/controllers/commerce_controllers.dart';
-import '../../../commerce/presentation/widgets/commerce_ui.dart';
+import '../../../booking/presentation/screens/booking_history_screen.dart';
 import '../../domain/chef_specialties.dart';
 import '../../domain/entities/chef.dart';
 import '../controllers/chef_controllers.dart';
 import '../widgets/chef_card.dart';
 import 'chef_profile_screen.dart';
-import 'my_consultations_screen.dart';
 
-/// Tab "Chuyên gia": verified chefs & nutritionists, bookable 1-on-1.
+/// Tab "Chuyên gia" (everyone, guests included): verified chefs &
+/// nutritionists who design N-day meal plans on request. [pickMode] is the
+/// same list opened from Thực đơn › "Nhờ chuyên gia thiết kế".
 class ChefDirectoryScreen extends ConsumerStatefulWidget {
-  const ChefDirectoryScreen({super.key});
+  const ChefDirectoryScreen({super.key, this.pickMode = false});
+
+  /// Pushed to choose a chef for a meal plan (title "Chọn chuyên gia").
+  final bool pickMode;
 
   @override
   ConsumerState<ChefDirectoryScreen> createState() =>
@@ -52,6 +54,16 @@ class _ChefDirectoryScreenState extends ConsumerState<ChefDirectoryScreen> {
   void _open(Chef chef) => Navigator.of(context)
       .push(ChefProfileScreen.route(chef.id, preview: chef));
 
+  Future<void> _openHistory() async {
+    if (!await ensureSignedIn(context, ref,
+        reason: 'Đăng nhập để xem lịch sử tư vấn của bạn.')) {
+      return;
+    }
+    if (mounted) {
+      await Navigator.of(context).push(BookingHistoryScreen.route());
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(chefDirectoryProvider);
@@ -63,17 +75,17 @@ class _ChefDirectoryScreenState extends ConsumerState<ChefDirectoryScreen> {
           SliverAppBar(
             floating: true,
             snap: true,
-            title: const Text('Chuyên gia'),
+            title: Text(widget.pickMode ? 'Chọn chuyên gia' : 'Chuyên gia'),
             actions: [
-              IconButton(
-                tooltip: 'Lịch tư vấn của tôi',
-                onPressed: () =>
-                    Navigator.of(context).push(MyConsultationsScreen.route()),
-                icon: const Icon(Icons.event_note_outlined),
-              ),
+              if (!widget.pickMode)
+                IconButton(
+                  tooltip: 'Lịch sử tư vấn',
+                  onPressed: _openHistory,
+                  icon: const Icon(Icons.history_rounded),
+                ),
             ],
           ),
-          const SliverToBoxAdapter(child: _UpcomingBanner()),
+          SliverToBoxAdapter(child: _IntroBanner(pickMode: widget.pickMode)),
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
@@ -146,7 +158,12 @@ class _ChefDirectoryScreenState extends ConsumerState<ChefDirectoryScreen> {
             AsyncData(:final value) => [
                 SliverPadding(
                   padding: EdgeInsets.fromLTRB(
-                      16, 4, 16, floatingBarClearance(context)),
+                      16,
+                      4,
+                      16,
+                      widget.pickMode
+                          ? 24 + MediaQuery.paddingOf(context).bottom
+                          : floatingBarClearance(context)),
                   sliver: SliverList(
                     delegate: SliverChildBuilderDelegate(
                       (context, i) => Padding(
@@ -219,75 +236,33 @@ class _SpecialtyChips extends StatelessWidget {
   }
 }
 
-/// "Lịch sắp tới" shortcut when the member has an upcoming consultation
-/// (including one still waiting for payment).
-class _UpcomingBanner extends ConsumerWidget {
-  const _UpcomingBanner();
+/// What the tab is for; in pick mode, what to do next.
+class _IntroBanner extends StatelessWidget {
+  const _IntroBanner({required this.pickMode});
+
+  final bool pickMode;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final now = DateTime.now();
-    final items = (ref.watch(myConsultationsProvider).valueOrNull ??
-            const <ConsultationDto>[])
-        .where((c) => c.isUpcoming(now))
-        .toList()
-      ..sort((a, b) => a.startAt.compareTo(b.startAt));
-    final upcoming = items.isEmpty ? null : items.first;
-
-    if (upcoming == null) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-        child: VLCard(
-          color: context.colors.secondaryContainer,
-          borderColor: Colors.transparent,
-          child: Row(
-            children: [
-              Icon(Icons.verified_rounded, color: context.vl.success),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Đầu bếp & chuyên gia dinh dưỡng đều đã được VeganLife xác minh chứng chỉ.',
-                  style: context.textStyles.bodyMedium
-                      ?.copyWith(color: context.colors.onSecondaryContainer),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    final t = upcoming.startAt;
+  Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
       child: VLCard(
-        onTap: () => Navigator.of(context).push(MyConsultationsScreen.route()),
-        color: context.vl.successContainer,
+        color: context.colors.secondaryContainer,
         borderColor: Colors.transparent,
         child: Row(
           children: [
-            Icon(Icons.event_available_rounded,
-                color: context.vl.onSuccessContainer),
+            Icon(pickMode ? Icons.touch_app_outlined : Icons.verified_rounded,
+                color: context.vl.success),
             const SizedBox(width: 12),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Lịch sắp tới · ${upcoming.status.label}',
-                    style: context.textStyles.labelLarge
-                        ?.copyWith(color: context.vl.onSuccessContainer),
-                  ),
-                  Text(
-                    '${formatClock(t)} ${formatLongDate(t)} với ${upcoming.chefName}',
-                    style: context.textStyles.bodyMedium
-                        ?.copyWith(color: context.vl.onSuccessContainer),
-                  ),
-                ],
+              child: Text(
+                pickMode
+                    ? 'Chọn một chuyên gia để thiết kế thực đơn theo yêu cầu. Giá cuối do hai bên thoả thuận.'
+                    : 'Đầu bếp & chuyên gia dinh dưỡng đã được VeganLife xác minh, nhận thiết kế thực đơn 3–30 ngày theo yêu cầu.',
+                style: context.textStyles.bodyMedium
+                    ?.copyWith(color: context.colors.onSecondaryContainer),
               ),
             ),
-            Icon(Icons.chevron_right_rounded,
-                color: context.vl.onSuccessContainer),
           ],
         ),
       ),

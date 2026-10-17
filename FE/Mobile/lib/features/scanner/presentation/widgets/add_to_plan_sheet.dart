@@ -5,12 +5,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/labels.dart';
+import '../../../meal_planner/domain/allergy_match.dart';
 import '../../../meal_planner/domain/entities/meal_plan.dart';
 import '../../../meal_planner/presentation/controllers/meal_plan_controller.dart';
 import '../../domain/entities/detected_ingredient.dart';
 import 'confirm_ingredient_sheet.dart';
 
-/// "Thêm vào thực đơn": pick which meal of today the AI suggestion replaces.
+/// "Thêm vào thực đơn": pick which meal of today the AI suggestion replaces
+/// (today's meals: the member's pattern plus any extra meal of the day).
 /// Pops the chosen [MealSlot]. Warns (like the planner) when the dish contains
 /// one of the user's allergens.
 class AddToPlanSheet extends ConsumerStatefulWidget {
@@ -49,7 +51,16 @@ class _AddToPlanSheetState extends ConsumerState<AddToPlanSheet> {
     final today = s?.plan?.dayFor(dateOnly(DateTime.now()));
     final conflicts = s == null
         ? const <String>[]
-        : m.allergens.where(s.profile.allergies.contains).toList();
+        : allergyConflicts(
+            tags: m.allergens,
+            texts: [m.name, ...m.usedIngredients, ...m.missingIngredients],
+            userAllergies: s.profile.allergies);
+    final slots = s == null
+        ? MealPattern.standard
+        : today == null
+            ? s.pattern
+            : s.slotsFor(today);
+    final selected = slots.contains(_slot) ? _slot : slots.first;
 
     String currentMeal(MealSlot slot) {
       if (s == null) {
@@ -74,11 +85,11 @@ class _AddToPlanSheetState extends ConsumerState<AddToPlanSheet> {
             style: context.textStyles.bodyMedium?.copyWith(color: vl.muted),
           ),
           const SizedBox(height: 16),
-          for (final slot in MealSlot.values)
+          for (final slot in slots)
             OptionTile(
               label: slot.label,
               subtitle: currentMeal(slot),
-              selected: _slot == slot,
+              selected: selected == slot,
               onTap: () => setState(() => _slot = slot),
             ),
           if (conflicts.isNotEmpty) ...[
@@ -116,11 +127,11 @@ class _AddToPlanSheetState extends ConsumerState<AddToPlanSheet> {
           ],
           const SizedBox(height: 16),
           FilledButton(
-            onPressed: () => Navigator.of(context).pop(_slot),
+            onPressed: () => Navigator.of(context).pop(selected),
             style:
                 FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
             child: Text(
-              '${conflicts.isEmpty ? 'Thêm' : 'Vẫn thêm'} vào ${_slot.label.toLowerCase()}',
+              '${conflicts.isEmpty ? 'Thêm' : 'Vẫn thêm'} vào ${selected.label.toLowerCase()}',
             ),
           ),
         ],

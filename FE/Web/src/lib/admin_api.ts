@@ -85,8 +85,12 @@ export function normalizeUser(raw: RawUser): AdminUser {
 /** Wire order of `posts.status`. A missing status is a legacy row → Published. */
 const POST_STATUS_WIRE: readonly PostStatus[] = ["Pending", "Published", "Rejected"];
 
-type RawContent = Partial<Omit<ContentItem, "id" | "author" | "status" | "mediaType">> & {
+type RawContent = Partial<Omit<ContentItem, "id" | "author" | "status" | "mediaType" | "kind" | "restaurant">> & {
   id?: unknown;
+  /** FE category; legacy "video" → recipe. Mobile PostDto calls it `type`. */
+  kind?: string;
+  type?: string;
+  restaurant?: { id?: unknown; name?: string; district?: string; isCertified?: boolean; isVeganCertified?: boolean } | null;
   author?: { id?: unknown; fullName?: string; name?: string; isVerifiedChef?: boolean };
   status?: unknown;
   mediaType?: unknown;
@@ -96,9 +100,17 @@ type RawContent = Partial<Omit<ContentItem, "id" | "author" | "status" | "mediaT
   content?: string;
 };
 
+/** "recipe" | "discussion"; legacy "video" (and unknown recipe-like values) → recipe. */
+function readKind(raw: unknown): { kind: ContentKind; legacyVideo: boolean } {
+  const value = typeof raw === "string" ? raw.toLowerCase() : "";
+  if (value === "video") return { kind: "recipe", legacyVideo: true };
+  return { kind: value in CONTENT_KIND_LABEL ? (value as ContentKind) : "discussion", legacyVideo: false };
+}
+
 export function normalizeContent(raw: RawContent): ContentItem {
-  const kind: ContentKind = raw.kind && raw.kind in CONTENT_KIND_LABEL ? raw.kind : "discussion";
-  const derived: MediaType = kind === "video" ? "Video" : raw.imageUrl || raw.mediaUrl ? "Image" : "Text";
+  const { kind, legacyVideo } = readKind(raw.kind ?? raw.type);
+  const derived: MediaType = legacyVideo || raw.video ? "Video" : raw.imageUrl || raw.mediaUrl ? "Image" : "Text";
+  const r = raw.restaurant;
   return {
     id: readId(raw.id),
     kind,
@@ -119,14 +131,20 @@ export function normalizeContent(raw: RawContent): ContentItem {
     status: raw.status === undefined || raw.status === null ? "Published" : enumValue(POST_STATUS_WIRE, raw.status, "Pending"),
     mediaType: raw.mediaType === undefined || raw.mediaType === null ? derived : enumValue(MEDIA_TYPES, raw.mediaType, "Text"),
     mediaUrl: raw.mediaUrl ?? raw.imageUrl ?? null,
+    restaurant:
+      r && r.id !== undefined && r.id !== null
+        ? { id: readId(r.id), name: r.name ?? "", district: r.district ?? "", isCertified: r.isCertified ?? r.isVeganCertified ?? false }
+        : null,
     aiFlag: raw.aiFlag,
     decision: raw.decision,
   };
 }
 
-type RawComment = Partial<Omit<AdminComment, "id" | "postId" | "author" | "status">> & {
+type RawComment = Partial<Omit<AdminComment, "id" | "postId" | "author" | "status" | "parentId" | "replyTo">> & {
   id?: unknown;
   postId?: unknown;
+  parentId?: unknown;
+  replyTo?: { id?: unknown; authorName?: string; fullName?: string } | null;
   author?: { id?: unknown; fullName?: string; name?: string };
   status?: unknown;
   /** Mobile CommentDto field name. */
@@ -138,6 +156,12 @@ export function normalizeComment(raw: RawComment): AdminComment {
     id: readId(raw.id),
     postId: readId(raw.postId),
     postTitle: raw.postTitle ?? "",
+    parentId: raw.parentId === null || raw.parentId === undefined || raw.parentId === "" ? null : readId(raw.parentId),
+    replyTo:
+      raw.replyTo && raw.replyTo.id !== undefined && raw.replyTo.id !== null
+        ? { id: readId(raw.replyTo.id), authorName: raw.replyTo.authorName ?? raw.replyTo.fullName ?? "" }
+        : null,
+    replyCount: raw.replyCount ?? 0,
     author: { id: readId(raw.author?.id), fullName: raw.author?.fullName ?? raw.author?.name ?? "" },
     content: raw.content ?? raw.text ?? "",
     status: enumValue<CommentStatus>(["Visible", "Hidden"], raw.status, "Visible"),
@@ -241,6 +265,7 @@ export const contentApi = {
       `/admin/posts?${qs({
         view: query.view,
         kind: query.kind === "all" ? undefined : query.kind,
+        hasVideo: query.hasVideo ? "true" : undefined,
         search: query.search,
         authorId: query.authorId,
       })}`,

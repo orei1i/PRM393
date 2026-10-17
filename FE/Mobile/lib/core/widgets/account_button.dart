@@ -2,11 +2,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../features/auth/presentation/auth_navigation.dart';
 import '../network/api_exception.dart';
 import '../session/session_controller.dart';
-import 'mock_account_picker.dart';
 
-/// App-bar avatar: sign in (guest) or sign out (member → back to guest mode).
+/// App-bar avatar. Guests: "Đăng nhập" / "Tạo tài khoản". Members: "Xin
+/// chào, …" and "Đăng xuất" (back to guest mode).
 class AccountButton extends ConsumerWidget {
   const AccountButton({super.key});
 
@@ -22,18 +23,25 @@ class AccountButton extends ConsumerWidget {
       tooltip: session.isGuest ? 'Tài khoản (khách)' : 'Tài khoản',
       onSelected: (value) async {
         final messenger = ScaffoldMessenger.of(context);
+        final navigator = Navigator.of(context);
         try {
-          if (value == 'sign_in') await runGoogleSignIn(context, ref);
-          if (value == 'sign_out') await notifier.signOut();
+          switch (value) {
+            case 'sign_in':
+              await AuthNavigation.login(navigator);
+            case 'register':
+              await AuthNavigation.register(navigator);
+            case 'sign_out':
+              await notifier.signOut();
+          }
         } catch (e) {
           messenger.showSnackBar(SnackBar(content: Text(describeError(e))));
         }
       },
       itemBuilder: (context) => [
-        if (session.isGuest)
-          const PopupMenuItem(
-              value: 'sign_in', child: Text('Đăng nhập với Google'))
-        else ...[
+        if (session.isGuest) ...const [
+          PopupMenuItem(value: 'sign_in', child: Text('Đăng nhập')),
+          PopupMenuItem(value: 'register', child: Text('Tạo tài khoản')),
+        ] else ...[
           PopupMenuItem(
               enabled: false,
               child: Text('Xin chào, ${session.displayName ?? 'bạn'}')),

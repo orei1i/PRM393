@@ -2,7 +2,7 @@
 "use client";
 
 import * as React from "react";
-import { CircleCheck, CircleX, Eye, EyeOff, Pin, PinOff, RotateCcw, Sparkles, Trash2 } from "lucide-react";
+import { CircleCheck, CircleX, Eye, EyeOff, MapPin, Pin, PinOff, RotateCcw, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { InitialsAvatar } from "@/components/admin/initials-avatar";
@@ -18,7 +18,7 @@ import { formatAge, formatNumber } from "@/lib/utils";
 import { CONTENT_KIND_LABEL, type ContentAction, type ContentItem, type PostDecision } from "@/types/admin";
 import { FLAG_CATEGORY_LABEL, MIN_AUDIT_NOTE_LENGTH } from "@/types/moderation";
 
-import { PostStatusBadge, VideoAiBadge } from "./content-table";
+import { MediaBadge, PostStatusBadge, VideoAiBadge } from "./content-table";
 
 const ACTION_DONE: Record<ContentAction, string> = {
   hide: "Đã ẩn khỏi bảng tin",
@@ -103,6 +103,7 @@ function Detail({ item, onClose, onItemChange }: { item: ContentItem; onClose: (
         <div className="flex flex-wrap gap-1.5">
           <Badge variant="outline">{CONTENT_KIND_LABEL[item.kind]}</Badge>
           <PostStatusBadge status={item.status} />
+          <MediaBadge item={item} />
           <VideoAiBadge item={item} />
           {item.pinned && <Badge>Đã ghim</Badge>}
           {item.hidden && <Badge variant="secondary">Đã ẩn</Badge>}
@@ -123,6 +124,21 @@ function Detail({ item, onClose, onItemChange }: { item: ContentItem; onClose: (
         </div>
 
         <p className="rounded-lg bg-muted px-4 py-3 text-sm leading-relaxed">{item.excerpt}</p>
+
+        {item.restaurant && (
+          <p className="flex flex-wrap items-center gap-1.5 text-sm">
+            <MapPin className="size-4 text-muted-foreground" aria-hidden />
+            <span className="text-muted-foreground">Gắn quán:</span>
+            <span className="font-semibold">{item.restaurant.name}</span>
+            {item.restaurant.district && <span className="text-muted-foreground">· {item.restaurant.district}</span>}
+            {item.restaurant.isCertified && (
+              <Badge variant="sprout">
+                <ShieldCheck aria-hidden />
+                Chứng nhận chay
+              </Badge>
+            )}
+          </p>
+        )}
 
         {item.aiFlag && (
           <section aria-label="AI gắn cờ" className="flex flex-col gap-2 rounded-lg border border-ai-border bg-ai-soft p-3 text-sm">

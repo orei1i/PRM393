@@ -216,6 +216,21 @@ const List<(String, String, num, String)> _dictionary = [
   ('tiêu', 'Tiêu đen', 1, 'muỗng cà phê'),
   ('bông cải', 'Bông cải xanh', 1, 'bông'),
   ('cà rốt', 'Cà rốt', 1, 'củ'),
+  ('lá lốt', 'Lá lốt', 10, 'lá'),
+  ('rau mầm', 'Rau mầm', 50, 'g'),
+  ('chanh', 'Chanh', 1, 'quả'),
+  ('xoài', 'Xoài', 0.5, 'quả'),
+  ('sữa chua dừa', 'Sữa chua dừa', 1, 'hũ'),
+  ('bắp', 'Bắp', 1, 'bắp'),
+  ('hạt bí', 'Hạt bí', 1, 'muỗng canh'),
+  ('trái cây', 'Trái cây theo mùa', 150, 'g'),
+  ('đậu đen', 'Đậu đen', 50, 'g'),
+  ('edamame', 'Đậu nành Nhật (edamame)', 150, 'g'),
+  ('sinh tố bơ', 'Bơ', 0.5, 'quả'),
+  ('sữa hạt', 'Sữa hạt', 200, 'ml'),
+  ('hummus', 'Sốt hummus', 3, 'muỗng canh'),
+  ('táo', 'Táo', 1, 'quả'),
+  ('hướng dương', 'Bơ hạt hướng dương', 1, 'muỗng canh'),
 ];
 
 /// Every planner dish summary (wire JSON) by id.
@@ -224,7 +239,10 @@ Map<String, Map<String, Object?>> _plannerSummaries() => {
         ...mockBreakfasts,
         ...mockLunches,
         ...mockDinners,
+        ...mockSnacks,
         for (final list in mockSwapPool.values) ...list,
+        ...mockExtraDinners,
+        ...mockSnackSwaps,
         ...mockPantryDishes,
       ])
         r['id']! as String: r,

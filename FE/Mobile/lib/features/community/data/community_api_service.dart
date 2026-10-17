@@ -13,8 +13,14 @@ import 'models/post_model.dart';
 
 abstract interface class CommunityApiService {
   /// Cursor-paginated feed of `Published` posts, newest first; pinned posts
-  /// come first on page 1.
-  Future<FeedPageDto> getFeed({PostType? type, String? cursor, int limit = 6});
+  /// come first on page 1. [type] filters Công thức / Hỏi đáp, [mediaType]
+  /// the attachment ("Có video", Reels).
+  Future<FeedPageDto> getFeed({
+    PostType? type,
+    PostMediaType? mediaType,
+    String? cursor,
+    int limit = 6,
+  });
 
   /// Non-published posts are 404 for everyone but their author.
   Future<PostDto> getPost(String id);
@@ -23,9 +29,18 @@ abstract interface class CommunityApiService {
 
   Future<void> setSaved(String postId, {required bool saved});
 
-  Future<List<CommentDto>> getComments(String postId);
+  /// Top-level comments, newest first, [limit] per page; each previews its
+  /// first 2 replies (`replyCount` says how many there are).
+  Future<CommentPageDto> getComments(String postId,
+      {String? cursor, int limit = 10});
 
-  Future<CommentDto> addComment(String postId, String text);
+  /// Replies of a top-level comment, oldest first.
+  Future<CommentPageDto> getReplies(String postId, String commentId,
+      {String? cursor, int limit = 20});
+
+  /// [parentId] answers a top-level comment (one level deep: a reply to a
+  /// reply is attached to the same top-level comment by the caller).
+  Future<CommentDto> addComment(String postId, String text, {String? parentId});
 
   /// The server pre-screens the text: `Published`, or `Pending` when the AI
   /// flags it (hidden from the feed until an admin approves).
@@ -50,6 +65,7 @@ abstract interface class CommunityApiService {
   Future<CommentDto> updateComment(
       String postId, String commentId, String text);
 
+  /// Author only. A top-level comment takes its replies with it.
   Future<void> deleteComment(String postId, String commentId);
 
   /// The member's comments across all posts, newest first.
@@ -66,13 +82,18 @@ class RemoteCommunityApiService implements CommunityApiService {
       : const [];
 
   @override
-  Future<FeedPageDto> getFeed(
-          {PostType? type, String? cursor, int limit = 6}) =>
+  Future<FeedPageDto> getFeed({
+    PostType? type,
+    PostMediaType? mediaType,
+    String? cursor,
+    int limit = 6,
+  }) =>
       guardApi(() async {
         final res = await _dio.get<Map<String, dynamic>>(
           ApiEndpoints.feed,
           queryParameters: {
             if (type != null) 'type': type.apiValue,
+            if (mediaType != null) 'mediaType': mediaType.apiValue,
             if (cursor != null) 'cursor': cursor,
             'limit': limit,
           },
@@ -107,21 +128,40 @@ class RemoteCommunityApiService implements CommunityApiService {
       });
 
   @override
-  Future<List<CommentDto>> getComments(String postId) => guardApi(() async {
-        final res =
-            await _dio.get<List<dynamic>>(ApiEndpoints.postComments(postId));
-        return (res.data ?? const [])
-            .whereType<Map<String, dynamic>>()
-            .map(CommentDto.fromJson)
-            .toList();
+  Future<CommentPageDto> getComments(String postId,
+          {String? cursor, int limit = 10}) =>
+      guardApi(() async {
+        final res = await _dio.get<Object?>(
+          ApiEndpoints.postComments(postId),
+          queryParameters: {
+            if (cursor != null) 'cursor': cursor,
+            'limit': limit
+          },
+        );
+        return CommentPageDto.fromJson(res.data);
       });
 
   @override
-  Future<CommentDto> addComment(String postId, String text) =>
+  Future<CommentPageDto> getReplies(String postId, String commentId,
+          {String? cursor, int limit = 20}) =>
+      guardApi(() async {
+        final res = await _dio.get<Object?>(
+          ApiEndpoints.commentReplies(postId, commentId),
+          queryParameters: {
+            if (cursor != null) 'cursor': cursor,
+            'limit': limit
+          },
+        );
+        return CommentPageDto.fromJson(res.data);
+      });
+
+  @override
+  Future<CommentDto> addComment(String postId, String text,
+          {String? parentId}) =>
       guardApi(() async {
         final res = await _dio.post<Map<String, dynamic>>(
           ApiEndpoints.postComments(postId),
-          data: {'text': text},
+          data: {'content': text, if (parentId != null) 'parentId': parentId},
         );
         return CommentDto.fromJson(res.data!);
       });
@@ -178,7 +218,7 @@ class RemoteCommunityApiService implements CommunityApiService {
       guardApi(() async {
         final res = await _dio.put<Map<String, dynamic>>(
           ApiEndpoints.postComment(postId, commentId),
-          data: {'text': text},
+          data: {'content': text},
         );
         return CommentDto.fromJson(res.data!);
       });

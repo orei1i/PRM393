@@ -1,68 +1,9 @@
 // lib/features/chef/domain/entities/chef.dart
 
-/// `services.type`. Wire values are exactly [apiValue]; the parser ignores
-/// case, spaces and underscores, so `VipMenu` and `VIP_MENU` both read as
-/// [vipMenu]. Unknown values read as [consult].
-enum ServiceType {
-  consult('Consult', 'Tư vấn 1–1'),
-  course('Course', 'Khoá học'),
-  vipMenu('VIP Menu', 'Thực đơn VIP');
-
-  const ServiceType(this.apiValue, this.label);
-  final String apiValue;
-  final String label;
-
-  /// Course / VIP Menu: bought once, then opened as content.
-  bool get isPackage => this != consult;
-
-  /// How long a paid package stays open (access-grant rule, mirrored from
-  /// the BE). Consults expire 24 h after the appointment instead.
-  int? get accessDays => switch (this) {
-        consult => null,
-        course => 180,
-        vipMenu => 30,
-      };
-
-  static String _fold(Object? value) =>
-      (value?.toString() ?? '').replaceAll(RegExp(r'[\s_]'), '').toLowerCase();
-
-  static ServiceType fromApi(Object? value) {
-    final raw = _fold(value);
-    return values.firstWhere((t) => _fold(t.apiValue) == raw,
-        orElse: () => consult);
-  }
-}
-
-/// A row of `services`: what a chef sells (1–1 consult, course, VIP menu).
-class ChefService {
-  const ChefService({
-    required this.id,
-    required this.chefId,
-    required this.title,
-    required this.type,
-    required this.price,
-    this.description = '',
-    this.durationMinutes,
-    this.contentUrl,
-  });
-
-  final String id;
-  final String chefId;
-  final String title;
-  final ServiceType type;
-
-  /// Integer VND.
-  final int price;
-  final String description;
-
-  /// Consult only.
-  final int? durationMinutes;
-
-  /// Course / VIP Menu only; sent to the owner and to buyers with access.
-  final String? contentUrl;
-}
-
-/// A member verified by an admin (web console › Duyệt chuyên gia).
+/// A member verified by an admin (web console › Duyệt chuyên gia). Members
+/// book a chef to design an N-day meal plan ("Thiết kế thực đơn theo yêu
+/// cầu"); the listed prices are a starting point, the final price is agreed
+/// in the booking chat.
 class Chef {
   const Chef({
     required this.id,
@@ -73,14 +14,15 @@ class Chef {
     required this.reviewCount,
     required this.yearsExperience,
     required this.city,
-    required this.startingPriceVnd,
+    required this.pricePerDay,
+    required this.feedbackPricePerDay,
     this.userId,
+    this.minPlanDays = 3,
+    this.maxPlanDays = 30,
+    this.acceptingBookings = true,
     this.bio = '',
     this.consultCount = 0,
     this.certificates = const [],
-    this.services = const [],
-    this.availableSlots = const [],
-    this.bookedSlots = const [],
   });
 
   /// `chef_profiles.id`.
@@ -95,19 +37,30 @@ class Chef {
   final int reviewCount;
   final int yearsExperience;
   final String city;
-  final int startingPriceVnd;
+
+  /// `chef_profiles.price_per_day`: one-shot plans ("Giao trọn một lần").
+  final int pricePerDay;
+
+  /// `chef_profiles.feedback_price_per_day`: plans with daily feedback.
+  final int feedbackPricePerDay;
+  final int minPlanDays;
+  final int maxPlanDays;
+
+  /// `chef_profiles.accepting_bookings`.
+  final bool acceptingBookings;
 
   // Detail-only fields (empty in the directory list).
   final String bio;
+
+  /// Plans designed so far.
   final int consultCount;
   final List<String> certificates;
-  final List<ChefService> services;
-  final List<DateTime> availableSlots;
 
-  /// Slots of the chef's calendar someone already holds: shown greyed out
-  /// ("Đã kín") next to [availableSlots].
-  final List<DateTime> bookedSlots;
+  /// The lowest listed price per day ("Từ 120.000đ/ngày").
+  int get startingPriceVnd =>
+      pricePerDay < feedbackPricePerDay ? pricePerDay : feedbackPricePerDay;
 
-  List<ChefService> get consultServices =>
-      services.where((s) => s.type == ServiceType.consult).toList();
+  /// The listed price per day for a plan type.
+  int priceFor({required bool dailyFeedback}) =>
+      dailyFeedback ? feedbackPricePerDay : pricePerDay;
 }

@@ -2,7 +2,8 @@
 "use client";
 
 import * as React from "react";
-import { Ban, Landmark, ReceiptText, Send } from "lucide-react";
+import Link from "next/link";
+import { Ban, Landmark, ReceiptText, Scale, Send } from "lucide-react";
 import { toast } from "sonner";
 
 import { InitialsAvatar } from "@/components/admin/initials-avatar";
@@ -167,7 +168,8 @@ function Detail({ withdrawal: w, onWithdrawalChange }: { withdrawal: WithdrawalR
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border p-3 text-sm">
                 <Info label="Có thể rút" value={formatVnd(wallet.available)} mono />
                 <Info label="Đang xử lý rút" value={formatVnd(wallet.processing)} mono />
-                <Info label="Đang chờ (giữ)" value={formatVnd(wallet.pending)} mono />
+                <Info label="Đang giữ" value={formatVnd(wallet.pending)} mono />
+                <Info label="Tạm giữ do khiếu nại" value={formatVnd(wallet.frozen)} mono />
                 <Info label="Đã rút" value={formatVnd(wallet.withdrawn)} mono />
               </dl>
               {w.status === "Processing" && (
@@ -323,7 +325,7 @@ function Detail({ withdrawal: w, onWithdrawalChange }: { withdrawal: WithdrawalR
 
 function LedgerLine({ t, highlight }: { t: WalletTransaction; highlight: boolean }) {
   const detail =
-    t.type === "Withdrawal" ? (t.bankName ?? "Rút về ngân hàng") : [t.serviceTitle, t.buyerName].filter(Boolean).join(" · ") || "—";
+    t.type === "Withdrawal" ? (t.bankName ?? "Rút về ngân hàng") : [t.planTitle, t.memberName].filter(Boolean).join(" · ") || "—";
   return (
     <li className={cn("flex flex-col gap-1 px-3 py-2.5", highlight && "bg-ai-soft")}>
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
@@ -343,7 +345,18 @@ function LedgerLine({ t, highlight }: { t: WalletTransaction; highlight: boolean
       {t.type === "Income" && t.gross !== null && t.fee !== null && (
         <p className="text-xs text-muted-foreground">
           {formatVnd(t.gross)} − phí {formatVnd(t.fee)}
+          {t.status === "Held" && t.releaseAt ? ` · giữ đến ${formatDateTime(t.releaseAt)}` : ""}
         </p>
+      )}
+      {t.note && <p className="text-xs text-muted-foreground">{t.note}</p>}
+      {t.status === "Frozen" && t.complaintId && (
+        <Link
+          href={`/disputes?open=${encodeURIComponent(t.complaintId)}`}
+          className="inline-flex w-fit items-center gap-1 text-xs font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+        >
+          <Scale className="size-3.5" aria-hidden />
+          Xem khiếu nại {t.complaintId}
+        </Link>
       )}
     </li>
   );

@@ -149,6 +149,7 @@ function Form({ campaign, pending, onSubmit }: { campaign: AdCampaign | null; pe
   // Unchanged dates keep the stored time; changed ones become local start / end of day.
   const input: AdInput = {
     restaurantId: state.restaurantId,
+    placement: campaign?.placement ?? "nearby",
     headline: state.headline.trim(),
     message: state.message.trim(),
     ctaType: state.ctaType,
@@ -195,7 +196,8 @@ function Form({ campaign, pending, onSubmit }: { campaign: AdCampaign | null; pe
     <>
       <DialogTitle>{campaign ? "Sửa quảng cáo cửa hàng" : "Tạo quảng cáo cửa hàng"}</DialogTitle>
       <DialogDescription>
-        Thẻ “Được tài trợ” xuất hiện trên bảng tin ứng dụng cho người dùng ở thành phố mục tiêu, trong thời gian chạy và khi còn ngân sách.
+        Hiển thị ở đầu danh sách Quán chay gần bạn trong app (tối đa 1 quán mỗi lần), cho người dùng ở thành phố mục tiêu, trong thời gian chạy
+        và khi còn ngân sách.
       </DialogDescription>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,1fr)_340px]">
@@ -280,7 +282,7 @@ function Form({ campaign, pending, onSubmit }: { campaign: AdCampaign | null; pe
               ))}
             </div>
             <p className="text-xs text-muted-foreground">
-              Xem quán mở trang quán, Chỉ đường mở Google Maps, Đặt bàn mở trang đặt chỗ / gọi quán.
+              Xem quán mở trang quán, Chỉ đường mở bản đồ chỉ đường trong ứng dụng, Đặt bàn mở trang đặt chỗ / gọi quán.
             </p>
           </div>
 
@@ -294,7 +296,7 @@ function Form({ campaign, pending, onSubmit }: { campaign: AdCampaign | null; pe
               ))}
               <option value={NATIONAL}>Toàn quốc</option>
             </NativeSelect>
-            {hint("targetCity", "Người dùng ở thành phố này (theo hồ sơ hoặc vị trí) mới thấy thẻ.")}
+            {hint("targetCity", "Người dùng ở thành phố này (theo vị trí đã chọn) mới thấy dòng tài trợ.")}
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

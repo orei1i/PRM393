@@ -12,8 +12,10 @@
 // | GET    | /admin/chef-wallets                               | ChefWallet[]                                      |
 // | GET    | /admin/chef-wallets/{chefId}/transactions?limit=  | WalletTransaction[], newest first (drawer ledger) |
 //
-// Rules (mirrored from the mobile wallet): fee 10% per sale; requests ≤ 5.000.000đ are paid
-// out automatically, bigger ones wait for an admin. All of it needs new tables (see types/payouts.ts).
+// Rules (mirrored from the mobile wallet): booking money is held in escrow until the plan's end
+// date + 3 days (ESCROW_HOLD_DAYS), frozen while a complaint is open, then released at net 90%
+// (fee 10%); requests ≤ 5.000.000đ are paid out automatically, bigger ones wait for an admin.
+// All of it needs new tables (see types/payouts.ts and types/bookings.ts).
 import type {
   BankAccount,
   ChefWallet,
@@ -99,7 +101,8 @@ export function normalizeWallet(raw: Raw): ChefWallet {
     chefId: readId(raw.chefId ?? obj(raw.chef)?.id),
     chef: readChef(raw.chef, raw.chefId),
     available: num(raw.available),
-    pending: num(raw.pending),
+    pending: num(raw.pending ?? raw.held),
+    frozen: num(raw.frozen),
     processing: num(raw.processing),
     withdrawn: num(raw.withdrawn),
     grossSales: num(raw.grossSales),
@@ -109,19 +112,28 @@ export function normalizeWallet(raw: Raw): ChefWallet {
   };
 }
 
+/** Legacy "Pending" (before escrow) reads as "Held". */
+const readLedgerStatus = (raw: unknown) =>
+  typeof raw === "string" && raw.toLowerCase() === "pending" ? "Held" : pick<LedgerStatus>(LEDGER_STATUSES, raw, "Held");
+
+const optId = (raw: unknown) => (raw === undefined || raw === null || raw === "" ? null : readId(raw));
+
 export function normalizeTransaction(raw: Raw): WalletTransaction {
   return {
     id: readId(raw.id),
     type: pick<LedgerEntryType>(LEDGER_ENTRY_TYPES, raw.type, "Income"),
-    status: pick<LedgerStatus>(LEDGER_STATUSES, raw.status, "Pending"),
+    status: readLedgerStatus(raw.status),
     createdAt: optString(raw.createdAt) ?? new Date(0).toISOString(),
     net: num(raw.net),
-    orderId: raw.orderId === undefined || raw.orderId === null ? null : readId(raw.orderId),
+    bookingId: optId(raw.bookingId),
+    orderId: optId(raw.orderId),
     transactionRef: optString(raw.transactionRef),
-    serviceTitle: optString(raw.serviceTitle),
-    buyerName: optString(raw.buyerName),
+    planTitle: optString(raw.planTitle) ?? optString(raw.serviceTitle),
+    memberName: optString(raw.memberName) ?? optString(raw.buyerName),
     gross: optNum(raw.gross),
     fee: optNum(raw.fee),
+    releaseAt: optString(raw.releaseAt),
+    complaintId: optId(raw.complaintId),
     bankName: optString(raw.bankName),
     note: optString(raw.note),
   };
@@ -135,13 +147,14 @@ export const payoutsApi = {
     const byStatus = obj(raw.byStatus) ?? {};
     return {
       totalAvailable: num(raw.totalAvailable),
-      totalPending: num(raw.totalPending),
+      totalPending: num(raw.totalPending ?? raw.totalHeld),
+      totalFrozen: num(raw.totalFrozen),
       totalProcessing: num(raw.totalProcessing),
       paidOutThisMonth: num(raw.paidOutThisMonth),
       paidOutThisMonthCount: num(raw.paidOutThisMonthCount),
       platformFee: num(raw.platformFee),
-      paidGross: num(raw.paidGross),
-      paidOrderCount: num(raw.paidOrderCount),
+      releasedGross: num(raw.releasedGross ?? raw.paidGross),
+      releasedCount: num(raw.releasedCount ?? raw.paidOrderCount),
       feeRate: num(raw.feeRate, PLATFORM_FEE_RATE),
       autoApproveLimit: num(raw.autoApproveLimit, AUTO_APPROVE_LIMIT),
       byStatus: Object.fromEntries(WITHDRAWAL_STATUSES.map((s) => [s, num(byStatus[s])])) as Record<WithdrawalStatus, number>,

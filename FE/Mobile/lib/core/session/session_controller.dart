@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../config/env.dart';
 import 'auth_api_service.dart';
 import 'mock_accounts.dart';
+import 'onboarding_controller.dart';
 import 'user_role.dart';
 
 /// Overridden in `main()` with the real instance.
@@ -45,9 +46,15 @@ class AuthSession {
       : {'Authorization': 'Bearer $accessToken'};
 }
 
+/// Email + password session, kept in `shared_preferences`.
+///
+/// Production should keep the tokens in secure storage (Keychain /
+/// Keystore); that needs a new dependency, not approved yet.
 class SessionController extends Notifier<AuthSession> {
   static const _kGuestToken = 'vl.guest_token';
-  static const _kAccessToken = 'vl.access_token';
+  static const accessTokenKey = 'vl.access_token';
+  static const refreshTokenKey = 'vl.refresh_token';
+  static const expiresAtKey = 'vl.expires_at';
   static const _kDisplayName = 'vl.display_name';
   static const _kUserId = 'vl.user_id';
   static const _kRole = 'vl.role';
@@ -61,7 +68,7 @@ class SessionController extends Notifier<AuthSession> {
       guestToken = _newGuestToken();
       unawaited(_prefs.setString(_kGuestToken, guestToken));
     }
-    final accessToken = _prefs.getString(_kAccessToken);
+    final accessToken = _prefs.getString(accessTokenKey);
     var userId = _prefs.getString(_kUserId);
     // Mock sessions saved before accounts existed were always Minh Anh.
     if (accessToken != null && userId == null && Env.useMockData) {
@@ -76,20 +83,31 @@ class SessionController extends Notifier<AuthSession> {
     );
   }
 
-  /// [account] picks the identity in mock mode (see `runGoogleSignIn`);
-  /// without it the mock signs in as [minhAnhAccount].
-  Future<void> signInWithGoogle({MockAccount? account}) async {
+  /// `POST /auth/login`. Throws [ApiException] with a Vietnamese message
+  /// (wrong password, locked, admin, too many attempts…).
+  Future<void> signIn({required String email, required String password}) async {
     final result = await ref
         .read(authApiProvider)
-        .signInWithGoogle(guestToken: state.guestToken, account: account);
-    await _prefs.setString(_kAccessToken, result.accessToken);
+        .login(email: email.trim(), password: password);
+    await _start(result);
+  }
+
+  /// `POST /auth/register`, then signed in. The account is always a member
+  /// (`User`); becoming a chef goes through the chef application.
+  Future<AuthResult> register(RegisterRequest request) async {
+    final result = await ref.read(authApiProvider).register(request);
+    await _start(result);
+    return result;
+  }
+
+  Future<void> _start(AuthResult result) async {
+    await _prefs.setString(accessTokenKey, result.accessToken);
+    await _setOrRemove(refreshTokenKey, result.refreshToken);
+    await _setOrRemove(
+        expiresAtKey, result.expiresAt?.toUtc().toIso8601String());
     await _prefs.setString(_kDisplayName, result.displayName);
     await _prefs.setString(_kRole, result.role.apiValue);
-    if (result.userId case final id?) {
-      await _prefs.setString(_kUserId, id);
-    } else {
-      await _prefs.remove(_kUserId);
-    }
+    await _setOrRemove(_kUserId, result.userId);
     state = AuthSession(
       guestToken: state.guestToken,
       accessToken: result.accessToken,
@@ -97,14 +115,31 @@ class SessionController extends Notifier<AuthSession> {
       userId: result.userId,
       role: result.role,
     );
+    await ref.read(onboardingProvider.notifier).complete();
   }
 
+  /// Back to guest mode (Trang chủ), never to the Welcome screen.
   Future<void> signOut() async {
-    await _prefs.remove(_kAccessToken);
-    await _prefs.remove(_kDisplayName);
-    await _prefs.remove(_kUserId);
-    await _prefs.remove(_kRole);
+    for (final key in [
+      accessTokenKey,
+      refreshTokenKey,
+      expiresAtKey,
+      _kDisplayName,
+      _kUserId,
+      _kRole,
+    ]) {
+      await _prefs.remove(key);
+    }
     state = AuthSession(guestToken: state.guestToken);
+    await ref.read(onboardingProvider.notifier).complete();
+  }
+
+  Future<void> _setOrRemove(String key, String? value) async {
+    if (value == null) {
+      await _prefs.remove(key);
+    } else {
+      await _prefs.setString(key, value);
+    }
   }
 
   static String _newGuestToken() {

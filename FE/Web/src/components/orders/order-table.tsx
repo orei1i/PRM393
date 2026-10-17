@@ -4,9 +4,10 @@
 import { InitialsAvatar } from "@/components/admin/initials-avatar";
 import { Skeleton } from "@/components/ui/form-controls";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { planSummary } from "@/types/bookings";
 import type { AdminOrder } from "@/types/commerce";
 
-import { dateTimeVi, formatVnd, OrderStatusBadge, PaymentStatusBadge, ServiceTypeBadge } from "./order-badges";
+import { dateTimeVi, formatVnd, OrderStatusBadge, OrderTypeBadge, PaymentStatusBadge } from "./order-badges";
 
 /** The payment that decides the order's state: the newest attempt. */
 export const latestPayment = (order: AdminOrder) => order.payments[order.payments.length - 1] ?? null;
@@ -27,8 +28,8 @@ export function OrderTable({
       <TableHeader>
         <TableRow className="hover:bg-transparent">
           <TableHead>Mã đơn</TableHead>
-          <TableHead>Người mua</TableHead>
-          <TableHead className="w-[26%]">Dịch vụ</TableHead>
+          <TableHead>Thành viên</TableHead>
+          <TableHead className="w-[24%]">Loại · đặt chuyên gia</TableHead>
           <TableHead>Chuyên gia</TableHead>
           <TableHead className="text-right">Số tiền</TableHead>
           <TableHead>Trạng thái</TableHead>
@@ -70,13 +71,19 @@ export function OrderTable({
                     </div>
                   </TableCell>
                   <TableCell className="whitespace-normal">
-                    <span className="line-clamp-2 font-semibold">{order.service.title}</span>
-                    <span className="mt-1 block">
-                      <ServiceTypeBadge type={order.service.type} />
+                    <OrderTypeBadge />
+                    <span className="mt-1 block text-xs">
+                      <span className="font-mono font-semibold">{order.booking.id}</span>
+                      <span className="text-muted-foreground"> · {planSummary(order.booking)}</span>
                     </span>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{order.service.chefName}</TableCell>
-                  <TableCell className="text-right font-mono font-semibold tabular">{formatVnd(order.amount)}</TableCell>
+                  <TableCell className="text-muted-foreground">{order.booking.chefName}</TableCell>
+                  <TableCell className="text-right">
+                    <span className="block font-mono font-semibold tabular">{formatVnd(order.amount)}</span>
+                    {order.refundedAmount > 0 && (
+                      <span className="block font-mono text-xs text-muted-foreground tabular">hoàn {formatVnd(order.refundedAmount)}</span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <OrderStatusBadge status={order.status} />
                   </TableCell>

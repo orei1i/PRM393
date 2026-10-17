@@ -2,7 +2,7 @@
 "use client";
 
 import type { UseQueryResult } from "@tanstack/react-query";
-import { Hourglass, KeyRound, RotateCcw, Wallet } from "lucide-react";
+import { Hourglass, Lock, RotateCcw, Wallet } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { MetricCard } from "@/components/telemetry/metric-card";
@@ -21,7 +21,7 @@ export function CommerceKpis({ summary }: { summary: UseQueryResult<CommerceSumm
         <MetricCard
           label="Doanh thu đã thu"
           value={data ? formatVnd(data.revenue) : "–"}
-          hint={data ? `${formatNumber(data.byStatus.Paid)} đơn đã thanh toán · đã trừ hoàn tiền` : undefined}
+          hint={data ? `${formatNumber(data.byStatus.Paid + data.byStatus.PartiallyRefunded)} đơn đã thanh toán · đã trừ hoàn tiền` : undefined}
           icon={Wallet}
           loading={loading}
         />
@@ -34,16 +34,16 @@ export function CommerceKpis({ summary }: { summary: UseQueryResult<CommerceSumm
         />
         <MetricCard
           label="Đã hoàn tiền"
-          value={data ? formatNumber(data.byStatus.Refunded) : "–"}
-          hint={data ? `${formatVnd(data.refundedAmount)} trả lại khách` : undefined}
+          value={data ? formatVnd(data.refundedAmount) : "–"}
+          hint={data ? `${formatNumber(data.byStatus.Refunded)} hoàn toàn bộ · ${formatNumber(data.byStatus.PartiallyRefunded)} hoàn một phần` : undefined}
           icon={RotateCcw}
           loading={loading}
         />
         <MetricCard
-          label="Quyền truy cập đang hiệu lực"
-          value={data ? formatNumber(data.activeGrants) : "–"}
-          hint="Lịch tư vấn, khoá học & thực đơn VIP"
-          icon={KeyRound}
+          label="Đang giữ (chờ giải ngân)"
+          value={data ? formatVnd(data.heldAmount) : "–"}
+          hint={data ? `${formatNumber(data.heldCount)} đơn · gồm cả tiền tạm giữ do khiếu nại` : undefined}
+          icon={Lock}
           loading={loading}
         />
       </div>

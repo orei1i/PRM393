@@ -109,14 +109,35 @@ export interface ChefReviewInput {
 
 /* ----------------------------------------------------------------- content */
 
-export type ContentKind = "recipe" | "video" | "discussion";
+/**
+ * `posts.type`: only "Công thức" and "Hỏi đáp". A video or photo is an attachment
+ * (`mediaType` / `mediaUrl`); legacy `type: "video"` reads as a recipe with a video.
+ */
+export type ContentKind = "recipe" | "discussion";
 export type VideoAiStatus = "queued" | "transcribing" | "extracting" | "ready" | "failed";
 
 export const CONTENT_KIND_LABEL: Record<ContentKind, string> = {
   recipe: "Công thức",
-  video: "Video",
-  discussion: "Thảo luận",
+  discussion: "Hỏi đáp",
 };
+
+/** The "Loại" filter on /content: a kind, or "video" = posts with a video attachment (any kind). */
+export type ContentKindFilter = ContentKind | "video" | "all";
+
+export const CONTENT_FILTER_LABEL: Record<Exclude<ContentKindFilter, "all">, string> = {
+  recipe: "Công thức",
+  discussion: "Hỏi đáp",
+  video: "Có video",
+};
+
+/** `posts.restaurant_id` joined (computed by BE): the one restaurant a post may tag. */
+export interface TaggedRestaurant {
+  id: string;
+  name: string;
+  /** "Q.1", "Q. Bình Thạnh"… */
+  district: string;
+  isCertified: boolean;
+}
 
 export const VIDEO_AI_STATUS_LABEL: Record<VideoAiStatus, string> = {
   queued: "Chờ xử lý",
@@ -136,7 +157,7 @@ export const POST_STATUS_LABEL: Record<PostStatus, string> = {
   Rejected: "Bị từ chối",
 };
 
-/** `posts.media_type`. `kind` stays the FE category (recipe / video / discussion). */
+/** `posts.media_type` — one attachment per post (single `media_url` column). */
 export const MEDIA_TYPES = ["Text", "Image", "Video"] as const;
 export type MediaType = (typeof MEDIA_TYPES)[number];
 
@@ -154,10 +175,13 @@ export interface ContentItem {
   reportCount: number;
   hidden: boolean;
   pinned: boolean;
+  /** Video attachment + AI recipe extraction (recipes with a video only). */
   video?: { durationSeconds: number; aiStatus: VideoAiStatus; failureReason?: string };
   status: PostStatus;
   mediaType: MediaType;
   mediaUrl: string | null;
+  /** "Gắn quán" — organic tag, not paid. */
+  restaurant: TaggedRestaurant | null;
   /** The AI pre-screen flag (ai_flags) that held the post. */
   aiFlag?: { reason: string; score: number; category: FlagCategory; createdAt: ISODateString };
   /** moderation_decisions row (one per post). `note` goes back to the author as rejectionReason. */
@@ -169,6 +193,8 @@ export type ContentView = "all" | "pending" | "reported" | "hidden" | "pinned" |
 export interface ContentQuery {
   view: ContentView;
   kind: ContentKind | "all";
+  /** "Có video": only posts whose attachment is a video. */
+  hasVideo?: boolean;
   search: string;
   /** `?author=` from the user drawer. */
   authorId?: string;
@@ -197,6 +223,12 @@ export interface AdminComment {
   id: string;
   postId: string;
   postTitle: string;
+  /** Replies are one level deep: a reply to a reply points at the same top-level comment. */
+  parentId: string | null;
+  /** Computed by BE: the parent comment's author (reply rows show "↳ Trả lời {tên}"). */
+  replyTo: { id: string; authorName: string } | null;
+  /** Top-level comments: number of replies (deleting the comment deletes them too). */
+  replyCount: number;
   author: { id: string; fullName: string };
   content: string;
   status: CommentStatus;

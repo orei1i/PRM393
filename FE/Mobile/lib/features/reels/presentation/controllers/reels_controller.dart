@@ -7,7 +7,7 @@ import '../../../community/presentation/controllers/feed_controller.dart';
 import '../../data/reels_api_service.dart';
 import '../../domain/reel.dart';
 
-/// The "Reels" strip on Trang chủ. Refetched on sign-in/out (likedByMe is
+/// The "Bếp nhanh" strip on Trang chủ. Refetched on sign-in/out (likedByMe is
 /// per user) and after the member likes, saves or comments anywhere.
 final reelsProvider = FutureProvider<List<Reel>>((ref) async {
   ref

@@ -13,16 +13,21 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'core/session/onboarding_controller.dart';
 import 'core/session/session_controller.dart';
 import 'core/settings/theme_mode_controller.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/vl_colors.dart';
+import 'features/auth/presentation/screens/forgot_password_screen.dart';
+import 'features/auth/presentation/screens/login_screen.dart';
+import 'features/auth/presentation/screens/register_screen.dart';
+import 'features/auth/presentation/screens/welcome_screen.dart';
 import 'features/chatbot/presentation/screens/chat_screen.dart';
 import 'features/chef/presentation/screens/chef_directory_screen.dart';
-import 'features/chef_studio/presentation/screens/chef_clients_screen.dart';
 import 'features/commerce/presentation/screens/payment_screen.dart';
 import 'features/community/presentation/screens/feed_screen.dart';
 import 'features/meal_planner/presentation/screens/meal_planner_screen.dart';
+import 'features/profile/presentation/screens/chef_application_screen.dart';
 import 'features/profile/presentation/screens/profile_screen.dart';
 import 'features/reels/presentation/screens/reels_player_screen.dart';
 import 'features/scanner/domain/scan_mode.dart';
@@ -47,16 +52,31 @@ class VeganLifeApp extends ConsumerWidget {
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
       // Lets the "Hỏi AI" bubble follow the screens pushed over the tabs.
       navigatorObservers: [askAiRouteObserver],
-      home: const AppShell(),
+      home: const AppEntry(),
     );
   }
 }
 
+/// First launch as a guest (`vl.onboarded` unset): the Welcome screen.
+/// Otherwise — and as soon as the user signs in or chooses to look around
+/// as a guest — the tab shell.
+class AppEntry extends ConsumerWidget {
+  const AppEntry({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isGuest =
+        ref.watch(sessionControllerProvider.select((s) => s.isGuest));
+    final onboarded = ref.watch(onboardingProvider);
+    if (isGuest && !onboarded) return const WelcomeScreen();
+    return const AppShell();
+  }
+}
+
 /// 4 tabs, 2 on each side of a big round "Quét" button: Trang chủ · Thực đơn
-/// | Quét | Chuyên gia · Tôi. For a chef the third tab is "Khách hàng" (the
-/// members using his packages) instead of the chef directory; it switches
-/// live on sign-in, sign-out and account switch. "Quét" opens the
-/// full-screen scanner instead of a tab (tap: the remembered mode, long
+/// | Quét | Chuyên gia · Tôi, the same for every role (a chef's tools live
+/// under Tôi). Signing out goes back to Trang chủ as a guest. "Quét" opens
+/// the full-screen scanner instead of a tab (tap: the remembered mode, long
 /// press: pick Chụp hình / Chọn ảnh / Nhập tay).
 ///
 /// The bar is a floating capsule (see [_ShellBottomBar]); the tabs scroll
@@ -158,7 +178,11 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   @override
   Widget build(BuildContext context) {
-    final isChef = ref.watch(sessionControllerProvider.select((s) => s.isChef));
+    // Signed out (from Tôi or an account menu): back to Trang chủ.
+    ref.listen(sessionControllerProvider.select((s) => s.isGuest),
+        (wasGuest, isGuest) {
+      if (wasGuest == false && isGuest) _onDestination(0);
+    });
     final onTop = ModalRoute.of(context)?.isCurrent ?? true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -166,14 +190,11 @@ class _AppShellState extends ConsumerState<AppShell> {
       final height = _barKey.currentContext?.size?.height;
       if (height != null) _barHeight.value = height;
     });
-    final pages = <Widget>[
-      const FeedScreen(),
-      const MealPlannerScreen(),
-      if (isChef)
-        const ChefClientsScreen(key: ValueKey('tab-clients'))
-      else
-        const ChefDirectoryScreen(key: ValueKey('tab-chefs')),
-      const ProfileScreen(),
+    const pages = <Widget>[
+      FeedScreen(),
+      MealPlannerScreen(),
+      ChefDirectoryScreen(key: ValueKey('tab-chefs')),
+      ProfileScreen(),
     ];
 
     return Scaffold(
@@ -183,7 +204,15 @@ class _AppShellState extends ConsumerState<AppShell> {
       extendBody: true,
       body: NotificationListener<ScrollUpdateNotification>(
         onNotification: _onScroll,
-        child: IndexedStack(index: _page, children: pages),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            IndexedStack(index: _page, children: pages),
+            // Over the tabs: a floating app bar (Trang chủ, Chuyên gia)
+            // scrolls away and the list would run under the clock.
+            const _StatusBarScrim(),
+          ],
+        ),
       ),
       bottomNavigationBar: KeyedSubtree(
         key: _barKey,
@@ -192,7 +221,44 @@ class _AppShellState extends ConsumerState<AppShell> {
           selected: _page,
           onSelected: _onDestination,
           onScan: _scan,
-          isChef: isChef,
+        ),
+      ),
+    );
+  }
+}
+
+/// Covers the status bar area of the tabs in the app bar colour, so a list
+/// that scrolled its floating app bar away never draws under the clock and
+/// the system icons. Sets the status bar icons for that colour (dark icons
+/// on the light theme, light icons on the dark one). Lets touches through.
+class _StatusBarScrim extends StatelessWidget {
+  const _StatusBarScrim();
+
+  @override
+  Widget build(BuildContext context) {
+    final top = MediaQuery.paddingOf(context).top;
+    final theme = Theme.of(context);
+    final color =
+        theme.appBarTheme.backgroundColor ?? theme.colorScheme.surface;
+    final light =
+        ThemeData.estimateBrightnessForColor(color) == Brightness.light;
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      height: top,
+      child: IgnorePointer(
+        child: AnnotatedRegion<SystemUiOverlayStyle>(
+          value: SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            // iOS names the bar's background, Android the icons' colour.
+            statusBarBrightness: light ? Brightness.light : Brightness.dark,
+            statusBarIconBrightness: light ? Brightness.dark : Brightness.light,
+          ),
+          child: ColoredBox(
+            key: const ValueKey('shell-status-bar-scrim'),
+            color: color,
+          ),
         ),
       ),
     );
@@ -215,7 +281,6 @@ class _ShellBottomBar extends StatelessWidget {
     required this.selected,
     required this.onSelected,
     required this.onScan,
-    required this.isChef,
   });
 
   /// Space above the capsule the scan button rises into.
@@ -254,7 +319,6 @@ class _ShellBottomBar extends StatelessWidget {
   final int selected;
   final ValueChanged<int> onSelected;
   final ValueChanged<ScanMode> onScan;
-  final bool isChef;
 
   @override
   Widget build(BuildContext context) {
@@ -270,13 +334,10 @@ class _ShellBottomBar extends StatelessWidget {
       side: BorderSide(
           color: vl.border.withValues(alpha: dark ? 0.9 : 0.7), width: 1),
     );
-    final items = [
+    const items = [
       (Icons.home_outlined, Icons.home_rounded, 'Trang chủ'),
       (Icons.calendar_month_outlined, Icons.calendar_month_rounded, 'Thực đơn'),
-      if (isChef)
-        (Icons.groups_outlined, Icons.groups_rounded, 'Khách hàng')
-      else
-        (Icons.soup_kitchen_outlined, Icons.soup_kitchen_rounded, 'Chuyên gia'),
+      (Icons.soup_kitchen_outlined, Icons.soup_kitchen_rounded, 'Chuyên gia'),
       (Icons.person_outline_rounded, Icons.person_rounded, 'Tôi'),
     ];
 
@@ -654,12 +715,18 @@ class AskAiBubbleFree extends StatelessWidget {
   Widget build(BuildContext context) => child;
 }
 
-/// Full-screen flows the bubble stays out of, whatever route pushed them.
+/// Full-screen flows and forms the bubble stays out of, whatever route
+/// pushed them.
 const _bubbleFreeScreens = {
   ChatScreen,
   PaymentScreen,
   ReelsPlayerScreen,
   IngredientScannerScreen,
+  WelcomeScreen,
+  LoginScreen,
+  RegisterScreen,
+  ForgotPasswordScreen,
+  ChefApplicationScreen,
   AskAiBubbleFree,
 };
 
@@ -1052,6 +1119,9 @@ class _AskAiBubbleState extends ConsumerState<_AskAiBubble>
     messenger
       ?..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
+        // With an action Flutter keeps it until dismissed; only for screen
+        // readers, so it doesn't sit over the tab bar for everyone else.
+        persist: MediaQuery.accessibleNavigationOf(widget.host),
         content:
             const Text('Đã ẩn bong bóng Hỏi AI. Mở lại ứng dụng để hiện lại.'),
         action: SnackBarAction(label: 'Hoàn tác', onPressed: hidden.show),

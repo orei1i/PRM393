@@ -1,27 +1,34 @@
 // src/lib/commerce_api.ts
-// Orders, PaymentOS payments, access grants and per-chef services for /orders.
-// Remote responses are normalised: INT ids → strings, enum values matched
-// case-insensitively ("VipMenu" / "VIP_MENU" → "VIP Menu"), single `payment` → `payments`.
+// Booking payment orders (PaymentOS) for /orders. Remote responses are normalised: INT ids →
+// strings, enum values matched case-insensitively, single `payment` → `payments`, booking either
+// nested or flat (`bookingId` + `chefName`…).
+//
+// | Method | Path                              | Body / notes                                              |
+// |--------|-----------------------------------|-----------------------------------------------------------|
+// | GET    | /admin/commerce/summary           | CommerceSummary                                           |
+// | GET    | /admin/orders?status=&search=     | AdminOrder[] (booking payments only)                      |
+// | GET    | /admin/orders/{id}                | AdminOrder                                                |
+// | POST   | /admin/orders/{id}/cancel         | { note } (≥ 10 chars) → AdminOrder; 409 `not_pending`     |
+//
+// Refunds moved to complaint decisions (POST /admin/complaints/{id}/decision, bookings_api.ts).
+// The services endpoints (/admin/services) are gone.
+import type { BookingStatus, BookingType } from "@/types/bookings";
+import { BOOKING_STATUSES, BOOKING_TYPES } from "@/types/bookings";
 import type {
-  AccessGrant,
   AdminOrder,
-  AdminService,
   CommerceSummary,
-  ConsultationStatus,
-  GrantStatus,
-  OrderAction,
   OrderActionInput,
   OrderQuery,
+  OrderResolutionAction,
   OrderStatus,
   Payment,
   PaymentStatus,
-  ServiceQuery,
-  ServiceType,
 } from "@/types/commerce";
-import { CONSULTATION_STATUSES, GRANT_STATUSES, ORDER_STATUSES, PAYMENT_STATUSES, SERVICE_TYPES } from "@/types/commerce";
+import { ORDER_STATUSES, PAYMENT_STATUSES } from "@/types/commerce";
 
 import { qs, request, USE_MOCK_DATA } from "./api_client";
 import { readSession } from "./auth";
+import { normalizeEscrow } from "./bookings_api";
 import { readId } from "./ids";
 import * as mock from "./mock_commerce";
 
@@ -42,6 +49,8 @@ const optString = (raw: unknown) => (typeof raw === "string" && raw ? raw : null
 type Raw = Record<string, unknown>;
 const obj = (raw: unknown): Raw | null => (raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Raw) : null);
 
+const RESOLUTION_ACTIONS: readonly OrderResolutionAction[] = ["cancel", "refund", "partial_refund", "release"];
+
 export function normalizePayment(raw: Raw, orderId = ""): Payment {
   return {
     id: readId(raw.id),
@@ -57,26 +66,14 @@ export function normalizePayment(raw: Raw, orderId = ""): Payment {
   };
 }
 
-export function normalizeGrant(raw: Raw): AccessGrant {
-  return {
-    id: readId(raw.id),
-    paymentId: readId(raw.paymentId),
-    grantedAt: optString(raw.grantedAt) ?? new Date(0).toISOString(),
-    expiresAt: optString(raw.expiresAt),
-    status: pick<GrantStatus>(GRANT_STATUSES, raw.status, "Active"),
-  };
-}
-
 export function normalizeOrder(raw: Raw): AdminOrder {
   const id = readId(raw.id);
-  const service = obj(raw.service) ?? {};
+  const booking = obj(raw.booking) ?? {};
   const buyer = obj(raw.buyer) ?? obj(raw.user) ?? {};
   const rawPayments = Array.isArray(raw.payments) ? raw.payments : obj(raw.payment) ? [raw.payment] : [];
-  const grant = obj(raw.accessGrant);
-  const consultation = obj(raw.consultation);
+  const escrow = obj(raw.escrow);
   const resolution = obj(raw.resolution);
-  const rawAction = resolution?.action;
-  const resolutionAction: OrderAction | null = rawAction === "refund" || rawAction === "cancel" ? rawAction : null;
+  const action = RESOLUTION_ACTIONS.find((a) => a === resolution?.action) ?? null;
   return {
     id,
     userId: readId(raw.userId ?? buyer.id),
@@ -85,13 +82,18 @@ export function normalizeOrder(raw: Raw): AdminOrder {
       fullName: String(buyer.fullName ?? buyer.name ?? "Người dùng"),
       email: String(buyer.email ?? ""),
     },
-    serviceId: readId(raw.serviceId ?? service.id),
-    service: {
-      id: readId(service.id ?? raw.serviceId),
-      title: String(service.title ?? ""),
-      type: pick<ServiceType>(SERVICE_TYPES, service.type, "Consult"),
-      chefId: readId(service.chefId),
-      chefName: String(service.chefName ?? ""),
+    bookingId: readId(raw.bookingId ?? booking.id),
+    booking: {
+      id: readId(booking.id ?? raw.bookingId),
+      chefId: readId(booking.chefId ?? obj(booking.chef)?.id),
+      chefName: String(booking.chefName ?? obj(booking.chef)?.fullName ?? ""),
+      bookingType: pick<BookingType>(BOOKING_TYPES, booking.bookingType, "OneShot"),
+      planDays: num(booking.planDays),
+      startDate: String(booking.startDate ?? "").slice(0, 10),
+      endDate: String(booking.endDate ?? "").slice(0, 10),
+      status: pick<BookingStatus>(BOOKING_STATUSES, booking.status, "AwaitingPayment"),
+      deliveredDays: num(booking.deliveredDays),
+      complaintId: booking.complaintId === null || booking.complaintId === undefined ? null : readId(booking.complaintId),
     },
     amount: num(raw.amount),
     status: pick<OrderStatus>(ORDER_STATUSES, raw.status, "Pending"),
@@ -101,52 +103,26 @@ export function normalizeOrder(raw: Raw): AdminOrder {
       .filter((p): p is Raw => p !== null)
       .map((p) => normalizePayment(p, id))
       .sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? "")),
-    accessGrant: grant ? normalizeGrant(grant) : null,
-    consultation: consultation
-      ? {
-          id: readId(consultation.id),
-          startAt: optString(consultation.startAt) ?? new Date(0).toISOString(),
-          status: pick<ConsultationStatus>(CONSULTATION_STATUSES, consultation.status, "Pending"),
-          durationMinutes: consultation.durationMinutes === undefined || consultation.durationMinutes === null ? null : num(consultation.durationMinutes),
-        }
-      : null,
+    escrow: escrow ? normalizeEscrow(escrow) : null,
+    refundedAmount: num(raw.refundedAmount),
     resolution:
-      resolution && resolutionAction
+      resolution && action
         ? {
-            action: resolutionAction,
+            action,
             note: String(resolution.note ?? ""),
             by: String(resolution.by ?? ""),
             at: optString(resolution.at) ?? new Date(0).toISOString(),
+            complaintId: resolution.complaintId === null || resolution.complaintId === undefined ? null : readId(resolution.complaintId),
           }
         : null,
   };
 }
 
-export function normalizeService(raw: Raw): AdminService {
-  return {
-    id: readId(raw.id),
-    chefId: readId(raw.chefId),
-    chefName: String(raw.chefName ?? ""),
-    title: String(raw.title ?? ""),
-    type: pick<ServiceType>(SERVICE_TYPES, raw.type, "Consult"),
-    price: num(raw.price),
-    orderCount: num(raw.orderCount),
-    paidCount: num(raw.paidCount),
-    revenue: num(raw.revenue),
-  };
-}
-
 export const commerceApi = {
-  /** GET /admin/orders?status=&type=&search= */
+  /** GET /admin/orders?status=&search= */
   async listOrders(query: OrderQuery): Promise<AdminOrder[]> {
     if (USE_MOCK_DATA) return mock.listOrders(query);
-    const raw = await request<Raw[]>(
-      `/admin/orders?${qs({
-        status: query.status === "all" ? undefined : query.status,
-        type: query.type === "all" ? undefined : query.type,
-        search: query.search,
-      })}`,
-    );
+    const raw = await request<Raw[]>(`/admin/orders?${qs({ status: query.status === "all" ? undefined : query.status, search: query.search })}`);
     return raw.map(normalizeOrder);
   },
 
@@ -156,7 +132,7 @@ export const commerceApi = {
     return normalizeOrder(await request<Raw>(`/admin/orders/${encodeURIComponent(id)}`));
   },
 
-  /** POST /admin/orders/{id}/refund | /cancel { note } — status change only, no money moves. */
+  /** POST /admin/orders/{id}/cancel { note } — unpaid orders only. */
   async act(input: OrderActionInput): Promise<AdminOrder> {
     if (USE_MOCK_DATA) return mock.applyOrderAction(input, readSession());
     return normalizeOrder(
@@ -165,15 +141,6 @@ export const commerceApi = {
         body: JSON.stringify({ note: input.note }),
       }),
     );
-  },
-
-  /** GET /admin/services?chefId=&search= — with order count, paid count and revenue per service. */
-  async listServices(query: ServiceQuery): Promise<AdminService[]> {
-    if (USE_MOCK_DATA) return mock.listServices(query);
-    const raw = await request<Raw[]>(
-      `/admin/services?${qs({ chefId: query.chefId === "all" ? undefined : query.chefId, search: query.search })}`,
-    );
-    return raw.map(normalizeService);
   },
 
   /** GET /admin/commerce/summary */
@@ -186,7 +153,8 @@ export const commerceApi = {
       pendingAmount: num(raw.pendingAmount),
       totalOrders: num(raw.totalOrders),
       byStatus: Object.fromEntries(ORDER_STATUSES.map((s) => [s, num(raw.byStatus?.[s])])) as Record<OrderStatus, number>,
-      activeGrants: num(raw.activeGrants),
+      heldAmount: num(raw.heldAmount),
+      heldCount: num(raw.heldCount),
     };
   },
 };

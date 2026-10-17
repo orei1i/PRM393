@@ -37,11 +37,12 @@ class ProfileController extends AsyncNotifier<UserProfile> {
   }
 }
 
-/// Health summary card on the profile (same source as the meal planner).
-final profileHealthProvider = FutureProvider<HealthProfile>((ref) async {
+/// Health summary card on the profile (same source as the meal planner);
+/// `null` until the member sets a profile up (new account).
+final profileHealthProvider = FutureProvider<HealthProfile?>((ref) async {
   ref.watch(sessionControllerProvider.select((s) => s.accessToken));
   return (await ref.watch(mealPlannerApiProvider).getHealthProfile())
-      .toEntity();
+      ?.toEntity();
 });
 
 final myPostsProvider = FutureProvider<List<Post>>((ref) async {

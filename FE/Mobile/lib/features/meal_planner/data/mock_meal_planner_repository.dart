@@ -4,13 +4,18 @@ import 'package:flutter/foundation.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/session/mock_accounts.dart';
 import '../../../core/utils/bmi.dart';
+import '../../../core/utils/energy.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/utils/mock_delay.dart';
 import '../../../core/utils/text_search.dart';
 import '../../scanner/domain/vegan_check.dart';
+import '../domain/allergy_match.dart';
+import '../domain/entities/health_profile.dart';
 import '../domain/entities/meal_plan.dart';
+import '../domain/entities/plan_adjustment.dart';
 import 'meal_planner_api_service.dart';
 import 'mock/meal_planner_mock_data.dart';
+import 'mock/mock_plan_adjuster.dart';
 import 'mock/mock_recipe_book.dart';
 import 'models/health_profile_model.dart';
 import 'models/meal_plan_model.dart';
@@ -20,17 +25,29 @@ import 'pantry_api_service.dart';
 /// In-memory backend with realistic latency. Behaves like the real API:
 /// each account has its own health profile, plan and recipes (kept for the
 /// app session, so switching accounts and back finds them again); swaps and
-/// added meals persist; suggestions and generated plans respect allergies.
+/// added meals persist; suggestions and generated plans respect allergies
+/// (tagged ids and free-text names) and the member's meals of the day, and
+/// AI plans size portions so each day meets the kcal target.
+///
+/// Only the demo accounts (Minh Anh `u_me`, Lê Quang Tâm `u_chef_tam`) start
+/// with a health profile and a filled week. Anyone else (an account
+/// registered in this run) starts with neither, like on the server: no
+/// profile (404 → `null`) and no plan until they set one up.
 ///
 /// Mock triggers: saving weight exactly 99.9 kg → 503; `#fail` in a recipe
-/// name → 503.
+/// name or an AI request → 503.
 class MockMealPlannerRepository implements MealPlannerApiService {
-  MockMealPlannerRepository({this.userId});
+  MockMealPlannerRepository({this.userId, DateTime Function()? clock})
+      : _clock = clock ?? DateTime.now;
 
   /// Signed-in user; `null` for guests and bare test containers.
   final String? userId;
 
+  /// "Now" for the current week and "today" (tests pin it).
+  final DateTime Function() _clock;
+
   static final Map<String, _PlannerStore> _stores = {};
+  static int _proposalSeq = 0;
 
   /// Fresh seeds for every account (tests).
   @visibleForTesting
@@ -40,7 +57,20 @@ class MockMealPlannerRepository implements MealPlannerApiService {
     MockPantryRepository.reset();
   }
 
-  _PlannerStore get _store => _stores[userId ?? 'guest'] ??= _PlannerStore();
+  _PlannerStore get _store =>
+      _stores[userId ?? 'guest'] ??= _PlannerStore(_seedProfile(userId));
+
+  /// The demo account's seed profile; `null` for everyone else.
+  static HealthProfileDto? _seedProfile(String? userId) =>
+      switch (mockHealthProfileJsonFor(
+        userId,
+        syncProvider: defaultTargetPlatform == TargetPlatform.iOS
+            ? 'apple_health'
+            : 'health_connect',
+      )) {
+        final json? => HealthProfileDto.fromJson(json),
+        null => null,
+      };
 
   /// Allergen id → Vietnamese ingredient words that contain it (whole words,
   /// so "nấm mèo" is not mistaken for "mè").
@@ -62,18 +92,25 @@ class MockMealPlannerRepository implements MealPlannerApiService {
     };
   }
 
-  HealthProfileDto get _healthProfile =>
-      _store.profile ??= HealthProfileDto.fromJson(
-        mockHealthProfileJsonFor(
-          userId,
-          syncProvider: defaultTargetPlatform == TargetPlatform.iOS
-              ? 'apple_health'
-              : 'health_connect',
-        ),
-      );
+  /// `null` until the member saves one ("Hồ sơ sức khoẻ").
+  HealthProfileDto? get _healthProfile => _store.profile;
+
+  HealthProfile get _profile =>
+      _healthProfile?.toEntity() ?? HealthProfile.empty;
+
+  /// The member's meals of the day (3 meals without a profile).
+  List<MealSlot> get _pattern => _profile.mealPattern;
+
+  /// Allergies dishes are checked against (none without a profile).
+  List<String> get _allergies => _profile.allergies;
+
+  String get _goal => _profile.goal.apiValue;
+
+  /// TDEE-based target; 1.850 kcal until gender and birth year are known.
+  int get _dailyKcal => _profile.dailyKcalTarget ?? 1850;
 
   @override
-  Future<HealthProfileDto> getHealthProfile() async {
+  Future<HealthProfileDto?> getHealthProfile() async {
     await mockDelay(500);
     return _healthProfile;
   }
@@ -94,24 +131,65 @@ class MockMealPlannerRepository implements MealPlannerApiService {
       throw const ApiException(
           message: 'Chiều cao hoặc cân nặng chưa hợp lệ.', statusCode: 400);
     }
+    final saved = _healthProfile;
+    final birthYear = request.birthYear ?? saved?.birthYear;
+    if (birthYear != null && !Energy.isValidBirthYear(birthYear)) {
+      throw const ApiException(
+          message: 'Năm sinh không hợp lệ (13–100 tuổi).', statusCode: 400);
+    }
+    if (request.mealPattern case final p? when p.isEmpty) {
+      throw const ApiException(message: 'Chọn ít nhất 1 bữa.', statusCode: 400);
+    }
     final bmi =
         Bmi.calculate(heightCm: request.heightCm, weightKg: request.weightKg);
-    return _store.profile = HealthProfileDto(
+    final gender = request.gender?.apiValue ?? saved?.gender;
+    final activity = request.activityLevel?.apiValue ?? saved?.activityLevel;
+    final pattern = request.mealPattern == null
+        ? (saved?.mealPattern ?? MealPattern.toApi(MealPattern.standard))
+        : MealPattern.toApi(request.mealPattern!);
+    // What the server recomputes and caches.
+    final energy = HealthProfile(
+      heightCm: request.heightCm,
+      weightKg: request.weightKg,
+      bmi: bmi,
+      goal: request.goal,
+      gender: Gender.fromApi(gender),
+      birthYear: birthYear,
+      activityLevel: ActivityLevel.fromApi(activity),
+    );
+    final dto = _store.profile = HealthProfileDto(
       heightCm: request.heightCm,
       weightKg: request.weightKg,
       // health_profiles.bmi is cached with one decimal.
       bmi: (bmi * 10).roundToDouble() / 10,
       goal: request.goal.apiValue,
-      allergies: request.allergies,
+      allergies: [
+        for (final a in request.allergies)
+          if (a.trim().isNotEmpty) a.trim()
+      ],
       dietaryRestrictions: request.dietaryRestrictions,
-      healthSync: _healthProfile.healthSync,
+      healthSync: saved?.healthSync,
+      gender: gender,
+      birthYear: birthYear,
+      activityLevel: activity,
+      mealPattern: pattern,
+      bmr: energy.bmr?.roundToDouble(),
+      tdee: energy.tdee?.roundToDouble(),
     );
+    // The current week now aims at the new profile's target.
+    if (_store.plan case final plan?) {
+      _store.plan = plan.withTargets(
+          goal: _goal,
+          dailyTargets: NutritionDto.fromJson(mockDailyTargetsFor(_dailyKcal)));
+    }
+    return dto;
   }
 
   @override
   Future<MealPlanDto?> getCurrentMealPlan() async {
     await mockDelay(800);
-    return _store.plan ??= _buildWeek(startOfWeek(DateTime.now()));
+    if (_store.seeded) _store.plan ??= _buildWeek(startOfWeek(_clock()));
+    return _store.plan;
   }
 
   @override
@@ -125,20 +203,31 @@ class MockMealPlannerRepository implements MealPlannerApiService {
   @override
   Future<MealPlanDto> createEmptyMealPlan({required DateTime startDate}) async {
     await mockDelay(600);
-    return _store.plan = MealPlanDto.fromJson({
-      'id': 'mp_${toApiDate(startDate)}_manual',
-      'startDate': toApiDate(startDate),
-      'goal': _healthProfile.goal,
-      'dailyTargets': mockDailyTargets,
-      'days': [
-        for (var i = 0; i < 7; i++)
-          {
-            'date': toApiDate(startDate.add(Duration(days: i))),
-            'meals': <String, Object?>{},
-          },
-      ],
-    });
+    return _store.plan = _emptyWeek(startDate);
   }
+
+  /// This week's plan; a dish added before there is one creates it: the
+  /// demo week for the demo accounts, an empty week for anyone else.
+  MealPlanDto _currentWeek() {
+    final monday = startOfWeek(_clock());
+    return _store.plan ??=
+        _store.seeded ? _buildWeek(monday) : _emptyWeek(monday);
+  }
+
+  /// "Tự lên thực đơn": every slot empty.
+  MealPlanDto _emptyWeek(DateTime startDate) => MealPlanDto.fromJson({
+        'id': 'mp_${toApiDate(startDate)}_manual',
+        'startDate': toApiDate(startDate),
+        'goal': _goal,
+        'dailyTargets': mockDailyTargetsFor(_dailyKcal),
+        'days': [
+          for (var i = 0; i < 7; i++)
+            {
+              'date': toApiDate(startDate.add(Duration(days: i))),
+              'meals': <String, Object?>{},
+            },
+        ],
+      });
 
   @override
   Future<List<RecipeDto>> getSwapSuggestions({
@@ -150,20 +239,17 @@ class MockMealPlannerRepository implements MealPlannerApiService {
     final plan = _requirePlan(planId);
     final day = plan.days.firstWhere((d) => isSameDay(d.date, date));
     final current = day.meals[slot.apiValue];
-    final allergies = _healthProfile.allergies.toSet();
-    // An empty slot aims at a third of the day's target.
+    // An empty slot aims at its share of the day's target.
     final targetKcal = current != null && current.nutrition.calories > 0
         ? current.nutrition.calories
-        : plan.dailyTargets.calories ~/ 3;
+        : MealPattern.kcalTargets(
+                {..._pattern, slot}, plan.dailyTargets.calories)[slot] ??
+            plan.dailyTargets.calories ~/ 3;
 
-    final pool = [
-      ...?mockSwapPool[slot.apiValue],
-      ..._slotRecipes(slot),
-    ].map(RecipeDto.fromJson);
-
-    final suggestions = pool
+    final suggestions = _swapPool(slot)
+        .map((r) => r.scaled(_portionFor(targetKcal, r.nutrition.calories)))
         .where((r) => r.id != current?.id)
-        .where((r) => !r.allergens.any(allergies.contains))
+        .where(_isSafe)
         .where((r) =>
             (r.nutrition.calories - targetKcal).abs() <= targetKcal * 0.1)
         .toList()
@@ -185,16 +271,17 @@ class MockMealPlannerRepository implements MealPlannerApiService {
       throw const ApiException(
           message: 'Món ăn không còn khả dụng.', statusCode: 404);
     }
+    final sized = recipe.scaled(request.portion);
     final placed = request.source == null
-        ? recipe
-        : recipe.withSource(request.source!.apiValue);
+        ? sized
+        : sized.withSource(request.source!.apiValue);
     return _put(plan, request.date, request.slot, placed);
   }
 
   @override
   Future<MealPlanDayDto> addMealToCurrentPlan(AddMealRequestDto request) async {
     await mockDelay(700);
-    final plan = _store.plan ??= _buildWeek(startOfWeek(DateTime.now()));
+    final plan = _currentWeek();
     if (request.name.toLowerCase().contains('#fail')) {
       throw const ApiException(
           message: 'Chưa thêm được món. Thử lại nhé.', statusCode: 503);
@@ -202,6 +289,37 @@ class MockMealPlannerRepository implements MealPlannerApiService {
     final recipe = _recipeFromRequest(request);
     _store.added[recipe.id] = recipe;
     return _put(plan, request.date, request.slot, recipe);
+  }
+
+  /// One round trip for the whole batch (a 7-day chef plan is ~28 dishes).
+  /// `#fail` in any dish name → 503 and nothing is placed.
+  @override
+  Future<AddMealsResultDto> addMealsToCurrentPlan(
+      List<AddMealRequestDto> requests) async {
+    await mockDelay(900);
+    _currentWeek();
+    if (requests.any((r) => r.name.toLowerCase().contains('#fail'))) {
+      throw const ApiException(
+          message: 'Chưa thêm được món. Thử lại nhé.', statusCode: 503);
+    }
+    final changed = <String, MealPlanDayDto>{};
+    var skipped = 0;
+    for (final request in requests) {
+      final plan = _store.plan!;
+      if (!plan.days.any((d) => isSameDay(d.date, request.date))) {
+        skipped++;
+        continue;
+      }
+      final recipe = _recipeFromRequest(request);
+      _store.added[recipe.id] = recipe;
+      final day = _put(plan, request.date, request.slot, recipe);
+      changed[toApiDate(day.date)] = day;
+    }
+    return AddMealsResultDto(
+      placed: requests.length - skipped,
+      skipped: skipped,
+      days: changed.values.toList(),
+    );
   }
 
   @override
@@ -275,6 +393,84 @@ class MockMealPlannerRepository implements MealPlannerApiService {
         .toList();
   }
 
+  @override
+  Future<PlanAdjustmentDto> adjustPlan(AdjustPlanRequestDto request) async {
+    await mockDelay(1200);
+    if (request.message.toLowerCase().contains('#fail')) {
+      throw const ApiException(
+          message: 'Trợ lý AI đang bận. Thử lại sau ít phút nhé.',
+          statusCode: 503);
+    }
+    if (request.message.trim().isEmpty) {
+      throw const ApiException(
+          message: 'Hãy nhập yêu cầu cho AI.', statusCode: 400);
+    }
+    final plan = _currentWeek();
+    final proposal = MockPlanAdjuster(
+      plan: plan,
+      pattern: _pattern,
+      allergies: _allergies,
+      today: _clock(),
+      dailyKcal: plan.dailyTargets.calories,
+      poolFor: (slot) => [
+        ..._swapPool(slot),
+        if (slot == MealSlot.lunch || slot == MealSlot.dinner)
+          ...mockPantryDishes.map(RecipeDto.fromJson),
+      ],
+    ).propose(request, 'adj_${++_proposalSeq}');
+    _store.proposals[proposal.proposalId] =
+        _Proposal(planId: plan.id, adjustment: proposal);
+    return proposal;
+  }
+
+  @override
+  Future<MealPlanDto> applyAdjustment({
+    required String proposalId,
+    required List<String> changeIds,
+  }) async {
+    await mockDelay(700);
+    final proposal = _store.proposals[proposalId];
+    if (proposal == null) {
+      throw const ApiException(
+          message: 'Đề xuất không còn hiệu lực. Hãy hỏi lại AI nhé.',
+          statusCode: 404);
+    }
+    if (proposal.applied) {
+      throw const ApiException(
+          message: 'Đề xuất này đã được áp dụng.',
+          statusCode: 409,
+          code: 'already_applied');
+    }
+    final current = _store.plan;
+    if (current == null || current.id != proposal.planId) {
+      throw const ApiException(
+          message: 'Thực đơn đã thay đổi. Hãy hỏi lại AI nhé.',
+          statusCode: 409,
+          code: 'plan_changed');
+    }
+    var plan = current;
+    final chosen = proposal.adjustment.changes
+        .where((c) => changeIds.contains(c.id))
+        .toList();
+    if (chosen.isEmpty) {
+      throw const ApiException(
+          message: 'Chọn ít nhất 1 thay đổi.', statusCode: 400);
+    }
+    for (final change in chosen) {
+      final day = _dayOf(plan, change.date);
+      final meals = {...day.meals};
+      switch (PlanChangeAction.fromApi(change.action)) {
+        case PlanChangeAction.add || PlanChangeAction.replace:
+          meals[change.slot] = change.to!.withSource(MealSource.ai.apiValue);
+        case PlanChangeAction.remove:
+          meals.remove(change.slot);
+      }
+      plan = plan.copyWithDay(MealPlanDayDto(date: day.date, meals: meals));
+    }
+    proposal.applied = true;
+    return _store.plan = plan;
+  }
+
   // ---------------------------------------------------------------------------
 
   static String? _accountName(String id) {
@@ -282,6 +478,18 @@ class MockMealPlannerRepository implements MealPlannerApiService {
       if (a.userId == id) return a.displayName;
     }
     return null;
+  }
+
+  /// No tagged allergen and no free-text allergy in the name.
+  bool _isSafe(RecipeDto r) => allergyConflicts(
+          tags: r.allergens, texts: [r.name], userAllergies: _allergies)
+      .isEmpty;
+
+  /// Servings (¼ steps, ½–2) that bring [kcal] closest to [target].
+  static double _portionFor(int target, int kcal) {
+    if (kcal <= 0 || target <= 0) return 1;
+    final quarters = (target / kcal * 4).round();
+    return (quarters / 4).clamp(0.5, 2.0).toDouble();
   }
 
   MealPlanDayDto _dayOf(MealPlanDto plan, DateTime date) {
@@ -308,13 +516,30 @@ class MockMealPlannerRepository implements MealPlannerApiService {
   /// What the server does for an off-catalogue dish: keeps its kcal and only
   /// the macros it was given (missing ones stay `null`, never estimated into
   /// the dish) and flags allergens found in the name and ingredients.
-  /// Allergens are flagged, never silently dropped.
+  /// Allergens are flagged, never silently dropped. A chef's dish whose
+  /// recipe is known ([AddMealRequestDto.sourceId]) is placed as that recipe.
   RecipeDto _recipeFromRequest(AddMealRequestDto request) {
     final manual = request.source == MealSource.manual.apiValue;
+    final chef = request.source == MealSource.chef.apiValue;
+    if (chef) {
+      if (request.sourceId case final id?) {
+        final known = _findRecipe(id) ??
+            switch (MockRecipeBook.findDetail(id)) {
+              final row? => RecipeDto.fromJson(row),
+              null => null,
+            };
+        if (known != null) {
+          return known.withSource(MealSource.chef.apiValue,
+              sourceName: request.sourceName);
+        }
+      }
+    }
     return RecipeDto(
       id: manual
           ? 'mn_${DateTime.now().microsecondsSinceEpoch}'
-          : 'fs_${request.sourceId ?? request.name.hashCode.abs()}',
+          : chef
+              ? 'ch_${request.sourceId ?? request.name.hashCode.abs()}'
+              : 'fs_${request.sourceId ?? request.name.hashCode.abs()}',
       name: request.name,
       nutrition: NutritionDto(
         calories: request.calories ?? 0,
@@ -328,6 +553,7 @@ class MockMealPlannerRepository implements MealPlannerApiService {
       }.toList(),
       prepMinutes: request.prepMinutes,
       source: request.source,
+      sourceName: request.sourceName,
     );
   }
 
@@ -340,11 +566,41 @@ class MockMealPlannerRepository implements MealPlannerApiService {
     return plan;
   }
 
-  List<Map<String, Object?>> _slotRecipes(MealSlot slot) => switch (slot) {
+  /// The week's default dishes for [slot] (one per weekday).
+  static List<Map<String, Object?>> _defaults(MealSlot slot) => switch (slot) {
         MealSlot.breakfast => mockBreakfasts,
         MealSlot.lunch => mockLunches,
         MealSlot.dinner => mockDinners,
+        MealSlot.snackAm ||
+        MealSlot.snackPm ||
+        MealSlot.snackLate =>
+          mockSnacks,
       };
+
+  /// Default snack of [slot] on weekday [i]: each snack slot starts at a
+  /// different one.
+  static Map<String, Object?> _snackFor(MealSlot slot, int i) {
+    final offset = switch (slot) {
+      MealSlot.snackPm => 3,
+      MealSlot.snackLate => 5,
+      _ => 0,
+    };
+    return mockSnacks[(i + offset) % mockSnacks.length];
+  }
+
+  /// Every catalogue dish that fits [slot].
+  static List<RecipeDto> _swapPool(MealSlot slot) => [
+        ..._defaults(slot),
+        ...switch (slot) {
+          MealSlot.breakfast => mockSwapPool['breakfast']!,
+          MealSlot.lunch => mockSwapPool['lunch']!,
+          MealSlot.dinner => [...mockSwapPool['dinner']!, ...mockExtraDinners],
+          MealSlot.snackAm ||
+          MealSlot.snackPm ||
+          MealSlot.snackLate =>
+            mockSnackSwaps,
+        },
+      ].map(RecipeDto.fromJson).toList();
 
   RecipeDto? _findRecipe(String id) {
     if (_store.added[id] case final added?) return added;
@@ -368,7 +624,10 @@ class MockMealPlannerRepository implements MealPlannerApiService {
       ...mockBreakfasts,
       ...mockLunches,
       ...mockDinners,
+      ...mockSnacks,
       for (final list in mockSwapPool.values) ...list,
+      ...mockExtraDinners,
+      ...mockSnackSwaps,
       ...mockPantryDishes,
     ];
     for (final json in all) {
@@ -377,34 +636,37 @@ class MockMealPlannerRepository implements MealPlannerApiService {
     return null;
   }
 
+  /// The seeded current week: the member's slots, one serving each.
   MealPlanDto _buildWeek(DateTime monday) {
+    final pattern = _pattern;
     final days = List.generate(7, (i) {
       final date = monday.add(Duration(days: i));
       return {
         'date': toApiDate(date),
         'meals': {
-          'breakfast': mockBreakfasts[i],
-          'lunch': mockLunches[i],
-          'dinner': mockDinners[i],
+          for (final slot in pattern)
+            slot.apiValue:
+                slot.isSnack ? _snackFor(slot, i) : _defaults(slot)[i],
         },
       };
     });
     return MealPlanDto.fromJson({
       'id': 'mp_${toApiDate(monday)}',
       'startDate': toApiDate(monday),
-      'goal': 'lean_muscle',
-      'dailyTargets': mockDailyTargets,
+      'goal': _goal,
+      'dailyTargets': mockDailyTargetsFor(_dailyKcal),
       'days': days,
     });
   }
 
-  /// A generated week: dishes with the member's allergens are swapped for
-  /// the closest safe one. With a [pantry], dishes that use more of its
-  /// vegan items come first, starting from today (anything not vegan in the
-  /// fridge is ignored).
+  /// A generated week for the member's slots: dishes with their allergies
+  /// are swapped for the closest safe one, and each dish gets the portion
+  /// that brings its slot to its share of the daily target. With a
+  /// [pantry], dishes that use more of its vegan items come first, starting
+  /// from today (anything not vegan in the fridge is ignored).
   MealPlanDto _generate(DateTime monday, {List<PantryItemDto>? pantry}) {
-    final allergies = _healthProfile.allergies.toSet();
-    bool safe(RecipeDto r) => !r.allergens.any(allergies.contains);
+    final pattern = _pattern;
+    final targets = MealPattern.kcalTargets(pattern, _dailyKcal);
     final fridge = [
       for (final p in pantry ?? const <PantryItemDto>[])
         if (classifyVegan(p.ingredient).isVegan) foldVietnamese(p.ingredient),
@@ -418,21 +680,24 @@ class MockMealPlannerRepository implements MealPlannerApiService {
       return s;
     }
 
-    final today = DateTime.now().difference(monday).inDays;
+    final today = dateOnly(_clock()).difference(monday).inDays;
     final order = [
       for (var i = 0; i < 7; i++)
         (i + (today >= 0 && today < 7 ? today : 0)) % 7
     ];
     final meals = List.generate(7, (_) => <String, RecipeDto>{});
 
-    for (final slot in MealSlot.values) {
-      final defaults = _slotRecipes(slot).map(RecipeDto.fromJson).toList();
+    for (final slot in pattern) {
+      final defaults = [
+        for (var i = 0; i < 7; i++)
+          RecipeDto.fromJson(
+              slot.isSnack ? _snackFor(slot, i) : _defaults(slot)[i]),
+      ];
       final pool = [
-        ...defaults,
-        ...?mockSwapPool[slot.apiValue]?.map(RecipeDto.fromJson),
-        if (slot != MealSlot.breakfast)
+        ..._swapPool(slot),
+        if (slot == MealSlot.lunch || slot == MealSlot.dinner)
           ...mockPantryDishes.map(RecipeDto.fromJson),
-      ].where(safe).toList();
+      ].where(_isSafe).toList();
       final ranked = [...pool.indexed]..sort((a, b) {
           final byScore = score(b.$2).compareTo(score(a.$2));
           return byScore != 0 ? byScore : a.$1.compareTo(b.$1);
@@ -447,7 +712,7 @@ class MockMealPlannerRepository implements MealPlannerApiService {
         RecipeDto pick;
         if (fromFridge != null) {
           pick = fromFridge;
-        } else if (safe(original) && !used.contains(original.id)) {
+        } else if (_isSafe(original) && !used.contains(original.id)) {
           pick = original;
         } else {
           int gap(RecipeDto r) =>
@@ -459,16 +724,18 @@ class MockMealPlannerRepository implements MealPlannerApiService {
               : (options..sort((a, b) => gap(a).compareTo(gap(b)))).first;
         }
         used.add(pick.id);
-        meals[dayIndex][slot.apiValue] =
-            pick.withSource(MealSource.ai.apiValue);
+        final target = targets[slot] ?? pick.nutrition.calories;
+        meals[dayIndex][slot.apiValue] = pick
+            .scaled(_portionFor(target, pick.nutrition.calories))
+            .withSource(MealSource.ai.apiValue);
       }
     }
 
     return MealPlanDto(
       id: 'mp_${toApiDate(monday)}_${DateTime.now().millisecondsSinceEpoch}',
       startDate: monday,
-      goal: _healthProfile.goal,
-      dailyTargets: NutritionDto.fromJson(mockDailyTargets),
+      goal: _goal,
+      dailyTargets: NutritionDto.fromJson(mockDailyTargetsFor(_dailyKcal)),
       days: [
         for (var i = 0; i < 7; i++)
           MealPlanDayDto(date: monday.add(Duration(days: i)), meals: meals[i]),
@@ -477,10 +744,27 @@ class MockMealPlannerRepository implements MealPlannerApiService {
   }
 }
 
+class _Proposal {
+  _Proposal({required this.planId, required this.adjustment});
+
+  final String planId;
+  final PlanAdjustmentDto adjustment;
+  bool applied = false;
+}
+
 class _PlannerStore {
+  _PlannerStore(this.profile) : seeded = profile != null;
+
+  /// A demo account: starts with a profile and the demo week.
+  final bool seeded;
   MealPlanDto? plan;
+
+  /// `null` until the member sets one up (new accounts).
   HealthProfileDto? profile;
 
   /// Dishes added from outside the catalogue (fridge scan, typed in), by id.
   final Map<String, RecipeDto> added = {};
+
+  /// "Chỉnh thực đơn với AI" proposals by id.
+  final Map<String, _Proposal> proposals = {};
 }

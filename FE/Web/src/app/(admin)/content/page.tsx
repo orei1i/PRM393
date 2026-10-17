@@ -16,7 +16,7 @@ import { Card } from "@/components/ui/card";
 import { Input, NativeSelect } from "@/components/ui/form-controls";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useContent } from "@/lib/hooks/use-admin";
-import { CONTENT_KIND_LABEL, type ContentItem, type ContentKind, type ContentView } from "@/types/admin";
+import { CONTENT_FILTER_LABEL, type ContentItem, type ContentKindFilter, type ContentView } from "@/types/admin";
 
 const VIEWS: { value: ContentView; label: string }[] = [
   { value: "all", label: "Tất cả" },
@@ -34,7 +34,8 @@ const EMPTY: Partial<Record<ContentView, { title: string; description: string }>
 };
 
 const isView = (v: string | null): v is ContentView => VIEWS.some((x) => x.value === v);
-const isKind = (v: string | null): v is ContentKind => v !== null && v in CONTENT_KIND_LABEL;
+/** `?kind=recipe|discussion|video` ("video" = Có video, also the legacy kind name). */
+const isKind = (v: string | null): v is Exclude<ContentKindFilter, "all"> => v !== null && v in CONTENT_FILTER_LABEL;
 
 const PENDING_QUERY = { view: "pending", kind: "all", search: "" } as const;
 
@@ -56,7 +57,7 @@ function ContentScreen() {
   const openId = params.get("open");
 
   const [view, setView] = React.useState<ContentView>(() => (isView(viewParam) ? viewParam : "all"));
-  const [kind, setKind] = React.useState<ContentKind | "all">(() => (isKind(kindParam) ? kindParam : "all"));
+  const [kind, setKind] = React.useState<ContentKindFilter>(() => (isKind(kindParam) ? kindParam : "all"));
   const [searchInput, setSearchInput] = React.useState("");
   const search = React.useDeferredValue(searchInput);
   const [selected, setSelected] = React.useState<ContentItem | null>(null);
@@ -82,7 +83,10 @@ function ContentScreen() {
     router.replace(pathname, { scroll: false });
   }, [openId, pathname, router]);
 
-  const query = React.useMemo(() => ({ view, kind, search, authorId }), [view, kind, search, authorId]);
+  const query = React.useMemo(
+    () => ({ view, kind: kind === "video" ? ("all" as const) : kind, hasVideo: kind === "video" ? true : undefined, search, authorId }),
+    [view, kind, search, authorId],
+  );
   const content = useContent(query);
   const pending = useContent(PENDING_QUERY);
 
@@ -129,7 +133,7 @@ function ContentScreen() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Quản lý nội dung"
-        description="Bài viết, công thức và video người dùng đăng từ ứng dụng di động."
+        description="Bài Công thức và Hỏi đáp người dùng đăng từ ứng dụng di động (kèm ảnh hoặc video, có thể gắn quán)."
         actions={
           <Button variant="outline" onClick={() => content.refetch()} disabled={content.isFetching}>
             <RefreshCw className={content.isFetching ? "animate-spin" : undefined} aria-hidden />
@@ -158,7 +162,7 @@ function ContentScreen() {
               type="search"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Tìm tiêu đề, tác giả…"
+              placeholder="Tìm tiêu đề, tác giả, quán…"
               aria-label="Tìm bài viết"
               className="pl-9"
             />
@@ -166,13 +170,13 @@ function ContentScreen() {
           <NativeSelect
             aria-label="Lọc theo loại"
             value={kind}
-            onChange={(e) => setKind(e.target.value as ContentKind | "all")}
+            onChange={(e) => setKind(e.target.value as ContentKindFilter)}
             className="w-full sm:w-44"
           >
             <option value="all">Tất cả loại</option>
-            {(Object.keys(CONTENT_KIND_LABEL) as ContentKind[]).map((k) => (
+            {(Object.keys(CONTENT_FILTER_LABEL) as Exclude<ContentKindFilter, "all">[]).map((k) => (
               <option key={k} value={k}>
-                {CONTENT_KIND_LABEL[k]}
+                {CONTENT_FILTER_LABEL[k]}
               </option>
             ))}
           </NativeSelect>

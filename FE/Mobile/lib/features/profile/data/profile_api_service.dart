@@ -7,7 +7,9 @@ import '../../../core/config/env.dart';
 import '../../../core/network/api_endpoints.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/session/mock_auth_db.dart';
 import '../../../core/session/session_controller.dart';
+import '../../../core/session/user_role.dart';
 import '../../../core/utils/mock_delay.dart';
 import '../domain/entities/user_profile.dart';
 import 'models/user_profile_model.dart';
@@ -51,8 +53,10 @@ class RemoteProfileApiService implements ProfileApiService {
       });
 }
 
-/// One stored profile per mock account (`u_me`, `u_chef_tam`), so edits
-/// and chef applications don't leak from one account to the other.
+/// One stored profile per signed-in mock account (`u_me`, `u_chef_tam`, and
+/// accounts registered in this run), so edits and chef applications don't
+/// leak from one account to another. Every mock account signs in with email
+/// + password (`authType` 0).
 class MockProfileRepository implements ProfileApiService {
   MockProfileRepository(
       {required this.currentUserId, required this.currentUserName});
@@ -65,32 +69,34 @@ class MockProfileRepository implements ProfileApiService {
   @visibleForTesting
   static void reset() => _users.clear();
 
-  static Map<String, dynamic> _seed(String id, String name) => switch (id) {
-        'u_chef_tam' => {
-            'id': id,
-            'email': 'tam.chefchay@gmail.com',
-            'fullName': name,
-            'phone': '0903456789',
-            'role': 'Chef',
-            'status': 0,
-            'authType': 1,
-            'createdAt': '2025-11-20T03:00:00Z',
-            'stats': {'posts': 0, 'likesReceived': 0, 'saved': 0},
-            'chefApplication': {'status': 'approved'},
-          },
-        _ => {
-            'id': id,
-            'email': 'minhanh.nguyen@gmail.com',
-            'fullName': name,
-            'phone': '0912345678',
-            'role': 'User',
-            'status': 0,
-            'authType': 1,
-            'createdAt': '2026-07-02T08:15:00Z',
-            'stats': {'posts': 2, 'likesReceived': 20, 'saved': 2},
-            'chefApplication': {'status': 'none'},
-          },
-      };
+  static Map<String, dynamic> _seed(String id, String name) {
+    final account = MockAuthDb.byId(id);
+    final base = <String, dynamic>{
+      'id': id,
+      'email': account?.email ?? '',
+      'fullName': name,
+      'phone': account?.phone ?? '',
+      'role': (account?.role ?? UserRole.user).apiValue,
+      'status': 0,
+      'authType': 0,
+      'createdAt':
+          account?.createdAt ?? DateTime.now().toUtc().toIso8601String(),
+      'stats': {'posts': 0, 'likesReceived': 0, 'saved': 0},
+      'chefApplication': {'status': 'none'},
+    };
+    return switch (id) {
+      'u_chef_tam' => {
+          ...base,
+          'role': 'Chef',
+          'chefApplication': {'status': 'approved'},
+        },
+      'u_me' => {
+          ...base,
+          'stats': {'posts': 2, 'likesReceived': 20, 'saved': 2},
+        },
+      _ => base,
+    };
+  }
 
   Map<String, dynamic> get _store {
     final id = currentUserId();

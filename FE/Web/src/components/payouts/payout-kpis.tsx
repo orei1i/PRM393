@@ -9,7 +9,7 @@ import { MetricCard } from "@/components/telemetry/metric-card";
 import { Button } from "@/components/ui/button";
 import { describeError } from "@/lib/api_error";
 import { formatNumber, formatPercent } from "@/lib/utils";
-import { PACKAGE_HOLD_DAYS, type PayoutSummary } from "@/types/payouts";
+import { ESCROW_HOLD_DAYS, type PayoutSummary } from "@/types/payouts";
 
 /** "tháng 10, 2026" */
 const monthVi = new Intl.DateTimeFormat("vi-VN", { month: "2-digit", year: "numeric" });
@@ -28,9 +28,13 @@ export function PayoutKpis({ summary }: { summary: UseQueryResult<PayoutSummary>
           loading={loading}
         />
         <MetricCard
-          label="Đang chờ (giữ)"
+          label="Đang giữ"
           value={data ? formatVnd(data.totalPending) : "–"}
-          hint={`Gói giữ ${PACKAGE_HOLD_DAYS} ngày · tư vấn chờ hoàn thành`}
+          hint={
+            data
+              ? `Đến ${ESCROW_HOLD_DAYS} ngày sau khi kế hoạch kết thúc · tạm giữ do khiếu nại ${formatVnd(data.totalFrozen)}`
+              : `Đến ${ESCROW_HOLD_DAYS} ngày sau khi kế hoạch kết thúc`
+          }
           icon={Hourglass}
           loading={loading}
         />
@@ -46,7 +50,7 @@ export function PayoutKpis({ summary }: { summary: UseQueryResult<PayoutSummary>
           value={data ? formatVnd(data.platformFee) : "–"}
           hint={
             data
-              ? `${formatPercent(data.feeRate)} × ${formatVnd(data.paidGross)} từ ${formatNumber(data.paidOrderCount)} đơn đã thanh toán`
+              ? `${formatPercent(data.feeRate)} × ${formatVnd(data.releasedGross)} từ ${formatNumber(data.releasedCount)} khoản đã giải ngân`
               : undefined
           }
           icon={Percent}

@@ -1,5 +1,6 @@
 // lib/features/recipe/domain/entities/recipe_detail.dart
 import '../../../../core/utils/formatters.dart';
+import '../../../meal_planner/domain/allergy_match.dart';
 
 class RecipeIngredient {
   const RecipeIngredient({
@@ -70,10 +71,15 @@ class RecipeDetail {
   bool get hasMacros =>
       proteinG != null || carbsG != null || fatG != null || fiberG != null;
 
-  List<String> allergenConflicts(Iterable<String> userAllergies) {
-    final mine = userAllergies.toSet();
-    return allergens.where(mine.contains).toList();
-  }
+  /// The member's allergy keys this recipe conflicts with: tagged allergen
+  /// ids, plus free-text allergies ("lá lốt") found in its name or its
+  /// ingredient rows.
+  List<String> allergenConflicts(Iterable<String> userAllergies) =>
+      allergyConflicts(
+        tags: allergens,
+        texts: [name, for (final i in ingredients) i.name],
+        userAllergies: userAllergies,
+      );
 }
 
 final _stepNumber =

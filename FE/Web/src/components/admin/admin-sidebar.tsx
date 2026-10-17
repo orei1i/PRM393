@@ -13,6 +13,7 @@ import {
   Megaphone,
   MessageSquare,
   Receipt,
+  Scale,
   ShieldAlert,
   SlidersHorizontal,
   Smartphone,
@@ -24,12 +25,13 @@ import {
 } from "lucide-react";
 
 import { useChefApplicationCounts } from "@/lib/hooks/use-admin";
+import { useEscrowSummary } from "@/lib/hooks/use-bookings";
 import { useKnowledgeCounts } from "@/lib/hooks/use-knowledge";
 import { useFlagCounts } from "@/lib/hooks/use-moderation";
 import { usePayoutSummary } from "@/lib/hooks/use-payouts";
 import { cn } from "@/lib/utils";
 
-type NavItem = { href: string; label: string; icon: LucideIcon; badge?: "flags" | "chefs" | "knowledge" | "withdrawals" };
+type NavItem = { href: string; label: string; icon: LucideIcon; badge?: "flags" | "chefs" | "knowledge" | "withdrawals" | "complaints" };
 
 const GROUPS: { label: string; items: NavItem[] }[] = [
   { label: "", items: [{ href: "/overview", label: "Tổng quan", icon: LayoutDashboard }] },
@@ -54,6 +56,7 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
     label: "Kinh doanh",
     items: [
       { href: "/orders", label: "Đơn hàng & thanh toán", icon: Receipt },
+      { href: "/disputes", label: "Khiếu nại & giữ tiền", icon: Scale, badge: "complaints" },
       { href: "/payouts", label: "Ví & rút tiền", icon: Wallet, badge: "withdrawals" },
       { href: "/ads", label: "Quảng cáo cửa hàng", icon: Megaphone },
     ],
@@ -74,12 +77,15 @@ export function AdminSidebar() {
   const { data: chefCounts } = useChefApplicationCounts();
   const { data: knowledgeCounts } = useKnowledgeCounts();
   const { data: payoutSummary } = usePayoutSummary();
+  const { data: escrowSummary } = useEscrowSummary();
   const badges = {
     flags: flagCounts?.pending,
     chefs: chefCounts?.pending,
     knowledge: knowledgeCounts?.Pending,
     // Withdrawals above the auto-payout limit, waiting for an admin.
     withdrawals: payoutSummary?.awaitingApproval,
+    // Booking complaints waiting for a decision (their money is frozen).
+    complaints: escrowSummary?.openComplaints,
   };
 
   return (

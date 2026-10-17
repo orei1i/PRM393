@@ -11,15 +11,17 @@ final urlOpenerProvider = Provider<UrlOpener>(
   (ref) => (uri) => launchUrl(uri, mode: LaunchMode.externalApplication),
 );
 
-/// "Mở bản đồ": Google Maps search for the address (no map widget in-app).
+/// Google Maps search for the address (overflow "Mở bằng Google Maps" when
+/// the restaurant has no coordinates).
 Uri mapsSearchUri(Restaurant restaurant) => Uri.https(
       'www.google.com',
       '/maps/search/',
       {'api': '1', 'query': restaurant.address},
     );
 
-/// "Chỉ đường": directions from wherever the phone is (Maps fills in the
-/// origin) to the coordinates, or to the address when there are none.
+/// Overflow "Mở bằng Google Maps": turn-by-turn directions from wherever the
+/// phone is (Maps fills in the origin) to the coordinates, or to the address
+/// when there are none. The in-app "Chỉ đường" only draws the route.
 Uri mapsDirectionsUri(Restaurant restaurant) {
   final point = restaurant.location;
   return Uri.https('www.google.com', '/maps/dir/', {

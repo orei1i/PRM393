@@ -5,7 +5,7 @@
 // QA hook: the seeded submission "Quán thử nghiệm QA #fail" (and its review) fail every
 // write with 503, so the optimistic toggle / delete rollback can be exercised.
 import type { AdminSession } from "@/types/admin";
-import type { AdminRestaurant, AdminReview, RestaurantPerson, RestaurantQuery } from "@/types/restaurants";
+import type { AdminRestaurant, AdminReview, RestaurantMedia, RestaurantPerson, RestaurantQuery } from "@/types/restaurants";
 
 import { ApiError } from "./api_error";
 import { logAction } from "./mock_admin";
@@ -141,6 +141,32 @@ const REVIEW_SEEDS: Record<string, ReviewSeed[]> = {
   rs_qa_fail: [["u_new_1", 3, "Đánh giá thử nghiệm QA #fail — xoá sẽ báo lỗi để kiểm tra hoàn tác.", 0.5]],
 };
 
+const MEDIA_BASE = "https://res.cloudinary.com/veganlife";
+
+/** restaurant_media: [restaurantId, type, file, uploader (null = admin team), days ago]. */
+const MEDIA_SEEDS: [restaurantId: string, type: "Image" | "Video", file: string, by: PersonId | null, age: number][] = [
+  ["rs_an_lac", "Image", "an_lac_mat_tien.jpg", null, 40],
+  ["rs_an_lac", "Image", "an_lac_bun_rieu.jpg", "u_me", 3],
+  ["rs_hanh_tam", "Image", "hanh_tam_to_bun.jpg", null, 30],
+  ["rs_hanh_tam", "Video", "hanh_tam_gioi_thieu.mp4", null, 30],
+  ["rs_moc_nhien", "Image", "moc_nhien_lau_nam.jpg", "u_chef_tam", 12],
+  ["rs_nha_gao", "Image", "nha_gao_com_gao_lut.jpg", "u_hoang_nam", 17],
+  ["rs_nha_gao", "Image", "nha_gao_quay.jpg", "u_hoang_nam", 17],
+  ["rs_ut_muoi", "Image", "ut_muoi_com_tam.jpg", "u_me", 1],
+  ["rs_ut_muoi", "Image", "ut_muoi_mat_tien.jpg", "u_me", 1],
+  ["rs_ut_muoi", "Video", "ut_muoi_quay_quan.mp4", "u_me", 1],
+  ["rs_nha_la", "Image", "nha_la_gian_hang.jpg", "u_thao_vy", 4],
+];
+
+const media: (RestaurantMedia & { restaurantId: string })[] = MEDIA_SEEDS.map(([restaurantId, type, file, by, age], i) => ({
+  id: `rm_${i + 1}`,
+  restaurantId,
+  mediaType: type,
+  mediaUrl: `${MEDIA_BASE}/${type === "Video" ? "video" : "image"}/upload/v1/restaurants/${file}`,
+  uploadedBy: by ? person(by) : null,
+  createdAt: daysAgo(age),
+}));
+
 let reviews: AdminReview[] = Object.entries(REVIEW_SEEDS).flatMap(([restaurantId, list]) =>
   list.map(([user, rating, comment, age], i) => ({
     id: `rv_${restaurantId.replace(/^rs_/, "")}_${i + 1}`,
@@ -163,6 +189,9 @@ function view(r: RestaurantRow): AdminRestaurant {
     createdBy: r.createdBy && { ...r.createdBy },
     averageRating: mine.length ? mine.reduce((s, v) => s + v.rating, 0) / mine.length : null,
     reviewCount: mine.length,
+    media: media
+      .filter((m) => m.restaurantId === r.id)
+      .map((m) => ({ id: m.id, mediaType: m.mediaType, mediaUrl: m.mediaUrl, uploadedBy: m.uploadedBy && { ...m.uploadedBy }, createdAt: m.createdAt })),
   };
 }
 

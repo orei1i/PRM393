@@ -2,14 +2,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../features/auth/presentation/auth_navigation.dart';
+import '../../features/auth/presentation/widgets/auth_widgets.dart';
 import '../session/session_controller.dart';
 import '../theme/vl_colors.dart';
-import 'google_sign_in_button.dart';
+import 'app_logo.dart';
 
 /// Gate an *action* (like, comment, post, book a chef) — never reading.
 ///
 /// Returns `true` immediately for members. Guests get a bottom sheet that
-/// explains why sign-in is needed; returns `true` only if they signed in.
+/// explains why sign-in is needed, with "Đăng nhập" / "Tạo tài khoản";
+/// returns `true` only once they signed in or signed up, so the caller can
+/// carry on with the action.
 Future<bool> ensureSignedIn(
   BuildContext context,
   WidgetRef ref, {
@@ -19,36 +23,39 @@ Future<bool> ensureSignedIn(
   final signedIn = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     builder: (_) => SignInSheet(reason: reason),
   );
   return signedIn ?? false;
 }
 
+/// Pops `true` once the guest signed in or registered (from the screens it
+/// opens), `false` on "Để sau".
 class SignInSheet extends StatelessWidget {
   const SignInSheet({super.key, required this.reason});
 
   /// One sentence tied to the action, e.g. "Đăng nhập để bình luận".
   final String reason;
 
+  Future<void> _open(BuildContext context, {required bool register}) async {
+    final navigator = Navigator.of(context);
+    final route = ModalRoute.of(context);
+    final ok = register
+        ? await AuthNavigation.register(navigator)
+        : await AuthNavigation.login(navigator);
+    if (ok && route != null) completeRoute<Object?>(navigator, route, true);
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: context.colors.secondaryContainer,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Icon(Icons.eco_rounded,
-                  color: context.colors.primary, size: 28),
-            ),
+            const VeganLifeBadge(size: 52),
             const SizedBox(height: 16),
             Text('Tham gia cộng đồng VeganLife',
                 style: context.textStyles.titleLarge),
@@ -57,9 +64,11 @@ class SignInSheet extends StatelessWidget {
                 style: context.textStyles.bodyLarge
                     ?.copyWith(color: context.vl.muted)),
             const SizedBox(height: 20),
-            GoogleSignInButton(
-                onSignedIn: () => Navigator.of(context).pop(true)),
-            const SizedBox(height: 8),
+            AuthChoiceButtons(
+              onLogin: () => _open(context, register: false),
+              onRegister: () => _open(context, register: true),
+            ),
+            const SizedBox(height: 4),
             Center(
               child: TextButton(
                 onPressed: () => Navigator.of(context).pop(false),

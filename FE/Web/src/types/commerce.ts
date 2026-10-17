@@ -1,20 +1,16 @@
 // src/types/commerce.ts
-// Commerce: services (per chef), orders, payments (PaymentOS), access_grants and the
-// consultation linked to a Consult order. Wire values follow the SQL enums (plan D5).
+// Orders and PaymentOS payments for /orders. Since the chef business moved to N-day meal-plan
+// bookings, the only order type is a booking payment ("Đặt chuyên gia"): accepting an offer
+// creates the contract and an orders row with booking_id; the paid money goes into escrow
+// (types/bookings.ts). Services, consultations and access grants are deprecated.
+// Wire values follow the SQL enums.
+import type { BookingStatus, BookingType, DateOnly, EscrowHold } from "./bookings";
 import type { ISODateString } from "./moderation";
 
 /* ---------------------------------------------------------------- enums */
 
-export const SERVICE_TYPES = ["Consult", "Course", "VIP Menu"] as const;
-export type ServiceType = (typeof SERVICE_TYPES)[number];
-
-export const SERVICE_TYPE_LABEL: Record<ServiceType, string> = {
-  Consult: "Tư vấn 1–1",
-  Course: "Khoá học",
-  "VIP Menu": "Thực đơn VIP",
-};
-
-export const ORDER_STATUSES = ["Pending", "Paid", "Cancelled", "Refunded"] as const;
+/** "Hoàn một phần" comes from a Split complaint decision on /disputes (proposed enum value). */
+export const ORDER_STATUSES = ["Pending", "Paid", "Cancelled", "Refunded", "PartiallyRefunded"] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
 export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
@@ -22,7 +18,11 @@ export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   Paid: "Đã thanh toán",
   Cancelled: "Đã huỷ",
   Refunded: "Đã hoàn tiền",
+  PartiallyRefunded: "Hoàn một phần",
 };
+
+/** The single order type left (shown in the "Loại" column). */
+export const ORDER_TYPE_LABEL = "Đặt chuyên gia";
 
 export const PAYMENT_PROVIDERS = ["PaymentOS"] as const;
 export type PaymentProvider = (typeof PAYMENT_PROVIDERS)[number];
@@ -36,36 +36,6 @@ export const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
   Failed: "Thất bại",
   Expired: "Hết hạn",
   Refunded: "Đã hoàn tiền",
-};
-
-export const GRANT_STATUSES = ["Active", "Expired", "Revoked"] as const;
-export type GrantStatus = (typeof GRANT_STATUSES)[number];
-
-export const GRANT_STATUS_LABEL: Record<GrantStatus, string> = {
-  Active: "Đang hiệu lực",
-  Expired: "Hết hạn",
-  Revoked: "Đã thu hồi",
-};
-
-export const CONSULTATION_STATUSES = [
-  "AwaitingPayment",
-  "Pending",
-  "Confirmed",
-  "InProgress",
-  "Completed",
-  "Declined",
-  "Cancelled",
-] as const;
-export type ConsultationStatus = (typeof CONSULTATION_STATUSES)[number];
-
-export const CONSULTATION_STATUS_LABEL: Record<ConsultationStatus, string> = {
-  AwaitingPayment: "Chờ thanh toán",
-  Pending: "Chờ chuyên gia xác nhận",
-  Confirmed: "Đã xác nhận",
-  InProgress: "Đang tư vấn",
-  Completed: "Đã hoàn thành",
-  Declined: "Chuyên gia từ chối",
-  Cancelled: "Đã huỷ",
 };
 
 /* ---------------------------------------------------------------- rows */
@@ -84,28 +54,33 @@ export interface Payment {
   createdAt: ISODateString | null;
 }
 
-/** access_grants. A grant past `expiresAt` reads as Expired; a refund sets Revoked. */
-export interface AccessGrant {
-  id: string;
-  paymentId: string;
-  grantedAt: ISODateString;
-  expiresAt: ISODateString | null;
-  status: GrantStatus;
-}
+/**
+ * How the order was closed. `cancel`: an admin cancelled an unpaid order here.
+ * `refund` / `partial_refund` / `release`: a complaint decision on /disputes (`complaintId`).
+ */
+export type OrderResolutionAction = "cancel" | "refund" | "partial_refund" | "release";
 
-export interface OrderConsultation {
-  id: string;
-  startAt: ISODateString;
-  status: ConsultationStatus;
-  durationMinutes: number | null;
-}
-
-/** How an admin closed the order. Computed by BE from the audit log (proposed); null otherwise. */
 export interface OrderResolution {
-  action: OrderAction;
+  action: OrderResolutionAction;
   note: string;
   by: string;
   at: ISODateString;
+  complaintId: string | null;
+}
+
+/** Joined booking (computed by BE from chef_bookings + booking_contracts + users). */
+export interface OrderBooking {
+  id: string;
+  chefId: string;
+  chefName: string;
+  bookingType: BookingType;
+  planDays: number;
+  startDate: DateOnly;
+  endDate: DateOnly;
+  status: BookingStatus;
+  /** Plan days already sent by the chef. */
+  deliveredDays: number;
+  complaintId: string | null;
 }
 
 export interface AdminOrder {
@@ -113,33 +88,33 @@ export interface AdminOrder {
   userId: string;
   /** Computed by BE (join users). */
   buyer: { id: string; fullName: string; email: string };
-  serviceId: string;
-  /** Computed by BE (join services + chef_profiles + users). */
-  service: { id: string; title: string; type: ServiceType; chefId: string; chefName: string };
-  /** Snapshot of the price at order time (VND). */
+  bookingId: string;
+  booking: OrderBooking;
+  /** = contract price (VND). */
   amount: number;
   status: OrderStatus;
   createdAt: ISODateString;
   /** Oldest first; a new QR after Expired/Failed adds a row. */
   payments: Payment[];
-  accessGrant: AccessGrant | null;
-  consultation: OrderConsultation | null;
+  /** The escrow hold funded by this order; null until paid. */
+  escrow: EscrowHold | null;
+  /** Sent back to the member (full or partial). */
+  refundedAmount: number;
   resolution: OrderResolution | null;
 }
 
 export interface OrderQuery {
   status: OrderStatus | "all";
-  type: ServiceType | "all";
-  /** Order id, transaction ref, buyer, chef or service. */
+  /** Order id, booking id, transaction ref, member or chef. */
   search: string;
 }
 
-export type OrderAction = "refund" | "cancel";
+/** Refunds are complaint decisions on /disputes now; only an unpaid order can be cancelled here. */
+export type OrderAction = "cancel";
 
 /**
- * POST /admin/orders/{id}/refund | /cancel { note } — note ≥ 10 chars.
- * Refund: Paid only (409 otherwise). Cancel: Pending only (409 otherwise).
- * Status change only — no money moves (refunds are done manually in PaymentOS).
+ * POST /admin/orders/{id}/cancel { note } — note ≥ 10 chars, Pending only (409 `not_pending`).
+ * Closes the open QR codes and cancels the booking (the member can request again).
  */
 export interface OrderActionInput {
   orderId: string;
@@ -147,35 +122,15 @@ export interface OrderActionInput {
   note: string;
 }
 
-/** services + per-service aggregates computed by BE. */
-export interface AdminService {
-  id: string;
-  chefId: string;
-  chefName: string;
-  title: string;
-  type: ServiceType;
-  price: number;
-  /** All orders, any status. */
-  orderCount: number;
-  /** Orders currently Paid. */
-  paidCount: number;
-  /** Sum of `amount` over Paid orders (refunds excluded). */
-  revenue: number;
-}
-
-export interface ServiceQuery {
-  chefId: string | "all";
-  search: string;
-}
-
 /** GET /admin/commerce/summary */
 export interface CommerceSummary {
-  /** Sum over Paid orders: collected minus refunded. */
+  /** Collected from paid booking orders minus refunds. */
   revenue: number;
   refundedAmount: number;
   pendingAmount: number;
   totalOrders: number;
   byStatus: Record<OrderStatus, number>;
-  /** access_grants Active and not past expiresAt. */
-  activeGrants: number;
+  /** Money still in escrow (Held + Frozen). */
+  heldAmount: number;
+  heldCount: number;
 }

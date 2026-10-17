@@ -8,6 +8,7 @@ import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/utils/mock_delay.dart';
 import '../../../core/utils/text_search.dart';
+import '../../ingredient/data/ingredient_api_service.dart';
 import '../../scanner/domain/vegan_check.dart';
 import 'meal_planner_api_service.dart';
 import 'models/pantry_model.dart';
@@ -22,6 +23,13 @@ abstract interface class PantryApiService {
   Future<List<PantryItemDto>> addItems(List<AddPantryItemDto> items);
 
   Future<void> removeItem(String id);
+
+  /// "Hoàn tác" after [removeItem]: saves [item] again (same name and scan
+  /// time) and returns the whole list. [index] is where the member saw it
+  /// in that list, so it comes back there rather than on top like a new
+  /// item.
+  Future<List<PantryItemDto>> restoreItem(AddPantryItemDto item,
+      {required int index});
 
   Future<void> clear();
 }
@@ -57,6 +65,13 @@ class RemotePantryApiService implements PantryApiService {
         await _dio.delete<void>(ApiEndpoints.myIngredient(id));
       });
 
+  /// Same request as [addItems]: the API lists the fridge in its own order,
+  /// so `PantryController.restore` puts the row back at [index] on screen.
+  @override
+  Future<List<PantryItemDto>> restoreItem(AddPantryItemDto item,
+          {required int index}) =>
+      addItems([item]);
+
   @override
   Future<void> clear() => guardApi(() async {
         await _dio.delete<void>(ApiEndpoints.myIngredients);
@@ -64,7 +79,8 @@ class RemotePantryApiService implements PantryApiService {
 }
 
 /// Per-account fridge kept for the app session. `#fail` in a name → 503; a
-/// non-vegan name (same check as the scanner) → 422, like the server.
+/// non-vegan name (same check as the scanner) → 422, like the server. Names
+/// found in the nutrition DB carry its id, category and kcal per 100 g.
 class MockPantryRepository implements PantryApiService {
   MockPantryRepository({this.userId});
 
@@ -87,14 +103,24 @@ class MockPantryRepository implements PantryApiService {
     if (userId != 'u_me') return [];
     final yesterday = DateTime.now().subtract(const Duration(days: 1));
     return [
-      PantryItemDto(
-          id: 'pi_seed_dau_hu', ingredient: 'Đậu hũ', scannedAt: yesterday),
-      PantryItemDto(
-          id: 'pi_seed_ca_chua', ingredient: 'Cà chua', scannedAt: yesterday),
-      PantryItemDto(
-          id: 'pi_seed_nam_rom', ingredient: 'Nấm rơm', scannedAt: yesterday),
-      const PantryItemDto(id: 'pi_seed_gao_lut', ingredient: 'Gạo lứt'),
+      _row('pi_seed_dau_hu', 'Đậu hũ', yesterday),
+      _row('pi_seed_ca_chua', 'Cà chua', yesterday),
+      _row('pi_seed_nam_rom', 'Nấm rơm', yesterday),
+      _row('pi_seed_gao_lut', 'Gạo lứt', null),
     ];
+  }
+
+  /// A fridge row joined with the nutrition DB, like the server returns it.
+  static PantryItemDto _row(String id, String name, DateTime? scannedAt) {
+    final match = MockIngredientRepository.match(name);
+    return PantryItemDto(
+      id: id,
+      ingredient: name,
+      scannedAt: scannedAt,
+      ingredientId: match?.id,
+      category: match?.category?.apiValue,
+      caloriesPer100g: match?.caloriesPer100g,
+    );
   }
 
   void _requireMember() {
@@ -111,10 +137,8 @@ class MockPantryRepository implements PantryApiService {
     return List.of(_pantryOf(userId));
   }
 
-  @override
-  Future<List<PantryItemDto>> addItems(List<AddPantryItemDto> items) async {
-    await mockDelay(500);
-    _requireMember();
+  /// `#fail` → 503; anything not vegan → 422 `not_vegan`.
+  static void _check(List<AddPantryItemDto> items) {
     if (items.any((i) => i.ingredient.toLowerCase().contains('#fail'))) {
       throw const ApiException(
           message: 'Chưa lưu được vào tủ lạnh. Thử lại nhé.', statusCode: 503);
@@ -129,18 +153,26 @@ class MockPantryRepository implements PantryApiService {
         );
       }
     }
+  }
+
+  static String _newId() =>
+      'pi_${DateTime.now().millisecondsSinceEpoch}_${_seq++}';
+
+  @override
+  Future<List<PantryItemDto>> addItems(List<AddPantryItemDto> items) async {
+    await mockDelay(500);
+    _requireMember();
+    _check(items);
     final pantry = _pantryOf(userId);
     for (final item in items) {
       final name = item.ingredient.trim();
       if (name.isEmpty) continue;
       final key = foldVietnamese(name);
       final i = pantry.indexWhere((p) => foldVietnamese(p.ingredient) == key);
-      final row = PantryItemDto(
-        id: i >= 0
-            ? pantry[i].id
-            : 'pi_${DateTime.now().millisecondsSinceEpoch}_${_seq++}',
-        ingredient: i >= 0 ? pantry[i].ingredient : name,
-        scannedAt: item.scannedAt ?? (i >= 0 ? pantry[i].scannedAt : null),
+      final row = _row(
+        i >= 0 ? pantry[i].id : _newId(),
+        i >= 0 ? pantry[i].ingredient : name,
+        item.scannedAt ?? (i >= 0 ? pantry[i].scannedAt : null),
       );
       if (i >= 0) {
         pantry[i] = row;
@@ -156,6 +188,25 @@ class MockPantryRepository implements PantryApiService {
     await mockDelay(300);
     _requireMember();
     _pantryOf(userId).removeWhere((p) => p.id == id);
+  }
+
+  /// Back at [index] (clamped). Already there again (scanned or typed in
+  /// meanwhile) → that row stays where it is.
+  @override
+  Future<List<PantryItemDto>> restoreItem(AddPantryItemDto item,
+      {required int index}) async {
+    await mockDelay(400);
+    _requireMember();
+    _check([item]);
+    final pantry = _pantryOf(userId);
+    final name = item.ingredient.trim();
+    final key = foldVietnamese(name);
+    if (name.isNotEmpty &&
+        !pantry.any((p) => foldVietnamese(p.ingredient) == key)) {
+      pantry.insert(
+          index.clamp(0, pantry.length), _row(_newId(), name, item.scannedAt));
+    }
+    return List.of(pantry);
   }
 
   @override

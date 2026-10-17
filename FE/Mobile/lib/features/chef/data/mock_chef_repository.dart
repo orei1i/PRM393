@@ -5,8 +5,9 @@ import '../../commerce/data/mock/mock_commerce_db.dart';
 import 'chef_api_service.dart';
 import 'models/chef_model.dart';
 
-/// Reads chef profiles and services from the shared [MockCommerceDb], so new
-/// services and held slots show up on the public profile right away.
+/// Reads chef profiles from the shared [MockCommerceDb], so a chef's new
+/// prices or "Đang nhận yêu cầu" switch show up on the public profile right
+/// away.
 class MockChefRepository implements ChefApiService {
   MockCommerceDb get _db => MockCommerceDb.instance;
 

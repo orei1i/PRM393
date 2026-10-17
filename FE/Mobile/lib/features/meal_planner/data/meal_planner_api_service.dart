@@ -15,9 +15,13 @@ import 'models/meal_plan_model.dart';
 
 /// Contract with the ASP.NET Core API. The UI only ever sees this interface.
 abstract interface class MealPlannerApiService {
-  Future<HealthProfileDto> getHealthProfile();
+  /// `null` when the member hasn't set a health profile up yet (HTTP 404,
+  /// e.g. a new account): the app then asks them to set one up and never
+  /// borrows anyone else's.
+  Future<HealthProfileDto?> getHealthProfile();
 
-  /// Returns the saved profile with the server-recomputed `bmi`.
+  /// Creates or replaces the profile; returns it with the server-recomputed
+  /// `bmi`.
   Future<HealthProfileDto> updateHealthProfile(
       UpdateHealthProfileRequestDto request);
 
@@ -52,6 +56,13 @@ abstract interface class MealPlannerApiService {
   /// blocked (like the planner).
   Future<MealPlanDayDto> addMealToCurrentPlan(AddMealRequestDto request);
 
+  /// Many [addMealToCurrentPlan] dishes in one request (a delivered chef
+  /// plan: "Áp dụng kế hoạch vào Thực đơn"). Each replaces its slot; dishes
+  /// dated outside the current week are skipped, not errors. Any other
+  /// failure applies none of them.
+  Future<AddMealsResultDto> addMealsToCurrentPlan(
+      List<AddMealRequestDto> requests);
+
   /// Empties one slot ("Bỏ món"). Returns the updated day.
   Future<MealPlanDayDto> removeMeal({
     required String planId,
@@ -64,8 +75,18 @@ abstract interface class MealPlannerApiService {
 
   Future<RecipeDto> createMyRecipe(CreateRecipeRequestDto request);
 
-  /// Dishes chefs suggested to this member (VIP Menu); may be empty.
+  /// Dishes chefs suggested to this member ("Từ chuyên gia"); may be empty.
   Future<List<ChefSuggestionDto>> getChefSuggestions();
+
+  /// "Chỉnh thực đơn với AI": a proposal (reply + changes), nothing applied
+  /// yet. Every proposed dish is vegan and avoids the member's allergies.
+  Future<PlanAdjustmentDto> adjustPlan(AdjustPlanRequestDto request);
+
+  /// Applies the [changeIds] the member kept; returns the updated plan.
+  Future<MealPlanDto> applyAdjustment({
+    required String proposalId,
+    required List<String> changeIds,
+  });
 }
 
 class RemoteMealPlannerApiService implements MealPlannerApiService {
@@ -79,10 +100,15 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
           : const [];
 
   @override
-  Future<HealthProfileDto> getHealthProfile() => guardApi(() async {
-        final res =
-            await _dio.get<Map<String, dynamic>>(ApiEndpoints.healthProfile);
-        return HealthProfileDto.fromJson(res.data!);
+  Future<HealthProfileDto?> getHealthProfile() => guardApi(() async {
+        try {
+          final res =
+              await _dio.get<Map<String, dynamic>>(ApiEndpoints.healthProfile);
+          return HealthProfileDto.fromJson(res.data!);
+        } on DioException catch (e) {
+          if (e.response?.statusCode == 404) return null;
+          rethrow;
+        }
       });
 
   @override
@@ -175,6 +201,17 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
       });
 
   @override
+  Future<AddMealsResultDto> addMealsToCurrentPlan(
+          List<AddMealRequestDto> requests) =>
+      guardApi(() async {
+        final res = await _dio.post<Map<String, dynamic>>(
+          ApiEndpoints.currentMealPlanMealsBatch,
+          data: {'meals': requests.map((r) => r.toJson()).toList()},
+        );
+        return AddMealsResultDto.fromJson(res.data!);
+      });
+
+  @override
   Future<MealPlanDayDto> removeMeal({
     required String planId,
     required DateTime date,
@@ -207,6 +244,30 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
         final res = await _dio.get<List<dynamic>>(ApiEndpoints.chefSuggestions);
         return _list(res.data, ChefSuggestionDto.fromJson);
       });
+
+  @override
+  Future<PlanAdjustmentDto> adjustPlan(AdjustPlanRequestDto request) =>
+      guardApi(() async {
+        final res = await _dio.post<Map<String, dynamic>>(
+          ApiEndpoints.mealPlanAdjust,
+          data: request.toJson(),
+          options: Options(receiveTimeout: const Duration(seconds: 60)),
+        );
+        return PlanAdjustmentDto.fromJson(res.data!);
+      });
+
+  @override
+  Future<MealPlanDto> applyAdjustment({
+    required String proposalId,
+    required List<String> changeIds,
+  }) =>
+      guardApi(() async {
+        final res = await _dio.post<Map<String, dynamic>>(
+          ApiEndpoints.mealPlanAdjustApply(proposalId),
+          data: {'changeIds': changeIds},
+        );
+        return MealPlanDto.fromJson(res.data!);
+      });
 }
 
 /// Signed-in user id the planner, the pantry and the scanner tray are keyed
@@ -222,16 +283,24 @@ final plannerUserIdProvider = Provider<String?>((ref) {
   }
 });
 
+/// "Now" for the planner: which week is current and which day is today.
+/// Tests pin it so weekday-dependent screens are deterministic.
+final plannerClockProvider = Provider<DateTime Function()>((_) => DateTime.now);
+
 /// Swaps Mock ↔ Remote with `--dart-define=USE_MOCK_DATA=false`. Rebuilt on
 /// account changes, so the controllers that watch it refetch.
 final mealPlannerApiProvider = Provider<MealPlannerApiService>((ref) {
   final userId = ref.watch(plannerUserIdProvider);
-  if (Env.useMockData) return MockMealPlannerRepository(userId: userId);
+  if (Env.useMockData) {
+    return MockMealPlannerRepository(
+        userId: userId, clock: ref.watch(plannerClockProvider));
+  }
   return RemoteMealPlannerApiService(ref.watch(dioProvider));
 });
 
-/// Allergies shared with other features (scanner, chat context, recipes).
+/// Allergies shared with other features (scanner, chat context, recipes);
+/// none until the member sets a health profile up.
 final userAllergiesProvider = FutureProvider<List<String>>((ref) async {
   final profile = await ref.watch(mealPlannerApiProvider).getHealthProfile();
-  return profile.allergies;
+  return profile?.allergies ?? const [];
 });

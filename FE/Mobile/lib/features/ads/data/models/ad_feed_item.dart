@@ -1,12 +1,16 @@
 // lib/features/ads/data/models/ad_feed_item.dart
 //
-// GET /ads/feed?city=&lat=&lng=&limit=   (public, guests allowed)
+// GET /ads/feed?placement=nearby&city=&lat=&lng=&limit=1   (public, guests allowed)
 // Same item shape as the web admin's `AdFeedItem` (FE/Web src/types/ads.ts):
-// only Running campaigns whose targetCity is null or equals `city`
-// (case / diacritic-insensitive); with lat/lng the server adds `distanceKm`
-// and sorts nearest first.
+// only Running campaigns of that placement (default nearby) whose targetCity
+// is null or equals `city` (case / diacritic-insensitive); with lat/lng the
+// server adds `distanceKm` and sorts nearest first. The app shows at most one
+// "Được tài trợ" row, at the top of "Quán chay gần bạn" (and a ringed marker
+// in its map mode); never in the feed or a post.
+// POST /ads/{id}/impression (first display of the row on a screen) and
+// POST /ads/{id}/click (each tap) → 204; failures are ignored.
 // {
-//   "id": "ad_hanh_tam", "restaurantId": "rs_hanh_tam",
+//   "id": "ad_hanh_tam", "restaurantId": "rs_hanh_tam", "placement": "nearby",
 //   "restaurant": { "id": "rs_hanh_tam", "name": "Bún Riêu Chay Hạnh Tâm",
 //     "address": "152 Đinh Tiên Hoàng, …", "isVeganCertified": true,
 //     "latitude": 10.8003, "longitude": 106.6977,
@@ -20,6 +24,15 @@
 // }
 // `averageRating`, `reviewCount` and `distanceKm` are computed by BE.
 import '../../../../core/utils/json_helpers.dart';
+
+/// `ad_campaigns.placement`: where the app shows a campaign. Only one today.
+abstract final class AdPlacement {
+  /// The top row of "Quán chay gần bạn".
+  static const nearby = 'nearby';
+
+  /// At most this many sponsored rows per list (web `AD_NEARBY_LIMIT`).
+  static const nearbyLimit = 1;
+}
 
 /// What the card's button does (`ad_campaigns.cta_type`).
 enum AdCtaType {
@@ -93,11 +106,12 @@ class AdRestaurantDto {
       };
 }
 
-/// A "Được tài trợ" store card in the feed.
+/// A "Được tài trợ" row of "Quán chay gần bạn".
 class AdFeedItemDto {
   const AdFeedItemDto({
     required this.id,
     required this.restaurantId,
+    this.placement = AdPlacement.nearby,
     required this.restaurant,
     required this.headline,
     required this.message,
@@ -115,6 +129,7 @@ class AdFeedItemDto {
     return AdFeedItemDto(
       id: json['id']?.toString() ?? '',
       restaurantId: json['restaurantId']?.toString() ?? '',
+      placement: json['placement'] as String? ?? AdPlacement.nearby,
       restaurant: AdRestaurantDto.fromJson(readMap(json['restaurant'])),
       headline: json['headline'] as String? ?? '',
       message: json['message'] as String? ?? '',
@@ -130,6 +145,7 @@ class AdFeedItemDto {
 
   final String id;
   final String restaurantId;
+  final String placement;
   final AdRestaurantDto restaurant;
   final String headline;
   final String message;
@@ -145,6 +161,7 @@ class AdFeedItemDto {
   Map<String, dynamic> toJson() => {
         'id': id,
         'restaurantId': restaurantId,
+        'placement': placement,
         'restaurant': restaurant.toJson(),
         'headline': headline,
         'message': message,
