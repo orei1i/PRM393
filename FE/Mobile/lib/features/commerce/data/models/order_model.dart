@@ -1,152 +1,105 @@
 // lib/features/commerce/data/models/order_model.dart
 //
-// POST /orders  CreateOrderRequestDto (startAt / note: Consult only)
-// { "serviceId": 12, "startAt": "2026-10-17T12:30:00Z", "note": "…" }
-// OrderDto (orders + joins):
-// { "id": 501, "userId": 7, "serviceId": 12, "amount": 350000, "status": "Pending", "createdAt": "…",
-//   "service": { "id": 12, "title": "…", "type": "Consult", "chefId": 3, "chefName": "Lê Quang Tâm" },
-//   "buyer": { "id": 7, "fullName": "Minh Anh" },            // chef views
-//   "payment": PaymentDto | null, "accessGrant": AccessGrantDto | null,
-//   "consultation": ConsultationDto | null }
-// GET /services/{id}/content  ServiceContentDto (403 `no_access` without an Active grant)
-// { "serviceId": 13, "title": "…", "type": "Course", "chefName": "…", "summary": "markdown…",
-//   "contentUrl": "https://…", "accessExpiresAt": "…" }
+// A booking payment ("Đặt chuyên gia"): accepting an offer creates the
+// contract and an `orders` row with `booking_id` (`orders.service_id`
+// becomes nullable, services are deprecated). Paying it funds the escrow.
+//
+// OrderDto — GET /orders/{id}, POST /bookings/{id}/payments
+// { "id": "ord_601", "userId": "u_me", "bookingId": "b_ma_thuha_active", "amount": 840000,
+//   "status": "Pending" | "Paid" | "Cancelled" | "Refunded" | "PartiallyRefunded",
+//   "createdAt": "…",
+//   "booking": { "id": "b_ma_thuha_active", "chefId": "u_thu_ha", "chefName": "ThS. DD Phạm Thu Hà",
+//                "bookingType": "OneShot", "planDays": 7, "startDate": "2026-10-15",
+//                "endDate": "2026-10-21", "status": "Active" },
+//   "payment": PaymentDto | null,          // the latest attempt
+//   "escrow": EscrowHoldDto | null }       // null until paid
 import '../../../../core/utils/json_helpers.dart';
-import '../../../chef/domain/entities/chef.dart';
+import '../../../booking/data/models/booking_models.dart';
+import '../../../booking/domain/booking_enums.dart';
 import '../../domain/commerce_status.dart';
-import 'consultation_model.dart';
 import 'payment_model.dart';
 
-/// The ordered service as it was when bought (`orders.amount` is a snapshot,
-/// and the service may have been edited or deleted since).
-class OrderServiceSummary {
-  const OrderServiceSummary({
+/// The booking an order pays for (computed by BE from chef_bookings +
+/// booking_contracts + users).
+class OrderBookingSummary {
+  const OrderBookingSummary({
     required this.id,
-    required this.title,
-    required this.type,
     required this.chefId,
     required this.chefName,
+    required this.bookingType,
+    required this.planDays,
+    required this.startDate,
+    required this.endDate,
+    required this.status,
   });
 
-  factory OrderServiceSummary.fromJson(Map<String, dynamic> json) =>
-      OrderServiceSummary(
+  factory OrderBookingSummary.fromJson(Map<String, dynamic> json) =>
+      OrderBookingSummary(
         id: json['id']?.toString() ?? '',
-        title: json['title'] as String? ?? '',
-        type: ServiceType.fromApi(json['type']),
         chefId: json['chefId']?.toString() ?? '',
         chefName: json['chefName'] as String? ?? '',
+        bookingType: BookingType.fromApi(json['bookingType']),
+        planDays: readInt(json['planDays']),
+        startDate: readDate(json['startDate']),
+        endDate: readDate(json['endDate']),
+        status: BookingStatus.fromApi(json['status']),
       );
 
   final String id;
-  final String title;
-  final ServiceType type;
   final String chefId;
   final String chefName;
+  final BookingType bookingType;
+  final int planDays;
+  final DateTime startDate;
+  final DateTime endDate;
+  final BookingStatus status;
+
+  /// "Thực đơn 10 ngày".
+  String get title => 'Thực đơn $planDays ngày';
 }
 
 class OrderDto {
   const OrderDto({
     required this.id,
     required this.userId,
-    required this.serviceId,
+    required this.bookingId,
     required this.amount,
     required this.status,
     required this.createdAt,
-    required this.service,
-    this.buyer,
+    required this.booking,
     this.payment,
-    this.accessGrant,
-    this.consultation,
+    this.escrow,
   });
 
   factory OrderDto.fromJson(Map<String, dynamic> json) {
-    final service = readMap(json['service']);
+    final booking = readMap(json['booking']);
     return OrderDto(
       id: json['id']?.toString() ?? '',
       userId: json['userId']?.toString() ?? '',
-      serviceId:
-          json['serviceId']?.toString() ?? service['id']?.toString() ?? '',
+      bookingId:
+          json['bookingId']?.toString() ?? booking['id']?.toString() ?? '',
       amount: readInt(json['amount']),
       status: OrderStatus.fromApi(json['status']),
       createdAt: readDateTime(json['createdAt']) ?? DateTime.now(),
-      service: OrderServiceSummary.fromJson(service),
-      buyer: PersonSummary.fromJsonValue(json['buyer']),
+      booking: OrderBookingSummary.fromJson(booking),
       payment: PaymentDto.fromJsonValue(json['payment']),
-      accessGrant: AccessGrantDto.fromJsonValue(json['accessGrant']),
-      consultation: json['consultation'] is Map<String, dynamic>
-          ? ConsultationDto.fromJson(
-              json['consultation'] as Map<String, dynamic>)
-          : null,
+      escrow: EscrowHoldDto.fromJsonValue(json['escrow']),
     );
   }
 
   final String id;
   final String userId;
-  final String serviceId;
+  final String bookingId;
+
+  /// = contract price (VND).
   final int amount;
   final OrderStatus status;
   final DateTime createdAt;
-  final OrderServiceSummary service;
-  final PersonSummary? buyer;
+  final OrderBookingSummary booking;
 
   /// The latest payment attempt (a new QR replaces an expired/failed one).
   final PaymentDto? payment;
-  final AccessGrantDto? accessGrant;
-  final ConsultationDto? consultation;
 
-  ServiceType get type => service.type;
-
-  /// Paid package whose content can be opened right now.
-  bool canOpenContent(DateTime now) =>
-      status == OrderStatus.paid &&
-      type.isPackage &&
-      accessGrant?.statusAt(now) == GrantStatus.active;
-}
-
-class CreateOrderRequestDto {
-  const CreateOrderRequestDto(
-      {required this.serviceId, this.startAt, this.note});
-
-  final String serviceId;
-  final DateTime? startAt;
-  final String? note;
-
-  Map<String, dynamic> toJson() => {
-        'serviceId': apiId(serviceId),
-        if (startAt != null) 'startAt': startAt!.toUtc().toIso8601String(),
-        if (note != null && note!.trim().isNotEmpty) 'note': note!.trim(),
-      };
-}
-
-class ServiceContentDto {
-  const ServiceContentDto({
-    required this.serviceId,
-    required this.title,
-    required this.type,
-    required this.chefName,
-    required this.summary,
-    this.contentUrl,
-    this.accessExpiresAt,
-  });
-
-  factory ServiceContentDto.fromJson(Map<String, dynamic> json) =>
-      ServiceContentDto(
-        serviceId: json['serviceId']?.toString() ?? '',
-        title: json['title'] as String? ?? '',
-        type: ServiceType.fromApi(json['type']),
-        chefName: json['chefName'] as String? ?? '',
-        summary: json['summary'] as String? ?? '',
-        contentUrl: json['contentUrl'] as String?,
-        accessExpiresAt: readDateTime(json['accessExpiresAt']),
-      );
-
-  final String serviceId;
-  final String title;
-  final ServiceType type;
-  final String chefName;
-
-  /// Markdown.
-  final String summary;
-  final String? contentUrl;
-  final DateTime? accessExpiresAt;
+  /// The escrow hold this order funded; null until paid.
+  final EscrowHoldDto? escrow;
 }

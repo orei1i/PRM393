@@ -3,15 +3,27 @@
 // Chef wallet. Needs SQL tables the 26-table design doesn't have yet:
 // `wallets`, `wallet_transactions`, `withdrawal_requests`, `bank_accounts`.
 //
+// Same shapes as the web console (FE/Web src/types/payouts.ts). Earnings come
+// from booking escrow holds: one Income row per paid booking whose status
+// follows the hold — Held ("Đang giữ", until releaseAt = plan end date 23:59
+// + 3 days) → Frozen ("Tạm giữ do khiếu nại") → Available ("Có thể rút", net
+// of the 10 % fee; a Split decision releases price − refund) or Reversed
+// ("Đã hoàn", fully refunded to the member).
+//
 // GET /chefs/me/wallet                WalletDto
-// { "available": 5462000, "pending": 1521000, "withdrawn": 1000000, "processing": 0,
-//   "feeRate": 0.1, "holdDays": 7, "bankAccount": BankAccountDto | null }
+// { "available": 110000, "pending": 1134000, "frozen": 945000, "withdrawn": 1000000,
+//   "processing": 5100000, "feeRate": 0.1, "holdDays": 3, "bankAccount": BankAccountDto | null }
 // GET /chefs/me/wallet/transactions?month=2026-10   [WalletTransactionDto]
-// { "id": "tx_1", "type": "Income" | "Refund" | "Withdrawal", "createdAt": "…",
-//   "status": "Pending" | "Available" | "Reversed" | "Processing" | "Completed" | "Rejected",
-//   "orderId": 501, "transactionRef": "VL2610150001", "serviceTitle": "…", "buyerName": "…",
-//   "gross": 350000, "fee": 35000, "net": 315000,      // net is signed: refunds/withdrawals < 0
+// { "id": "tx_in_b_vy_tam_active", "type": "Income" | "Refund" | "Withdrawal", "createdAt": "…",
+//   "status": "Held" | "Frozen" | "Available" | "Reversed" | "Processing" | "Completed" | "Rejected",
+//   "bookingId": "b_vy_tam_active", "orderId": "ord_603", "transactionRef": "VL2610120001",
+//   "planTitle": "Thực đơn 7 ngày · Có phản hồi mỗi ngày", "memberName": "Thảo Vy",
+//   "gross": 1260000, "fee": 126000, "net": 1134000,   // net is signed: withdrawals < 0
+//   "releaseAt": "…" | null,        // Held rows: when the escrow is released
+//   "complaintId": "cp_…" | null,   // Frozen rows: the complaint holding the money
 //   "bankName": null, "note": null }
+// Legacy: status "Pending" reads as Held; serviceTitle / buyerName as
+// planTitle / memberName.
 // PUT /chefs/me/bank-account          { "bankName", "accountNumber", "accountHolder" } → BankAccountDto
 // POST /chefs/me/withdrawals          { "amount": 1500000 } → WithdrawalDto
 // GET /chefs/me/withdrawals           [WithdrawalDto]
@@ -39,10 +51,12 @@ enum WalletEntryType {
       _fromApi(values, (e) => e.apiValue, v);
 }
 
-/// Earnings: Pending → Available (or Reversed by a refund).
-/// Withdrawals: Processing → Completed / Rejected.
+/// Earnings: Held → Available after the hold (Frozen while a complaint is
+/// open; Reversed when fully refunded). Withdrawals: Processing → Completed /
+/// Rejected.
 enum LedgerStatus {
-  pending('Pending', 'Đang chờ'),
+  held('Held', 'Đang giữ'),
+  frozen('Frozen', 'Tạm giữ do khiếu nại'),
   available('Available', 'Có thể rút'),
   reversed('Reversed', 'Đã hoàn'),
   processing('Processing', 'Đang xử lý'),
@@ -53,8 +67,11 @@ enum LedgerStatus {
   final String apiValue;
   final String label;
 
+  /// Legacy `Pending` reads as [held].
   static LedgerStatus fromApi(Object? v) =>
-      _fromApi(values, (e) => e.apiValue, v);
+      v?.toString().trim().toLowerCase() == 'pending'
+          ? held
+          : _fromApi(values, (e) => e.apiValue, v);
 }
 
 class BankAccountDto {
@@ -94,19 +111,21 @@ class WalletDto {
     required this.available,
     required this.pending,
     required this.withdrawn,
+    this.frozen = 0,
     this.processing = 0,
     this.feeRate = 0.1,
-    this.holdDays = 7,
+    this.holdDays = 3,
     this.bankAccount,
   });
 
   factory WalletDto.fromJson(Map<String, dynamic> json) => WalletDto(
         available: readInt(json['available']),
         pending: readInt(json['pending']),
+        frozen: readInt(json['frozen']),
         withdrawn: readInt(json['withdrawn']),
         processing: readInt(json['processing']),
         feeRate: json['feeRate'] == null ? 0.1 : readDouble(json['feeRate']),
-        holdDays: json['holdDays'] == null ? 7 : readInt(json['holdDays']),
+        holdDays: json['holdDays'] == null ? 3 : readInt(json['holdDays']),
         bankAccount: BankAccountDto.fromJsonValue(json['bankAccount']),
       );
 
@@ -114,8 +133,12 @@ class WalletDto {
   /// still being processed.
   final int available;
 
-  /// "Đang chờ": paid but not released yet.
+  /// "Đang giữ": net of bookings still in escrow (until the plan's end date
+  /// + [holdDays]).
   final int pending;
+
+  /// "Tạm giữ do khiếu nại": net of holds frozen by an open complaint.
+  final int frozen;
 
   /// "Đã rút": completed withdrawals.
   final int withdrawn;
@@ -134,12 +157,15 @@ class WalletTransactionDto {
     required this.createdAt,
     required this.status,
     required this.net,
+    this.bookingId,
     this.orderId,
     this.transactionRef,
-    this.serviceTitle,
-    this.buyerName,
+    this.planTitle,
+    this.memberName,
     this.gross,
     this.fee,
+    this.releaseAt,
+    this.complaintId,
     this.bankName,
     this.note,
   });
@@ -151,12 +177,15 @@ class WalletTransactionDto {
         createdAt: readDateTime(json['createdAt']) ?? DateTime.now(),
         status: LedgerStatus.fromApi(json['status']),
         net: readInt(json['net']),
+        bookingId: json['bookingId']?.toString(),
         orderId: json['orderId']?.toString(),
         transactionRef: json['transactionRef'] as String?,
-        serviceTitle: json['serviceTitle'] as String?,
-        buyerName: json['buyerName'] as String?,
+        planTitle: (json['planTitle'] ?? json['serviceTitle']) as String?,
+        memberName: (json['memberName'] ?? json['buyerName']) as String?,
         gross: json['gross'] == null ? null : readInt(json['gross']),
         fee: json['fee'] == null ? null : readInt(json['fee']),
+        releaseAt: readDateTime(json['releaseAt']),
+        complaintId: json['complaintId']?.toString(),
         bankName: json['bankName'] as String?,
         note: json['note'] as String?,
       );
@@ -168,15 +197,24 @@ class WalletTransactionDto {
 
   /// Signed: refunds and withdrawals are negative.
   final int net;
+  final String? bookingId;
   final String? orderId;
   final String? transactionRef;
-  final String? serviceTitle;
-  final String? buyerName;
+
+  /// "Thực đơn 10 ngày · Có phản hồi mỗi ngày" (computed by BE).
+  final String? planTitle;
+  final String? memberName;
   final int? gross;
   final int? fee;
+
+  /// Held rows: when the escrow is released if nobody complains.
+  final DateTime? releaseAt;
+
+  /// Frozen rows: the complaint holding the money.
+  final String? complaintId;
   final String? bankName;
 
-  /// Rejection reason / admin note.
+  /// Rejection reason / admin or refund note.
   final String? note;
 }
 

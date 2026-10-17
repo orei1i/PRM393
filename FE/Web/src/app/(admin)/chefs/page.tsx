@@ -25,7 +25,7 @@ export default function ChefApplicationsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Duyệt chuyên gia"
-        description="Thành viên gửi hồ sơ từ ứng dụng (Tôi › Trở thành chuyên gia). Đã duyệt sẽ hiện trong tab Chuyên gia và nhận đặt lịch tư vấn."
+        description="Thành viên gửi hồ sơ từ ứng dụng (Tôi › Trở thành chuyên gia). Đã duyệt sẽ hiện trong tab Chuyên gia và nhận yêu cầu thiết kế thực đơn."
         actions={
           <Button variant="outline" onClick={() => apps.refetch()} disabled={apps.isFetching}>
             <RefreshCw className={apps.isFetching ? "animate-spin" : undefined} aria-hidden />

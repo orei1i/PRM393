@@ -9,12 +9,21 @@ import '../../../chef/domain/chef_specialties.dart';
 import '../../domain/entities/user_profile.dart';
 import '../controllers/profile_controller.dart';
 
-/// Member → verified chef application. Reviewed by an admin on the web console.
+/// Member → verified chef application. Reviewed by an admin on the web
+/// console; the account stays a member (`User`) until then.
+///
+/// Also step 2 of "Tạo tài khoản" as Chuyên gia ([fromRegistration]): the
+/// new member is already signed in and may skip it ("Để sau") and apply
+/// later from Tôi.
 class ChefApplicationScreen extends ConsumerStatefulWidget {
-  const ChefApplicationScreen({super.key});
+  const ChefApplicationScreen({super.key, this.fromRegistration = false});
 
-  static Route<void> route() =>
-      MaterialPageRoute<void>(builder: (_) => const ChefApplicationScreen());
+  final bool fromRegistration;
+
+  static Route<void> route({bool fromRegistration = false}) =>
+      MaterialPageRoute<void>(
+          builder: (_) =>
+              ChefApplicationScreen(fromRegistration: fromRegistration));
 
   @override
   ConsumerState<ChefApplicationScreen> createState() =>
@@ -146,7 +155,18 @@ class _ChefApplicationScreenState extends ConsumerState<ChefApplicationScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Đăng ký chuyên gia')),
+      appBar: AppBar(
+        title: Text(widget.fromRegistration
+            ? 'Hồ sơ chuyên gia'
+            : 'Đăng ký chuyên gia'),
+        actions: [
+          if (widget.fromRegistration)
+            TextButton(
+              onPressed: _sending ? null : () => Navigator.of(context).pop(),
+              child: const Text('Để sau'),
+            ),
+        ],
+      ),
       body: Form(
         key: _form,
         autovalidateMode: _attempted
@@ -159,12 +179,32 @@ class _ChefApplicationScreenState extends ConsumerState<ChefApplicationScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (widget.fromRegistration) ...[
+                Row(
+                  children: [
+                    Icon(Icons.check_circle_rounded,
+                        size: 20, color: context.vl.success),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text('Bước 2/2: Hồ sơ chuyên gia',
+                          style: context.textStyles.titleMedium),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Đã tạo tài khoản. Điền hồ sơ để Ban quản trị duyệt bạn thành chuyên gia.',
+                  style: context.textStyles.bodyMedium
+                      ?.copyWith(color: context.vl.muted),
+                ),
+                const SizedBox(height: 12),
+              ],
               VLCard(
                 color: context.colors.secondaryContainer,
                 borderColor: Colors.transparent,
                 child: Text(
                   'Hồ sơ được Ban quản trị kiểm tra chứng chỉ trước khi hiển thị trong tab Chuyên gia. '
-                  'Sau khi duyệt, bạn có thể mở dịch vụ (tư vấn 1–1, khoá học, thực đơn VIP) và nhận thanh toán.',
+                  'Sau khi duyệt, bạn nhận yêu cầu thiết kế thực đơn từ thành viên và nhận thanh toán qua VeganLife.',
                   style: context.textStyles.bodyMedium
                       ?.copyWith(color: context.colors.onSecondaryContainer),
                 ),

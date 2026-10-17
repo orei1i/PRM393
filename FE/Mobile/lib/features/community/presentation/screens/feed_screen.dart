@@ -5,18 +5,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/session/session_controller.dart';
 import '../../../../core/theme/vl_colors.dart';
+import '../../../../core/widgets/app_logo.dart';
 import '../../../../core/widgets/floating_bar_clearance.dart';
 import '../../../../core/widgets/sign_in_sheet.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/user_avatar.dart';
 import '../../../../core/widgets/vl_card.dart';
-import '../../../ads/presentation/controllers/ads_controller.dart';
-import '../../../ads/presentation/widgets/sponsored_store_card.dart';
 import '../../../reels/presentation/controllers/reels_controller.dart';
 import '../../../reels/presentation/widgets/reels_strip.dart';
 import '../../../restaurant/presentation/screens/restaurant_nearby_screen.dart';
 import '../../../search/presentation/screens/search_screen.dart';
-import '../../../video/presentation/screens/video_detail_screen.dart';
 import '../../domain/entities/post.dart';
 import '../controllers/feed_controller.dart';
 import '../post_actions.dart';
@@ -26,11 +24,11 @@ import '../widgets/post_card.dart';
 import 'create_post_screen.dart';
 import 'post_detail_screen.dart';
 
-/// Tab "Trang chủ": community feed (recipes, videos with AI summary, Q&A),
-/// a "Reels" strip of short videos near the top, and a sponsored store card
-/// ("Được tài trợ") after every [adEvery] posts. The app bar opens search
-/// and "Quán chay gần bạn". Guests can read everything; actions ask for
-/// sign-in.
+/// Tab "Trang chủ": community feed (Công thức and Hỏi đáp, some with a photo
+/// or video), the "Bếp nhanh" strip near the top (with "Tất cả" and "Có video"),
+/// and the composer prompt "Hôm nay … nấu món gì?" (the only way to post).
+/// The app bar opens search and "Quán chay gần bạn". No sponsored cards.
+/// Guests read everything; actions ask for sign-in.
 class FeedScreen extends ConsumerStatefulWidget {
   const FeedScreen({super.key});
 
@@ -58,9 +56,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   }
 
   Future<void> _refresh() async {
-    ref
-      ..invalidate(reelsProvider)
-      ..invalidate(feedAdsProvider);
+    ref.invalidate(reelsProvider);
     try {
       await ref.read(feedControllerProvider.notifier).refresh();
     } catch (e) {
@@ -73,7 +69,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
 
   Future<void> _compose() async {
     if (!await ensureSignedIn(context, ref,
-        reason: 'Đăng nhập để chia sẻ công thức, video và câu hỏi.')) {
+        reason: 'Đăng nhập để chia sẻ công thức và câu hỏi với cộng đồng.')) {
       return;
     }
     if (!mounted) return;
@@ -84,7 +80,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          created.type == PostType.video
+          created.videoId != null
               ? 'Đã đăng. AI đang tóm tắt video, bạn sẽ thấy kết quả sau ít phút.'
               : 'Đã đăng bài viết.',
         ),
@@ -92,19 +88,13 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     );
   }
 
-  void _openPost(Post post) =>
-      Navigator.of(context).push(PostDetailScreen.route(post));
-
-  void _openVideo(Post post) {
-    final videoId = post.videoId;
-    if (videoId == null) return _openPost(post);
-    Navigator.of(context).push(VideoDetailScreen.route(videoId, post: post));
-  }
+  void _open(Post post, [PostDetailEntry entry = PostDetailEntry.top]) =>
+      Navigator.of(context).push(PostDetailScreen.route(post, entry: entry));
 
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(feedControllerProvider);
-    final filter = async.hasValue ? async.requireValue.filter : null;
+    final filter = async.hasValue ? async.requireValue.filter : FeedFilter.all;
 
     return Scaffold(
       body: RefreshIndicator(
@@ -117,13 +107,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
               floating: true,
               snap: true,
               titleSpacing: 16,
-              title: Row(
-                children: [
-                  Icon(Icons.eco_rounded, color: context.colors.primary),
-                  const SizedBox(width: 8),
-                  const Text('VeganLife'),
-                ],
-              ),
+              title: const VeganLifeLogo(),
               actions: [
                 IconButton(
                   tooltip: 'Tìm kiếm',
@@ -137,23 +121,17 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                       .push(RestaurantNearbyScreen.route()),
                   icon: const Icon(Icons.storefront_outlined),
                 ),
-                IconButton(
-                  tooltip: 'Tạo bài viết',
-                  onPressed: _compose,
-                  icon: const Icon(Icons.add_box_outlined),
-                ),
                 const SizedBox(width: 4),
               ],
             ),
             SliverToBoxAdapter(child: _ComposerPrompt(onTap: _compose)),
-            // Short videos: with "Tất cả" and "Video" only.
-            if (filter == null || filter == PostType.video)
+            if (filter.showsReels)
               const SliverToBoxAdapter(child: ReelsStrip()),
             SliverToBoxAdapter(
               child: FeedFilterChips(
                 selected: filter,
-                onSelected: (type) =>
-                    ref.read(feedControllerProvider.notifier).setFilter(type),
+                onSelected: (f) =>
+                    ref.read(feedControllerProvider.notifier).setFilter(f),
               ),
             ),
             ...switch (async) {
@@ -194,9 +172,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
         ),
       ];
     }
-    // No ads while they load or when they fail: the feed never waits on them.
-    final slots = interleaveAds(
-        feed.posts, ref.watch(feedAdsProvider).valueOrNull ?? const []);
     return [
       // Full-width posts separated by a surface-tone band.
       SliverPadding(
@@ -204,37 +179,25 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
         sliver: SliverList(
           delegate: SliverChildBuilderDelegate(
             (context, i) {
-              final slot = slots[i];
-              if (slot is AdSlot<Post>) {
-                final ad = slot.ad;
-                return Column(
-                  key: ValueKey('ad-${ad.id}'),
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const PostListGap(),
-                    SponsoredStoreCard(ad: ad),
-                  ],
-                );
-              }
-              final post = (slot as PostSlot<Post>).post;
+              final post = feed.posts[i];
               return Column(
+                key: ValueKey(post.id),
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const PostListGap(),
                   PostCard(
-                    key: ValueKey(post.id),
                     post: post,
-                    onOpen: () => _openPost(post),
-                    onOpenVideo: () => _openVideo(post),
+                    onOpen: () => _open(post),
+                    onComment: () => _open(post, PostDetailEntry.writeComment),
+                    onOpenComments: () => _open(post, PostDetailEntry.comments),
                     onLike: () => PostActions.toggleLike(context, ref, post),
                     onSave: () => PostActions.toggleSave(context, ref, post),
-                    onComment: () => PostActions.openComments(context, post),
                     onReport: () => PostActions.report(context, ref, post),
                   ),
                 ],
               );
             },
-            childCount: slots.length,
+            childCount: feed.posts.length,
           ),
         ),
       ),
@@ -247,6 +210,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   }
 }
 
+/// "Hôm nay {tên} nấu món gì?" (guests: "Hôm nay bạn nấu món gì?"): opens
+/// Tạo bài viết; guests are asked to sign in first.
 class _ComposerPrompt extends ConsumerWidget {
   const _ComposerPrompt({required this.onTap});
 
@@ -254,8 +219,8 @@ class _ComposerPrompt extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final name =
-        ref.watch(sessionControllerProvider.select((s) => s.displayName));
+    final name = ref.watch(sessionControllerProvider
+        .select((s) => s.isGuest ? null : s.displayName));
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
       child: VLCard(
@@ -267,16 +232,11 @@ class _ComposerPrompt extends ConsumerWidget {
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                name == null
-                    ? 'Chia sẻ món chay của bạn…'
-                    : 'Hôm nay $name nấu món gì?',
+                'Hôm nay ${name ?? 'bạn'} nấu món gì?',
                 style: context.textStyles.bodyLarge
                     ?.copyWith(color: context.vl.muted),
               ),
             ),
-            Icon(Icons.videocam_outlined, color: context.vl.ai),
-            const SizedBox(width: 10),
-            Icon(Icons.restaurant_menu_rounded, color: context.colors.primary),
           ],
         ),
       ),

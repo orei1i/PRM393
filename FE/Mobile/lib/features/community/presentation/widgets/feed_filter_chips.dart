@@ -3,24 +3,16 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../domain/entities/post.dart';
+import '../controllers/feed_controller.dart';
 
-/// Tất cả · Công thức · Video · Thảo luận. Scrolls sideways when the labels
+/// Tất cả · Công thức · Hỏi đáp · Có video. Scrolls sideways when the labels
 /// don't fit (narrow phones, large text) instead of cutting them off.
 class FeedFilterChips extends StatelessWidget {
   const FeedFilterChips(
       {super.key, required this.selected, required this.onSelected});
 
-  /// `null` = Tất cả.
-  final PostType? selected;
-  final ValueChanged<PostType?> onSelected;
-
-  static const _options = <(PostType?, String)>[
-    (null, 'Tất cả'),
-    (PostType.recipe, 'Công thức'),
-    (PostType.video, 'Video'),
-    (PostType.discussion, 'Thảo luận'),
-  ];
+  final FeedFilter selected;
+  final ValueChanged<FeedFilter> onSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -39,14 +31,18 @@ class FeedFilterChips extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(
             children: [
-              for (final (i, (type, label)) in _options.indexed) ...[
+              for (final (i, filter) in FeedFilter.values.indexed) ...[
                 if (i > 0) const SizedBox(width: 8),
                 ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: maxChipWidth),
                   child: ChoiceChip(
-                    label: Text(label),
-                    selected: selected == type,
-                    onSelected: (_) => onSelected(type),
+                    label: Text(filter.label),
+                    avatar: filter == FeedFilter.video && selected != filter
+                        ? const Icon(Icons.play_circle_outline_rounded,
+                            size: 18)
+                        : null,
+                    selected: selected == filter,
+                    onSelected: (_) => onSelected(filter),
                   ),
                 ),
               ],

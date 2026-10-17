@@ -1,7 +1,7 @@
 // src/components/content/content-table.tsx
 "use client";
 
-import { CircleCheck, CircleX, EyeOff, Flag, Hourglass, Pin, Sparkles, TriangleAlert } from "lucide-react";
+import { CircleCheck, CircleX, EyeOff, Flag, Hourglass, Image as ImageIcon, MapPin, Pin, Sparkles, TriangleAlert, Video } from "lucide-react";
 
 import { InitialsAvatar } from "@/components/admin/initials-avatar";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +35,22 @@ export function PostStatusBadge({ status }: { status: PostStatus }) {
         </Badge>
       );
   }
+}
+
+/** The single attachment (posts.media_type): "Có video" / "Có ảnh". */
+export function MediaBadge({ item }: { item: ContentItem }) {
+  if (item.mediaType === "Text") return null;
+  return item.mediaType === "Video" ? (
+    <Badge variant="outline">
+      <Video aria-hidden />
+      Có video
+    </Badge>
+  ) : (
+    <Badge variant="outline">
+      <ImageIcon aria-hidden />
+      Có ảnh
+    </Badge>
+  );
 }
 
 export function VideoAiBadge({ item }: { item: ContentItem }) {
@@ -126,11 +142,18 @@ export function ContentTable({
                     ) : (
                       <p className="line-clamp-1 text-xs text-muted-foreground">{item.excerpt}</p>
                     )}
+                    {item.restaurant && (
+                      <p className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                        <MapPin className="size-3" aria-hidden />
+                        tại {item.restaurant.name}
+                      </p>
+                    )}
                   </div>
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-col items-start gap-1">
                     <Badge variant="outline">{CONTENT_KIND_LABEL[item.kind]}</Badge>
+                    <MediaBadge item={item} />
                     <VideoAiBadge item={item} />
                   </div>
                 </TableCell>

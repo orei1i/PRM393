@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Splash background in dark mode: the app's dark background
+         (AppColors.darkBackground), so the first frame matches. -->
+    <color name="splash_bg">#0C1512</color>
+</resources>

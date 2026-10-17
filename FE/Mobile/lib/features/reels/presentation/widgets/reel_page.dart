@@ -9,15 +9,17 @@ import '../../../../core/widgets/food_cover.dart';
 import '../../../../core/widgets/user_avatar.dart';
 import '../../../community/domain/entities/post.dart';
 import '../../../community/presentation/post_actions.dart';
-import '../../../video/presentation/screens/video_detail_screen.dart';
+import '../../../community/presentation/widgets/comments_sheet.dart';
+import '../../../video/presentation/widgets/video_recipe_sheet.dart';
 import '../../domain/reel.dart';
 import '../controllers/reels_controller.dart';
 
 /// One full-screen reel. Only the [active] page holds a playing video: it
 /// starts when the page becomes active, pauses when the user swipes on,
-/// covers it with another screen or leaves the app, and the player is
+/// opens the comments or recipe sheet, or leaves the app, and the player is
 /// disposed with the page. A clip that fails to load keeps its poster with
-/// "Thử lại".
+/// "Thử lại". Actions: Thích · Bình luận (sheet) · Lưu, and "Xem công
+/// thức" (sheet) when the AI recipe is ready.
 class ReelPage extends ConsumerStatefulWidget {
   const ReelPage({
     super.key,
@@ -161,7 +163,7 @@ class _ReelPageState extends ConsumerState<ReelPage>
     }
   }
 
-  /// Pauses while another screen covers the reel.
+  /// Pauses while a sheet covers the reel, then plays on.
   Future<void> _away(Future<void> Function() open) async {
     _controller?.pause();
     await open();
@@ -178,66 +180,37 @@ class _ReelPageState extends ConsumerState<ReelPage>
     if (updated != null) widget.onChanged(updated);
   }
 
+  /// "Bình luận": the thread in a bottom sheet over the reel.
   Future<void> _comment() => _away(() {
         var post = _post;
-        return PostActions.openComments(
-          context,
-          post,
-          onAdded: (_) {
-            post = post.copyWith(commentCount: post.commentCount + 1);
-            widget.onChanged(post);
-          },
-          onRemoved: (_) {
-            post = post.copyWith(
-                commentCount:
-                    post.commentCount > 0 ? post.commentCount - 1 : 0);
-            widget.onChanged(post);
-          },
-        );
+        return showCommentsSheet(context, post, onCountChanged: (delta) {
+          post = post.copyWith(
+              commentCount: (post.commentCount + delta).clamp(0, 1 << 30));
+          widget.onChanged(post);
+        });
       });
 
-  Future<void> _share() => _away(() async {
-        final link = 'https://veganlife.vn/p/${_post.id}';
-        final copied = await showModalBottomSheet<bool>(
-          context: context,
-          showDragHandle: true,
-          builder: (context) => SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
-                  child: Text('Chia sẻ reel',
-                      style: Theme.of(context).textTheme.titleLarge),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.link_rounded),
-                  title: const Text('Sao chép liên kết'),
-                  subtitle:
-                      Text(link, maxLines: 1, overflow: TextOverflow.ellipsis),
-                  onTap: () async {
-                    await Clipboard.setData(ClipboardData(text: link));
-                    if (context.mounted) Navigator.of(context).pop(true);
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-        if (copied == true && mounted) {
-          ScaffoldMessenger.of(context)
-            ..hideCurrentSnackBar()
-            ..showSnackBar(
-                const SnackBar(content: Text('Đã sao chép liên kết')));
-        }
-      });
-
+  /// "Xem công thức": the AI recipe in a bottom sheet; a timestamp seeks
+  /// this reel.
   void _openRecipe() {
     final videoId = _post.videoId;
     if (videoId == null) return;
-    _away(() => Navigator.of(context)
-        .push(VideoDetailScreen.route(videoId, post: _post)));
+    var seeked = false;
+    _away(() => showVideoRecipeSheet(
+          context,
+          videoId: videoId,
+          title: _post.title,
+          onSeek: (second) {
+            seeked = true;
+            _controller?.seekTo(Duration(seconds: second));
+          },
+        )).then((_) {
+      // A seek is a request to watch: play even if paused by hand.
+      if (seeked && mounted) {
+        setState(() => _pausedByUser = false);
+        _resume();
+      }
+    });
   }
 
   @override
@@ -308,7 +281,6 @@ class _ReelPageState extends ConsumerState<ReelPage>
               post: post,
               onLike: _like,
               onComment: _comment,
-              onShare: _share,
               onSave: _save,
             ),
           ),
@@ -389,14 +361,12 @@ class _ActionRail extends StatelessWidget {
     required this.post,
     required this.onLike,
     required this.onComment,
-    required this.onShare,
     required this.onSave,
   });
 
   final Post post;
   final VoidCallback onLike;
   final VoidCallback onComment;
-  final VoidCallback onShare;
   final VoidCallback onSave;
 
   @override
@@ -418,12 +388,6 @@ class _ActionRail extends StatelessWidget {
           label: formatInt(post.commentCount),
           tooltip: 'Bình luận',
           onTap: onComment,
-        ),
-        _RailButton(
-          icon: Icons.share_outlined,
-          label: 'Chia sẻ',
-          tooltip: 'Chia sẻ',
-          onTap: onShare,
         ),
         _RailButton(
           icon: post.savedByMe

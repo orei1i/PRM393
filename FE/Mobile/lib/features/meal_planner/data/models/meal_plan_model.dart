@@ -16,24 +16,37 @@
 //                        "fatG": 12, "fiberG": 11, "allergens": [], "dietTags": ["whole_food"],
 //                        "prepMinutes": 5, "imageUrl": null,
 //                        "seasonalSwap": { "ingredient": "Bí đỏ", "recipeId": "ls_pumpkin" } },
-//         "lunch": { … }, "dinner": { … } } }
+//         "lunch": { … }, "snack_pm": { …, "portion": 1.5 }, "dinner": { … } } }
 //   ]
 // }
 //
-// A slot may be missing (a plan the member builds by hand starts empty).
+// Slots: breakfast | snack_am | lunch | snack_pm | dinner | snack_late
+// (meal_plan_recipes.meal_type). A slot may be missing (a plan the member
+// builds by hand starts empty; the member's pattern decides which show).
 // Each meal may carry "source": "ai" | "manual" | "user_recipe" | "chef" |
-// "fridge_scan" (meal_plan_recipes.source) and "sourceName" (the chef).
+// "fridge_scan" (meal_plan_recipes.source), "sourceName" (the chef) and
+// "portion" (servings in the slot, default 1; kcal/macros are already for
+// that portion).
 //
 // POST /meal-plans/current/meals   → 200 MealPlanDayDto (the updated day)
 // { "date": "2026-10-15", "slot": "lunch", "source": "fridge_scan", "sourceId": "menu_1",
 //   "name": "Đậu hũ xào bông cải cà rốt", "calories": 420, "prepMinutes": 20,
 //   "ingredients": ["Đậu hũ", "Bông cải xanh", "Cà rốt", "Tỏi", "Nước tương"],
 //   "allergens": ["soy"] }
+//
+// POST /meal-plans/current/meals/batch   (many dishes in one request, e.g. a
+// delivered chef plan: "Áp dụng kế hoạch vào Thực đơn")
+// { "meals": [ { same body as /meal-plans/current/meals }, … ] }
+// → 200 { "placed": 26, "skipped": 2, "days": [ MealPlanDayDto, … ] }
+// Each dish replaces its slot; dishes dated outside the current week are
+// skipped (counted in "skipped"), not errors; "days" holds only the days that
+// changed. Any other failure applies nothing.
 
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/json_helpers.dart';
 import '../../domain/entities/health_profile.dart';
 import '../../domain/entities/meal_plan.dart';
+import '../../domain/entities/plan_adjustment.dart';
 
 /// kcal + macros. A macro missing (or `null`) on the wire stays `null`: a
 /// dish typed in, written by the member or suggested by a chef without
@@ -117,6 +130,7 @@ class RecipeDto {
     this.source,
     this.sourceName,
     this.createdBy,
+    this.portion = 1,
   });
 
   factory RecipeDto.fromJson(Map<String, dynamic> json) => RecipeDto(
@@ -139,6 +153,9 @@ class RecipeDto {
         source: json['source'] as String?,
         sourceName: json['sourceName'] as String?,
         createdBy: json['createdBy']?.toString(),
+        portion: json['portion'] == null || readDouble(json['portion']) <= 0
+            ? 1
+            : readDouble(json['portion']),
       );
 
   final String id;
@@ -155,6 +172,9 @@ class RecipeDto {
   final String? sourceName;
   final String? createdBy;
 
+  /// Servings in the slot; nutrition is for this portion.
+  final double portion;
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
@@ -167,6 +187,7 @@ class RecipeDto {
         if (source != null) 'source': source,
         if (sourceName != null) 'sourceName': sourceName,
         if (createdBy != null) 'createdBy': createdBy,
+        if (portion != 1) 'portion': portion,
       };
 
   RecipeDto withSource(String source, {String? sourceName}) => RecipeDto(
@@ -181,7 +202,36 @@ class RecipeDto {
         source: source,
         sourceName: sourceName ?? this.sourceName,
         createdBy: createdBy,
+        portion: portion,
       );
+
+  /// [portion] servings of this dish (kcal and the macros it has scaled;
+  /// unknown macros stay unknown).
+  RecipeDto scaled(double portion) {
+    if (portion == this.portion) return this;
+    final f = portion / this.portion;
+    double? g(double? v) => v == null ? null : (v * f).roundToDouble();
+    return RecipeDto(
+      id: id,
+      name: name,
+      nutrition: NutritionDto(
+        calories: (nutrition.calories * f).round(),
+        proteinG: g(nutrition.proteinG),
+        carbsG: g(nutrition.carbsG),
+        fatG: g(nutrition.fatG),
+        fiberG: g(nutrition.fiberG),
+      ),
+      imageUrl: imageUrl,
+      allergens: allergens,
+      dietTags: dietTags,
+      prepMinutes: prepMinutes,
+      seasonalSwap: seasonalSwap,
+      source: source,
+      sourceName: sourceName,
+      createdBy: createdBy,
+      portion: portion,
+    );
+  }
 
   Recipe toEntity() => Recipe(
         id: id,
@@ -195,6 +245,7 @@ class RecipeDto {
         source: MealSource.fromApi(source),
         sourceName: sourceName,
         createdBy: createdBy,
+        portion: portion,
       );
 }
 
@@ -215,7 +266,7 @@ class MealPlanDayDto {
 
   final DateTime date;
 
-  /// Keyed by slot api value: `breakfast` | `lunch` | `dinner`.
+  /// Keyed by slot api value (`breakfast`, `snack_pm`, …).
   final Map<String, RecipeDto> meals;
 
   Map<String, dynamic> toJson() => {
@@ -269,6 +320,18 @@ class MealPlanDto {
         'days': days.map((d) => d.toJson()).toList(),
       };
 
+  /// The same week aimed at a new goal and daily targets (the server
+  /// recomputes them when the health profile changes).
+  MealPlanDto withTargets(
+          {required String goal, required NutritionDto dailyTargets}) =>
+      MealPlanDto(
+        id: id,
+        startDate: startDate,
+        goal: goal,
+        dailyTargets: dailyTargets,
+        days: days,
+      );
+
   MealPlanDto copyWithDay(MealPlanDayDto day) => MealPlanDto(
         id: id,
         startDate: startDate,
@@ -298,6 +361,7 @@ class SwapMealRequestDto {
     required this.slot,
     required this.recipeId,
     this.source,
+    this.portion = 1,
   });
 
   final DateTime date;
@@ -307,11 +371,15 @@ class SwapMealRequestDto {
   /// Omitted for plain AI swaps (the server's default).
   final MealSource? source;
 
+  /// Servings to place (an AI suggestion sized for the slot); default 1.
+  final double portion;
+
   Map<String, dynamic> toJson() => {
         'date': toApiDate(date),
         'slot': slot.apiValue,
         'recipeId': recipeId,
         if (source != null) 'source': source!.apiValue,
+        if (portion != 1) 'portion': portion,
       };
 }
 
@@ -335,9 +403,13 @@ class AddMealRequestDto {
     this.allergens = const [],
     this.source = 'fridge_scan',
     this.sourceId,
+    this.sourceName,
   });
 
   final DateTime date;
+
+  /// Any of the 6 meals; a slot outside the member's pattern becomes an
+  /// extra meal of that day.
   final MealSlot slot;
   final String name;
   final int? calories;
@@ -348,15 +420,18 @@ class AddMealRequestDto {
   final List<String> ingredients;
   final List<String> allergens;
 
-  /// `fridge_scan` | `manual`.
+  /// `fridge_scan` | `manual` | `chef` (a delivered chef plan: [sourceId]
+  /// is the chef's recipe id when there is one, [sourceName] the chef).
   final String source;
   final String? sourceId;
+  final String? sourceName;
 
   Map<String, dynamic> toJson() => {
         'date': toApiDate(date),
         'slot': slot.apiValue,
         'source': source,
         if (sourceId != null) 'sourceId': sourceId,
+        if (sourceName != null) 'sourceName': sourceName,
         'name': name,
         if (calories != null) 'calories': calories,
         if (proteinG != null) 'proteinG': proteinG,
@@ -365,6 +440,38 @@ class AddMealRequestDto {
         if (prepMinutes != null) 'prepMinutes': prepMinutes,
         'ingredients': ingredients,
         'allergens': allergens,
+      };
+}
+
+/// Result of POST /meal-plans/current/meals/batch: how many dishes were
+/// placed, how many fell outside the current week, and the changed days.
+class AddMealsResultDto {
+  const AddMealsResultDto({
+    required this.placed,
+    required this.skipped,
+    required this.days,
+  });
+
+  factory AddMealsResultDto.fromJson(Map<String, dynamic> json) =>
+      AddMealsResultDto(
+        placed: readInt(json['placed']),
+        skipped: readInt(json['skipped']),
+        days: (json['days'] is List<Object?>)
+            ? (json['days'] as List<Object?>)
+                .whereType<Map<String, dynamic>>()
+                .map(MealPlanDayDto.fromJson)
+                .toList()
+            : const [],
+      );
+
+  final int placed;
+  final int skipped;
+  final List<MealPlanDayDto> days;
+
+  Map<String, dynamic> toJson() => {
+        'placed': placed,
+        'skipped': skipped,
+        'days': days.map((d) => d.toJson()).toList(),
       };
 }
 
@@ -476,4 +583,121 @@ class CreateRecipeRequestDto {
         if (prepMinutes != null) 'prepMinutes': prepMinutes,
         if (servings != null) 'servings': servings,
       };
+}
+
+/// POST /meal-plans/current/adjust ("Chỉnh thực đơn với AI")
+/// `{ "message": "Ít tinh bột hơn cho bữa tối", "scope": "day" | "week", "date": "2026-10-17" }`
+class AdjustPlanRequestDto {
+  const AdjustPlanRequestDto(
+      {required this.message, required this.scope, required this.date});
+
+  final String message;
+  final AdjustScope scope;
+
+  /// The day the member is looking at (the whole week for [AdjustScope.week]).
+  final DateTime date;
+
+  Map<String, dynamic> toJson() => {
+        'message': message,
+        'scope': scope.apiValue,
+        'date': toApiDate(date),
+      };
+}
+
+/// One proposed change (`meal_plan_adjustments.changes[]`):
+/// `{ "id": "c1", "date": "2026-10-17", "slot": "dinner", "action": "replace" | "add" | "remove",
+///    "from": RecipeDto | null, "to": RecipeDto | null, "kcalDelta": -180 }`
+class PlanChangeDto {
+  const PlanChangeDto({
+    required this.id,
+    required this.date,
+    required this.slot,
+    required this.action,
+    this.from,
+    this.to,
+    this.kcalDelta = 0,
+  });
+
+  factory PlanChangeDto.fromJson(Map<String, dynamic> json) => PlanChangeDto(
+        id: json['id']?.toString() ?? '',
+        date: readDate(json['date']),
+        slot: json['slot'] as String? ?? MealSlot.lunch.apiValue,
+        action: json['action'] as String? ?? 'replace',
+        from: json['from'] is Map<String, dynamic>
+            ? RecipeDto.fromJson(json['from'] as Map<String, dynamic>)
+            : null,
+        to: json['to'] is Map<String, dynamic>
+            ? RecipeDto.fromJson(json['to'] as Map<String, dynamic>)
+            : null,
+        kcalDelta: readInt(json['kcalDelta']),
+      );
+
+  final String id;
+  final DateTime date;
+  final String slot;
+  final String action;
+  final RecipeDto? from;
+  final RecipeDto? to;
+  final int kcalDelta;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'date': toApiDate(date),
+        'slot': slot,
+        'action': action,
+        'from': from?.toJson(),
+        'to': to?.toJson(),
+        'kcalDelta': kcalDelta,
+      };
+
+  /// `null` for an unknown slot (newer server).
+  PlanChange? toEntity() {
+    final s = MealSlot.fromApi(slot);
+    if (s == null) return null;
+    return PlanChange(
+      id: id,
+      date: date,
+      slot: s,
+      action: PlanChangeAction.fromApi(action),
+      from: from?.toEntity(),
+      to: to?.toEntity(),
+      kcalDelta: kcalDelta,
+    );
+  }
+}
+
+/// `{ "proposalId": "adj_1", "reply": "Mình đề xuất 3 thay đổi…", "changes": [PlanChangeDto] }`.
+/// Apply with POST /meal-plans/current/adjust/{proposalId}/apply
+/// `{ "changeIds": ["c1", "c3"] }` → the updated [MealPlanDto].
+class PlanAdjustmentDto {
+  const PlanAdjustmentDto(
+      {required this.proposalId, required this.reply, this.changes = const []});
+
+  factory PlanAdjustmentDto.fromJson(Map<String, dynamic> json) =>
+      PlanAdjustmentDto(
+        proposalId: json['proposalId']?.toString() ?? '',
+        reply: json['reply'] as String? ?? '',
+        changes: json['changes'] is List<Object?>
+            ? (json['changes'] as List<Object?>)
+                .whereType<Map<String, dynamic>>()
+                .map(PlanChangeDto.fromJson)
+                .toList()
+            : const [],
+      );
+
+  final String proposalId;
+  final String reply;
+  final List<PlanChangeDto> changes;
+
+  Map<String, dynamic> toJson() => {
+        'proposalId': proposalId,
+        'reply': reply,
+        'changes': changes.map((c) => c.toJson()).toList(),
+      };
+
+  PlanAdjustment toEntity() => PlanAdjustment(
+        proposalId: proposalId,
+        reply: reply,
+        changes: changes.map((c) => c.toEntity()).nonNulls.toList(),
+      );
 }

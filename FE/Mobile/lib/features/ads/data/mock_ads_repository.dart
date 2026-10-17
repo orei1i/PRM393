@@ -6,17 +6,19 @@ import '../../restaurant/domain/geo.dart';
 import 'ads_api_service.dart';
 import 'models/ad_feed_item.dart';
 
-/// Mock-only switch for the sponsored cards:
+/// Mock-only switch for the sponsored row:
 /// `flutter run --dart-define=MOCK_ADS_SCENARIO=empty` (or `error`). Either
-/// way the feed simply shows no ads.
+/// way "Quán chay gần bạn" simply shows no "Được tài trợ" row.
 const _scenarioFromEnv =
     String.fromEnvironment('MOCK_ADS_SCENARIO', defaultValue: 'normal');
 
 /// The web admin's seeded campaigns (FE/Web `src/lib/mock_ads.ts`, same ids,
-/// restaurants, copy, dates and status rule), so "Được tài trợ" shows the
-/// campaigns the console lists as Running: Bún Riêu Chay Hạnh Tâm and Lẩu
-/// Nấm Chay Mộc Nhiên. Ratings come from the web's review seeds
-/// (`mock_restaurants.ts`). Datasets are not synced at runtime (D13).
+/// restaurants, copy, dates, placement "nearby" and status rule), so the
+/// "Được tài trợ" row shows a campaign the console lists as Running: Bún
+/// Riêu Chay Hạnh Tâm (nearest to Q.1) or Lẩu Nấm Chay Mộc Nhiên. Ratings
+/// come from the web's review seeds (`mock_restaurants.ts`). Datasets are
+/// not synced at runtime; impressions and clicks are counted in memory
+/// ([impressionsOf] / [clicksOf]).
 class MockAdsRepository implements AdsApiService {
   MockAdsRepository(
       {this.scenario = _scenarioFromEnv, DateTime Function()? clock})
@@ -31,6 +33,31 @@ class MockAdsRepository implements AdsApiService {
 
   /// Mock spend: 40đ per impression (40.000đ CPM), as on the web.
   static const _costPerImpression = 40;
+
+  static final Map<String, int> _impressions = {};
+  static final Map<String, int> _clicks = {};
+
+  /// Impressions / clicks reported by the app in this session (tests, QA).
+  static int impressionsOf(String adId) => _impressions[adId] ?? 0;
+  static int clicksOf(String adId) => _clicks[adId] ?? 0;
+
+  /// Forget reported events (tests).
+  static void resetEvents() {
+    _impressions.clear();
+    _clicks.clear();
+  }
+
+  @override
+  Future<void> reportImpression(String adId) async {
+    await mockDelay(100);
+    _impressions[adId] = impressionsOf(adId) + 1;
+  }
+
+  @override
+  Future<void> reportClick(String adId) async {
+    await mockDelay(100);
+    _clicks[adId] = clicksOf(adId) + 1;
+  }
 
   static const _restaurants = <String, Map<String, Object?>>{
     'rs_hanh_tam': {
@@ -209,17 +236,21 @@ class MockAdsRepository implements AdsApiService {
 
   @override
   Future<List<AdFeedItemDto>> getFeed({
+    String placement = AdPlacement.nearby,
     String? city,
     double? lat,
     double? lng,
-    int limit = 3,
+    int limit = AdPlacement.nearbyLimit,
   }) async {
     await mockDelay(300);
     if (scenario == 'error') {
       throw const ApiException(
           message: 'Chưa tải được quảng cáo.', statusCode: 503);
     }
-    if (scenario == 'empty') return const [];
+    // Every seeded campaign is placed in "Quán chay gần bạn".
+    if (scenario == 'empty' || placement != AdPlacement.nearby) {
+      return const [];
+    }
     final now = _clock();
     final seed = _seededAt;
     DateTime dayStart(int offset) =>
@@ -271,6 +302,7 @@ class MockAdsRepository implements AdsApiService {
       items.add(AdFeedItemDto.fromJson({
         'id': id,
         'restaurantId': restaurantId,
+        'placement': AdPlacement.nearby,
         'restaurant': r,
         'headline': headline,
         'message': message,

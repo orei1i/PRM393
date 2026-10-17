@@ -5,11 +5,14 @@
 //
 // ┌ For the BE team: NONE of this exists in the 26-table SQL design. Proposed tables:
 // │ bank_accounts        chef_id (PK, FK chef_profiles), bank_name, account_number, account_holder, updated_at
-// │ wallets              chef_id (PK), available, pending, processing, withdrawn, updated_at
+// │ wallets              chef_id (PK), available, pending (held), frozen, processing, withdrawn, updated_at
 // │                      (a cache: every figure can be recomputed from wallet_transactions)
-// │ wallet_transactions  id, chef_id, type (Income | Refund | Withdrawal), status, order_id NULL,
+// │ wallet_transactions  id, chef_id, type (Income | Refund | Withdrawal), status (Held | Frozen | Available |
+// │                      Reversed | Processing | Completed | Rejected), booking_id NULL, order_id NULL,
 // │                      withdrawal_id NULL, gross NULL, fee NULL, net (signed), note NULL,
-// │                      released_at NULL, created_at
+// │                      release_at NULL, released_at NULL, created_at
+// │ Income rows follow the booking's escrow hold (types/bookings.ts): Held → Frozen (complaint) →
+// │ Available (released, full or split) or Reversed (fully refunded to the member).
 // │ withdrawal_requests  id, chef_id, amount, bank_name, account_number, account_holder,
 // │                      status (Processing | Completed | Rejected), auto_approve_at NULL,
 // │                      transaction_ref NULL, reason NULL, processed_by NULL (FK users),
@@ -22,8 +25,11 @@ import type { ISODateString } from "./moderation";
 /** Platform fee taken from every sale. Business placeholder (same as the mobile `kPlatformFeeRate`). */
 export const PLATFORM_FEE_RATE = 0.1;
 
-/** Course / VIP Menu money is held this long after payment (refund window). Consults are released when completed. */
-export const PACKAGE_HOLD_DAYS = 7;
+/**
+ * Booking money stays in escrow until the plan's end date 23:59 (Asia/Ho_Chi_Minh) + this many days
+ * (the complaint window). A complaint freezes it until an admin decides on /disputes.
+ */
+export const ESCROW_HOLD_DAYS = 3;
 
 /** Smallest withdrawal a chef can request (VND). */
 export const MIN_WITHDRAWAL = 100_000;
@@ -72,12 +78,16 @@ export const LEDGER_ENTRY_TYPE_LABEL: Record<LedgerEntryType, string> = {
   Withdrawal: "Rút tiền",
 };
 
-/** Earnings: Pending → Available (or Reversed by a refund). Withdrawals: Processing → Completed / Rejected. */
-export const LEDGER_STATUSES = ["Pending", "Available", "Reversed", "Processing", "Completed", "Rejected"] as const;
+/**
+ * Earnings: Held → Available after the hold (Frozen while a complaint is open; Reversed when fully
+ * refunded). Withdrawals: Processing → Completed / Rejected. Legacy "Pending" reads as Held.
+ */
+export const LEDGER_STATUSES = ["Held", "Frozen", "Available", "Reversed", "Processing", "Completed", "Rejected"] as const;
 export type LedgerStatus = (typeof LEDGER_STATUSES)[number];
 
 export const LEDGER_STATUS_LABEL: Record<LedgerStatus, string> = {
-  Pending: "Đang chờ",
+  Held: "Đang giữ",
+  Frozen: "Tạm giữ do khiếu nại",
   Available: "Có thể rút",
   Reversed: "Đã hoàn",
   Processing: "Đang xử lý",
@@ -130,13 +140,15 @@ export interface ChefWallet {
   chef: PayoutChef;
   /** "Có thể rút": released earnings minus fees, completed withdrawals and requests still processing. */
   available: number;
-  /** "Đang chờ": paid but not released yet (package hold / consult not completed). */
+  /** "Đang giữ": net of bookings still in escrow (until plan end + ESCROW_HOLD_DAYS). */
   pending: number;
+  /** "Tạm giữ do khiếu nại": net of holds frozen by an open complaint. */
+  frozen: number;
   /** Requests in "Đang xử lý" (already out of `available`). */
   processing: number;
   /** "Đã rút": completed withdrawals. */
   withdrawn: number;
-  /** Gross of paid, non-refunded sales and the platform fee taken from them. */
+  /** Gross of paid bookings (minus refunds) and the platform fee taken from them. */
   grossSales: number;
   feeTotal: number;
   bankAccount: BankAccount | null;
@@ -151,15 +163,21 @@ export interface WalletTransaction {
   createdAt: ISODateString;
   /** Signed: refunds and withdrawals are negative. */
   net: number;
+  bookingId: string | null;
   orderId: string | null;
   transactionRef: string | null;
-  serviceTitle: string | null;
-  buyerName: string | null;
+  /** "Thực đơn 10 ngày · Có phản hồi mỗi ngày" (computed by BE from the contract). */
+  planTitle: string | null;
+  memberName: string | null;
   gross: number | null;
   fee: number | null;
+  /** Held rows: when the escrow is released if nobody complains. */
+  releaseAt: ISODateString | null;
+  /** Frozen rows: the complaint holding the money (opens /disputes). */
+  complaintId: string | null;
   /** Withdrawals: "Vietcombank •••• 6789". */
   bankName: string | null;
-  /** Rejection reason / admin note. */
+  /** Rejection reason / admin note / refund note. */
   note: string | null;
 }
 
@@ -167,17 +185,19 @@ export interface WalletTransaction {
 export interface PayoutSummary {
   /** Sum of "Có thể rút" over every chef wallet. */
   totalAvailable: number;
-  /** Sum of "Đang chờ" (held earnings). */
+  /** Sum of "Đang giữ" (net of bookings in escrow). */
   totalPending: number;
+  /** Sum of "Tạm giữ do khiếu nại". */
+  totalFrozen: number;
   /** Sum of requests in "Đang xử lý". */
   totalProcessing: number;
   /** Completed withdrawals whose processedAt falls in the current month (server time zone). */
   paidOutThisMonth: number;
   paidOutThisMonthCount: number;
-  /** PLATFORM_FEE_RATE × gross of Paid orders. */
+  /** PLATFORM_FEE_RATE × gross released from escrow (full or split releases). */
   platformFee: number;
-  paidGross: number;
-  paidOrderCount: number;
+  releasedGross: number;
+  releasedCount: number;
   feeRate: number;
   autoApproveLimit: number;
   byStatus: Record<WithdrawalStatus, number>;

@@ -215,7 +215,8 @@ export function useCommentAction() {
         if (!data) continue;
         const view = (key[1] as CommentQuery | undefined)?.view;
         if (action === "delete") {
-          qc.setQueryData(key, data.filter((c) => c.id !== id));
+          // A top-level comment goes with its replies.
+          qc.setQueryData(key, data.filter((c) => c.id !== id && c.parentId !== id));
           continue;
         }
         const status = action === "hide" ? "Hidden" : "Visible";

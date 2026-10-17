@@ -18,7 +18,6 @@ import '../../../community/presentation/screens/post_detail_screen.dart';
 import '../../../community/presentation/widgets/feed_skeleton.dart';
 import '../../../community/presentation/widgets/post_card.dart';
 import '../../../community/presentation/widgets/post_status_banner.dart';
-import '../../../video/presentation/screens/video_detail_screen.dart';
 import '../controllers/profile_controller.dart';
 
 /// "Bài của tôi" (every status, with the review banner) · "Đã lưu" ·
@@ -73,17 +72,17 @@ EdgeInsets _postListPadding(BuildContext context) =>
 
 Widget _postCard(BuildContext context, WidgetRef ref, Post post) {
   // Likes, saves and comments bump communityRevisionProvider, which these
-  // lists watch: no manual refetch needed.
+  // lists watch: no manual refetch needed. Video and recipe posts open the
+  // same post detail.
+  void open([PostDetailEntry entry = PostDetailEntry.top]) =>
+      Navigator.of(context).push(PostDetailScreen.route(post, entry: entry));
   return PostCard(
     post: post,
-    onOpen: () => Navigator.of(context).push(PostDetailScreen.route(post)),
-    onOpenVideo: post.videoId == null
-        ? null
-        : () => Navigator.of(context)
-            .push(VideoDetailScreen.route(post.videoId!, post: post)),
+    onOpen: open,
+    onComment: () => open(PostDetailEntry.writeComment),
+    onOpenComments: () => open(PostDetailEntry.comments),
     onLike: () => PostActions.toggleLike(context, ref, post),
     onSave: () => PostActions.toggleSave(context, ref, post),
-    onComment: () => PostActions.openComments(context, post),
   );
 }
 
@@ -127,7 +126,7 @@ class _MyPostsTabState extends ConsumerState<_MyPostsTab> {
   static const _empty = {
     null: (
       'Bạn chưa đăng bài nào',
-      'Chia sẻ công thức hoặc video ở tab Trang chủ.'
+      'Đăng công thức hoặc câu hỏi ở tab Trang chủ.'
     ),
     PostStatus.published: (
       'Chưa có bài nào đang hiển thị',
@@ -328,7 +327,13 @@ class _MyCommentsTabState extends ConsumerState<_MyCommentsTab> {
           (await ref.read(communityApiProvider).getPost(comment.postId))
               .toEntity();
       if (mounted) {
-        await Navigator.of(context).push(PostDetailScreen.route(post));
+        // Straight to the comment, tinted for a moment.
+        await Navigator.of(context).push(PostDetailScreen.route(
+          post,
+          entry: PostDetailEntry.comments,
+          highlightCommentId: comment.id,
+          highlightParentId: comment.parentId,
+        ));
       }
     } catch (e) {
       if (mounted) {

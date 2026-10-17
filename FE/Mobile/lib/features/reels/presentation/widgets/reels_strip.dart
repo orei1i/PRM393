@@ -10,9 +10,10 @@ import '../../domain/reel.dart';
 import '../controllers/reels_controller.dart';
 import '../screens/reels_player_screen.dart';
 
-/// "Reels" near the top of Trang chủ: 9:16 thumbnails with author and
-/// length; a tap opens the full-screen player at that clip. Hidden when
-/// there are no reels; a failed load leaves a one-line retry.
+/// "Bếp nhanh" (short vertical videos) near the top of Trang chủ: 9:16 thumbnails with author and
+/// length; a tap opens the full-screen player at that clip (no "Xem tất
+/// cả": swiping in the player goes through them all). Hidden when there are
+/// no reels; a failed load leaves a one-line retry.
 class ReelsStrip extends ConsumerWidget {
   const ReelsStrip({super.key});
 
@@ -33,7 +34,7 @@ class ReelsStrip extends ConsumerWidget {
                   size: 18, color: context.vl.muted),
               const SizedBox(width: 8),
               Expanded(
-                child: Text('Chưa tải được Reels.',
+                child: Text('Chưa tải được Bếp nhanh.',
                     style: context.textStyles.bodyMedium
                         ?.copyWith(color: context.vl.muted)),
               ),
@@ -58,18 +59,15 @@ class ReelsStrip extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
             child: Row(
               children: [
                 Icon(Icons.slow_motion_video_rounded,
                     size: 20, color: context.vl.ai),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text('Reels', style: context.textStyles.titleMedium),
-                ),
-                TextButton(
-                  onPressed: () => open(0),
-                  child: const Text('Xem tất cả'),
+                  child:
+                      Text('Bếp nhanh', style: context.textStyles.titleMedium),
                 ),
               ],
             ),
@@ -104,7 +102,7 @@ class _ReelThumb extends StatelessWidget {
     const shadow = [Shadow(blurRadius: 4)];
     return Semantics(
       button: true,
-      label: 'Reel của ${post.author.name}: ${post.title}',
+      label: 'Bếp nhanh của ${post.author.name}: ${post.title}',
       excludeSemantics: true,
       child: SizedBox(
         width: ReelsStrip.thumbWidth,

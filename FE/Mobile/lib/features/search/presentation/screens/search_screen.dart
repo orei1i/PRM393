@@ -2,38 +2,46 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
+import '../../../../core/utils/text_search.dart';
+import '../../../../core/widgets/food_cover.dart';
+import '../../../../core/widgets/shimmer.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/vl_card.dart';
+import '../../../community/data/community_api_service.dart';
 import '../../../community/domain/entities/post.dart';
 import '../../../community/presentation/screens/post_detail_screen.dart';
 import '../../../recipe/presentation/screens/recipe_detail_screen.dart';
 import '../../../restaurant/domain/entities/restaurant.dart';
+import '../../../restaurant/domain/geo.dart';
 import '../../../restaurant/presentation/screens/restaurant_detail_screen.dart';
 import '../../../restaurant/presentation/screens/restaurant_nearby_screen.dart';
 import '../../../restaurant/presentation/widgets/restaurant_tile.dart';
-import '../../../video/presentation/screens/video_detail_screen.dart';
 import '../../domain/entities/search_result.dart';
 import '../controllers/global_search_controller.dart';
 import '../widgets/search_tiles.dart';
 
 /// Global search (posts, videos, recipes, restaurants). Guests allowed.
 ///
-/// Idle: recent searches + suggestions. Results: tabs Tất cả · Công thức ·
-/// Video · Bài viết · Quán; when a recipe matches, "Gợi ý cho «món»" leads
-/// with related videos/posts and nearby restaurants serving the dish.
+/// Three states: **idle** (empty field) shows what to look for: "Tìm gần
+/// đây", "Xu hướng tìm kiếm", "Danh mục", "Món theo mùa", "Công thức được
+/// yêu thích", "Đã xem gần đây" and "Quán chay gần bạn". **Typing** shows
+/// autocomplete rows only ("Tìm «…»" first). **Results** (after Enter or
+/// "Tìm «…»") shows the tabs Tất cả · Công thức · Video · Bài viết · Quán;
+/// when a recipe matches, "Gợi ý cho «món»" leads with related videos/posts
+/// and nearby restaurants serving the dish. Editing the query goes back to
+/// typing; ✕ back to idle.
 class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key, this.initialQuery});
 
-  /// Pre-filled query, e.g. a recipe name from "Tìm video & quán liên quan".
+  /// Pre-filled query, e.g. a recipe name from "Tìm video & quán liên quan":
+  /// opens straight on the results.
   final String? initialQuery;
 
   static Route<void> route({String? initialQuery}) => MaterialPageRoute<void>(
         builder: (_) => SearchScreen(initialQuery: initialQuery),
       );
-
-  /// Shown while idle.
-  static const suggestions = ['bún riêu', 'đậu hũ', 'sữa hạt', 'phở chay'];
 
   static const tabLabels = ['Tất cả', 'Công thức', 'Video', 'Bài viết', 'Quán'];
 
@@ -45,7 +53,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     with SingleTickerProviderStateMixin {
   late final _field =
       TextEditingController(text: widget.initialQuery?.trim() ?? '');
+  final _focus = FocusNode();
   late final TabController _tabs;
+
+  /// A post picked from autocomplete or "Đã xem gần đây" is being fetched.
+  bool _opening = false;
 
   GlobalSearchController get _search => ref.read(globalSearchProvider.notifier);
 
@@ -65,6 +77,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
   @override
   void dispose() {
     _field.dispose();
+    _focus.dispose();
     _tabs.dispose();
     super.dispose();
   }
@@ -79,16 +92,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     if (GlobalSearchController.isSearchable(q)) {
       ref.read(recentSearchesProvider.notifier).add(q);
       _tabs.index = 0;
+      _focus.unfocus();
     }
     _search.submit(q);
   }
 
-  /// A recent or suggested query chip.
+  /// A recent, trending, category or "query" row: fill the field and search.
   void _pick(String query) {
     _field
       ..text = query
       ..selection = TextSelection.collapsed(offset: query.length);
-    FocusScope.of(context).unfocus();
     _submit(query);
     setState(() {});
   }
@@ -96,56 +109,120 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
   void _clear() {
     _field.clear();
     _search.clear();
+    _focus.requestFocus();
     setState(() {});
   }
 
   /// Opening a result counts as a search worth remembering.
-  void _remember() {
-    final q = ref.read(globalSearchProvider).query;
-    if (q.isNotEmpty) ref.read(recentSearchesProvider.notifier).add(q);
+  void _rememberQuery() {
+    final state = ref.read(globalSearchProvider);
+    if (state.showsResults && state.query.isNotEmpty) {
+      ref.read(recentSearchesProvider.notifier).add(state.query);
+    }
   }
+
+  void _viewed(RecentView view) =>
+      ref.read(recentViewsProvider.notifier).add(view);
 
   void _openPost(Post post) {
-    _remember();
-    final videoId = post.videoId;
-    Navigator.of(context).push(videoId != null && post.type == PostType.video
-        ? VideoDetailScreen.route(videoId, post: post)
-        : PostDetailScreen.route(post));
+    _rememberQuery();
+    _viewed(RecentView(
+      kind: SuggestKind.post,
+      id: post.id,
+      title: post.title,
+      subtitle: '${post.hasVideo ? 'Video' : post.type.label} · '
+          '${post.author.name}',
+    ));
+    Navigator.of(context).push(PostDetailScreen.route(post));
   }
 
-  void _openRecipe(RecipeSummary recipe) {
-    _remember();
-    Navigator.of(context)
-        .push(RecipeDetailScreen.route(recipe.id, name: recipe.name));
+  Future<void> _openPostById(String id) async {
+    if (_opening) return;
+    setState(() => _opening = true);
+    try {
+      final post =
+          (await ref.read(communityApiProvider).getPost(id)).toEntity();
+      if (mounted) _openPost(post);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(describeError(e))));
+      }
+    } finally {
+      if (mounted) setState(() => _opening = false);
+    }
   }
 
-  void _openRestaurant(Restaurant restaurant) {
-    _remember();
-    Navigator.of(context).push(
-        RestaurantDetailScreen.route(restaurant.id, name: restaurant.name));
+  void _openRecipe(String id, String name) {
+    _rememberQuery();
+    _viewed(RecentView(
+        kind: SuggestKind.recipe, id: id, title: name, subtitle: 'Công thức'));
+    Navigator.of(context).push(RecipeDetailScreen.route(id, name: name));
   }
+
+  void _openRestaurantById(String id, String name, {String? subtitle}) {
+    _rememberQuery();
+    _viewed(RecentView(
+        kind: SuggestKind.restaurant,
+        id: id,
+        title: name,
+        subtitle: subtitle ?? 'Quán'));
+    Navigator.of(context).push(RestaurantDetailScreen.route(id, name: name));
+  }
+
+  void _openRestaurant(Restaurant r) =>
+      _openRestaurantById(r.id, r.name, subtitle: r.address);
 
   void _openNearby({String? food}) {
-    if (food != null) _remember();
+    if (food != null) _rememberQuery();
     Navigator.of(context)
         .push(RestaurantNearbyScreen.route(initialQuery: food));
   }
 
+  /// An autocomplete row: a query searches, anything else opens directly.
+  void _onSuggestion(SearchSuggestItem item) {
+    final id = item.id;
+    switch (item.kind) {
+      case SuggestKind.query:
+        _pick(item.text);
+      case SuggestKind.recipe when id != null:
+        _openRecipe(id, item.text);
+      case SuggestKind.post when id != null:
+        _openPostById(id);
+      case SuggestKind.restaurant when id != null:
+        _openRestaurantById(id, item.text, subtitle: item.subtitle);
+      default:
+        _pick(item.text);
+    }
+  }
+
+  void _openRecentView(RecentView view) => switch (view.kind) {
+        SuggestKind.recipe => _openRecipe(view.id, view.title),
+        SuggestKind.restaurant =>
+          _openRestaurantById(view.id, view.title, subtitle: view.subtitle),
+        _ => _openPostById(view.id),
+      };
+
   @override
   Widget build(BuildContext context) {
+    // Keeps the discover page loaded while typing, so ✕ shows it at once.
+    ref.listen(searchDiscoverProvider, (_, __) {});
     final state = ref.watch(globalSearchProvider);
     final result = state.result;
-    final showTabs = !state.isIdle &&
+    final showTabs = state.showsResults &&
         state.error == null &&
         result != null &&
         !result.isEmpty;
-    final busy = state.loading && result != null;
+    final busy =
+        _opening || (state.showsResults && state.loading && result != null);
 
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
         title: TextField(
           controller: _field,
+          focusNode: _focus,
           autofocus: widget.initialQuery == null,
           textInputAction: TextInputAction.search,
           onChanged: _onChanged,
@@ -190,15 +267,26 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
           ),
         ),
       ),
-      body: _body(state),
+      body: switch (state.phase) {
+        SearchPhase.idle => _DiscoverView(
+            onPick: _pick,
+            onRecipe: _openRecipe,
+            onRestaurant: _openRestaurant,
+            onRecentView: _openRecentView,
+            onAllNearby: () => _openNearby(),
+          ),
+        SearchPhase.typing => _SuggestionsView(
+            state: state,
+            onSearch: _pick,
+            onSuggestion: _onSuggestion,
+          ),
+        SearchPhase.results => _results(state),
+      },
     );
   }
 
-  Widget _body(SearchState state) {
+  Widget _results(SearchState state) {
     final result = state.result;
-    if (state.isIdle) {
-      return _IdleView(onPick: _pick, onOpenNearby: () => _openNearby());
-    }
     if (state.error != null) {
       return Center(
         child: SingleChildScrollView(
@@ -218,6 +306,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         ),
       );
     }
+    void openRecipe(RecipeSummary r) => _openRecipe(r.id, r.name);
     return TabBarView(
       controller: _tabs,
       children: [
@@ -225,7 +314,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
           result: result,
           onMore: (tab) => _tabs.animateTo(tab),
           onPost: _openPost,
-          onRecipe: _openRecipe,
+          onRecipe: openRecipe,
           onRestaurant: _openRestaurant,
           onAllRestaurants: (food) => _openNearby(food: food),
         ),
@@ -234,7 +323,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
           what: 'công thức',
           children: [
             for (final r in result.recipes)
-              SearchRecipeTile(recipe: r, onTap: () => _openRecipe(r)),
+              SearchRecipeTile(recipe: r, onTap: () => openRecipe(r)),
           ],
         ),
         _ResultList(
@@ -267,17 +356,134 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
   }
 }
 
-/// Recent searches ("Xoá lịch sử"), suggestion chips and a shortcut to the
-/// nearby restaurants.
-class _IdleView extends ConsumerWidget {
-  const _IdleView({required this.onPick, required this.onOpenNearby});
+// ----------------------------------------------------------------- typing --
+
+/// "Tìm «…»" first, then the autocomplete rows (type icon, text, subtitle).
+/// Under 2 characters: the matching recent searches.
+class _SuggestionsView extends ConsumerWidget {
+  const _SuggestionsView({
+    required this.state,
+    required this.onSearch,
+    required this.onSuggestion,
+  });
+
+  final SearchState state;
+  final ValueChanged<String> onSearch;
+  final ValueChanged<SearchSuggestItem> onSuggestion;
+
+  static IconData iconFor(SuggestKind kind) => switch (kind) {
+        SuggestKind.query => Icons.search_rounded,
+        SuggestKind.recipe => Icons.rice_bowl_outlined,
+        SuggestKind.post => Icons.article_outlined,
+        SuggestKind.restaurant => Icons.storefront_outlined,
+      };
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final q = state.query;
+    final muted = context.vl.muted;
+    if (!GlobalSearchController.isSearchable(q)) {
+      final folded = foldVietnamese(q);
+      final recent = ref
+          .watch(recentSearchesProvider)
+          .where((s) => foldVietnamese(s).contains(folded))
+          .toList();
+      return ListView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        children: [
+          for (final s in recent)
+            ListTile(
+              leading: Icon(Icons.history_rounded, color: muted),
+              title: Text(s),
+              trailing: Icon(Icons.north_west_rounded, size: 18, color: muted),
+              onTap: () => onSearch(s),
+            ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text('Nhập thêm để xem gợi ý',
+                style: context.textStyles.bodyMedium?.copyWith(color: muted)),
+          ),
+        ],
+      );
+    }
+    return ListView(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding:
+          EdgeInsets.only(bottom: 16 + MediaQuery.paddingOf(context).bottom),
+      children: [
+        ListTile(
+          key: const ValueKey('search-submit-row'),
+          leading: Icon(Icons.search_rounded, color: context.colors.primary),
+          title: Text('Tìm «$q»',
+              style: context.textStyles.titleSmall
+                  ?.copyWith(fontWeight: FontWeight.w700)),
+          onTap: () => onSearch(q),
+        ),
+        if (state.suggesting && state.suggestions.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Center(
+                child: SizedBox.square(
+                    dimension: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2))),
+          ),
+        for (final item in state.suggestions)
+          ListTile(
+            leading: Icon(iconFor(item.kind), color: muted),
+            title:
+                Text(item.text, maxLines: 2, overflow: TextOverflow.ellipsis),
+            subtitle: item.subtitle == null ? null : Text(item.subtitle!),
+            trailing: item.kind == SuggestKind.query
+                ? Icon(Icons.north_west_rounded, size: 18, color: muted)
+                : Icon(Icons.chevron_right_rounded, color: muted),
+            onTap: () => onSuggestion(item),
+          ),
+      ],
+    );
+  }
+}
+
+// ------------------------------------------------------------------- idle --
+
+/// What to look for before typing anything (no large empty area).
+class _DiscoverView extends ConsumerWidget {
+  const _DiscoverView({
+    required this.onPick,
+    required this.onRecipe,
+    required this.onRestaurant,
+    required this.onRecentView,
+    required this.onAllNearby,
+  });
 
   final ValueChanged<String> onPick;
-  final VoidCallback onOpenNearby;
+  final void Function(String id, String name) onRecipe;
+  final ValueChanged<Restaurant> onRestaurant;
+  final ValueChanged<RecentView> onRecentView;
+  final VoidCallback onAllNearby;
+
+  static IconData categoryIcon(String id) => switch (id) {
+        'main' => Icons.rice_bowl_rounded,
+        'breakfast' => Icons.free_breakfast_outlined,
+        'noodles' => Icons.ramen_dining_rounded,
+        'drinks' => Icons.local_drink_outlined,
+        'dessert' => Icons.icecream_outlined,
+        'quick' => Icons.timer_outlined,
+        _ => Icons.category_outlined,
+      };
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final recent = ref.watch(recentSearchesProvider);
+    final views = ref.watch(recentViewsProvider);
+    final discover = ref.watch(searchDiscoverProvider);
+    final data = discover.valueOrNull;
+    final muted = context.vl.muted;
+
+    Widget title(String text) => Text(text,
+        style: context.textStyles.titleMedium
+            ?.copyWith(fontWeight: FontWeight.w700));
+    const gap = SizedBox(height: 22);
+
     return ListView(
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: EdgeInsets.fromLTRB(
@@ -285,7 +491,7 @@ class _IdleView extends ConsumerWidget {
       children: [
         if (recent.isNotEmpty) ...[
           _HeaderRow(
-            title: Text('Tìm gần đây', style: context.textStyles.titleSmall),
+            title: title('Tìm gần đây'),
             actionLabel: 'Xoá lịch sử',
             onAction: () => ref.read(recentSearchesProvider.notifier).clear(),
           ),
@@ -305,61 +511,266 @@ class _IdleView extends ConsumerWidget {
                 ),
             ],
           ),
-          const SizedBox(height: 24),
+          gap,
         ],
-        Text('Gợi ý tìm kiếm', style: context.textStyles.titleSmall),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final q in SearchScreen.suggestions)
-              ActionChip(
-                avatar: Icon(Icons.trending_up_rounded,
-                    size: 18, color: context.colors.primary),
-                label: Text(q),
-                onPressed: () => onPick(q),
-              ),
-          ],
-        ),
-        const SizedBox(height: 24),
-        VLCard(
-          onTap: onOpenNearby,
-          child: Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: context.colors.secondaryContainer,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(Icons.storefront_outlined,
-                    color: context.colors.primary),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+        if (data == null)
+          discover.hasError
+              ? Row(
                   children: [
-                    Text('Quán chay gần bạn',
-                        style: context.textStyles.titleSmall
-                            ?.copyWith(fontWeight: FontWeight.w700)),
-                    Text('Xem quán gần nhất, quán đã chứng nhận và đánh giá.',
-                        style: context.textStyles.bodySmall
-                            ?.copyWith(color: context.vl.muted)),
+                    Icon(Icons.cloud_off_rounded, color: muted),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text('Chưa tải được gợi ý',
+                          style: context.textStyles.bodyMedium
+                              ?.copyWith(color: muted)),
+                    ),
+                    TextButton(
+                      onPressed: () => ref.invalidate(searchDiscoverProvider),
+                      child: const Text('Thử lại'),
+                    ),
                   ],
+                )
+              : const _DiscoverSkeleton()
+        else ...[
+          if (data.trending.isNotEmpty) ...[
+            title('Xu hướng tìm kiếm'),
+            const SizedBox(height: 4),
+            for (final (i, q) in data.trending.take(6).indexed)
+              InkWell(
+                onTap: () => onPick(q),
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 9),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 28,
+                        child: Text('${i + 1}',
+                            style: context.textStyles.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: i < 3 ? context.colors.primary : muted)),
+                      ),
+                      Expanded(
+                          child: Text(q, style: context.textStyles.bodyLarge)),
+                      Icon(Icons.trending_up_rounded,
+                          size: 18, color: context.colors.primary),
+                    ],
+                  ),
                 ),
               ),
-              Icon(Icons.chevron_right_rounded, color: context.vl.muted),
-            ],
+            gap,
+          ],
+          if (data.categories.isNotEmpty) ...[
+            title('Danh mục'),
+            const SizedBox(height: 10),
+            _CategoryGrid(categories: data.categories, onPick: onPick),
+            gap,
+          ],
+          if (data.seasonal.isNotEmpty) ...[
+            title('Món theo mùa'),
+            Text(
+              'Tháng ${DateTime.now().month}: '
+              '${{for (final s in data.seasonal) s.ingredient}.join(', ')}…',
+              style: context.textStyles.bodySmall?.copyWith(color: muted),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 172,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: data.seasonal.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 10),
+                itemBuilder: (context, i) {
+                  final s = data.seasonal[i];
+                  return SizedBox(
+                    width: 156,
+                    child: VLCard(
+                      padding: EdgeInsets.zero,
+                      onTap: () => onRecipe(s.recipeId, s.name),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          FoodCover(seed: s.coverSeed, height: 92),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+                            child: Text(s.name,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: context.textStyles.titleSmall),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            gap,
+          ],
+          if (data.popularRecipes.isNotEmpty) ...[
+            title('Công thức được yêu thích'),
+            const SizedBox(height: 4),
+            for (final r in data.popularRecipes.take(5))
+              SearchRecipeTile(
+                  recipe: r, dense: true, onTap: () => onRecipe(r.id, r.name)),
+            gap,
+          ],
+        ],
+        if (views.isNotEmpty) ...[
+          _HeaderRow(
+            title: title('Đã xem gần đây'),
+            actionLabel: 'Xoá',
+            onAction: () => ref.read(recentViewsProvider.notifier).clear(),
           ),
+          for (final v in views)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: CircleAvatar(
+                backgroundColor: context.colors.secondaryContainer,
+                child: Icon(_SuggestionsView.iconFor(v.kind),
+                    size: 20, color: context.colors.primary),
+              ),
+              title:
+                  Text(v.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: v.subtitle == null
+                  ? null
+                  : Text(v.subtitle!,
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+              onTap: () => onRecentView(v),
+            ),
+          gap,
+        ],
+        _HeaderRow(
+          title: title('Quán chay gần bạn'),
+          actionKey: const ValueKey('search-nearby-all'),
+          actionLabel: 'Xem tất cả',
+          onAction: onAllNearby,
         ),
+        if (data != null && data.nearbyRestaurants.isNotEmpty)
+          for (final r in data.nearbyRestaurants.take(3))
+            _NearbyRow(restaurant: r, onTap: () => onRestaurant(r))
+        else if (data != null)
+          VLCard(
+            onTap: onAllNearby,
+            child: Text('Xem quán gần nhất, quán đã chứng nhận và đánh giá.',
+                style: context.textStyles.bodyMedium?.copyWith(color: muted)),
+          ),
       ],
     );
   }
 }
 
+/// One of the 3 nearest restaurants on the idle page.
+class _NearbyRow extends StatelessWidget {
+  const _NearbyRow({required this.restaurant, required this.onTap});
+
+  final Restaurant restaurant;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final r = restaurant;
+    final km = r.distanceKm;
+    final meta = [
+      if (km != null) formatDistance(km),
+      r.address,
+    ].join(' · ');
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: CircleAvatar(
+        backgroundColor: context.colors.secondaryContainer,
+        child: Icon(Icons.storefront_outlined, color: context.colors.primary),
+      ),
+      title: Row(
+        children: [
+          Flexible(
+              child:
+                  Text(r.name, maxLines: 1, overflow: TextOverflow.ellipsis)),
+          if (r.isVeganCertified) ...[
+            const SizedBox(width: 4),
+            Icon(Icons.verified_rounded, size: 16, color: context.vl.success),
+          ],
+        ],
+      ),
+      subtitle: Text(meta, maxLines: 1, overflow: TextOverflow.ellipsis),
+      trailing: Icon(Icons.chevron_right_rounded, color: context.vl.muted),
+      onTap: onTap,
+    );
+  }
+}
+
+/// "Danh mục": 3 per row on phones (2 with large text), icon over label.
+class _CategoryGrid extends StatelessWidget {
+  const _CategoryGrid({required this.categories, required this.onPick});
+
+  final List<SearchCategory> categories;
+  final ValueChanged<String> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, constraints) {
+      final scale = MediaQuery.textScalerOf(context).scale(1);
+      final perRow = scale > 1.3 ? 2 : 3;
+      const spacing = 8.0;
+      final width = (constraints.maxWidth - spacing * (perRow - 1)) / perRow;
+      return Wrap(
+        spacing: spacing,
+        runSpacing: spacing,
+        children: [
+          for (final c in categories)
+            SizedBox(
+              width: width,
+              child: VLCard(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                color: context.colors.secondaryContainer.withValues(alpha: 0.5),
+                onTap: () => onPick(c.query),
+                child: Column(
+                  children: [
+                    Icon(_DiscoverView.categoryIcon(c.id),
+                        color: context.colors.primary),
+                    const SizedBox(height: 6),
+                    Text(c.label,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: context.textStyles.labelLarge),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      );
+    });
+  }
+}
+
+class _DiscoverSkeleton extends StatelessWidget {
+  const _DiscoverSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SkeletonBox(width: 160, height: 18),
+          const SizedBox(height: 12),
+          for (var i = 0; i < 4; i++) ...[
+            const SkeletonBox(height: 16),
+            const SizedBox(height: 14),
+          ],
+          const SizedBox(height: 10),
+          const SkeletonBox(width: 100, height: 18),
+          const SizedBox(height: 12),
+          const SkeletonBox(height: 72),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------- results --
 /// "Tất cả": the suggestion block, then 3 results per group with
 /// "Xem thêm" switching to that group's tab.
 class _AllTab extends StatelessWidget {

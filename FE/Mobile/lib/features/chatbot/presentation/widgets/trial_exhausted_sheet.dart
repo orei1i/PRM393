@@ -3,12 +3,16 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/config/env.dart';
 import '../../../../core/theme/vl_colors.dart';
-import '../../../../core/widgets/google_sign_in_button.dart';
+import '../../../auth/presentation/auth_navigation.dart';
+import '../../../auth/presentation/widgets/auth_widgets.dart';
 
 /// Shown on the guest question after the free ones run out (never on a
 /// timer); the held question is sent automatically after sign-in. Also opened
 /// from the trial banner's "Đăng nhập" while questions remain — the copy then
 /// invites instead of saying the trial is over.
+///
+/// "Đăng nhập" / "Tạo tài khoản" open the auth screens over the sheet; the
+/// sheet closes itself once the guest is signed in.
 class TrialExhaustedSheet extends StatelessWidget {
   const TrialExhaustedSheet({
     super.key,
@@ -36,6 +40,15 @@ class TrialExhaustedSheet extends StatelessWidget {
       builder: (_) => TrialExhaustedSheet(
           pendingPrompt: pendingPrompt, remaining: remaining, limit: limit),
     );
+  }
+
+  Future<void> _open(BuildContext context, {required bool register}) async {
+    final navigator = Navigator.of(context);
+    final route = ModalRoute.of(context);
+    final ok = register
+        ? await AuthNavigation.register(navigator)
+        : await AuthNavigation.login(navigator);
+    if (ok && route != null) completeRoute<Object?>(navigator, route, null);
   }
 
   @override
@@ -78,8 +91,10 @@ class TrialExhaustedSheet extends StatelessWidget {
               icon: Icons.forum_outlined,
               text: 'Hỏi không giới hạn, mọi câu trả lời đều có nguồn'),
           const SizedBox(height: 16),
-          GoogleSignInButton(
-              onSignedIn: () => Navigator.of(context).maybePop()),
+          AuthChoiceButtons(
+            onLogin: () => _open(context, register: false),
+            onRegister: () => _open(context, register: true),
+          ),
           const SizedBox(height: 4),
           SizedBox(
             width: double.infinity,

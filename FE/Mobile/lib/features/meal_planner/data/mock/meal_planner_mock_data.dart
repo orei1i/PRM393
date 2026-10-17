@@ -2,6 +2,8 @@
 // Realistic Vietnamese vegan sample data, shaped exactly like the API JSON so
 // the DTO parsers are exercised in mock mode too.
 
+import '../../../../core/session/mock_accounts.dart';
+
 Map<String, Object?> _r(
   String id,
   String name, {
@@ -191,6 +193,68 @@ final Map<String, List<Map<String, Object?>>> mockSwapPool = {
   ],
 };
 
+/// Planner-only extras kept out of [mockSwapPool] (other mocks list that
+/// pool): more dinners the swap sheet and the AI can offer.
+final List<Map<String, Object?>> mockExtraDinners = [
+  _r('ds5', 'Đậu hũ cuốn lá lốt nướng',
+      kcal: 520, p: 26, c: 40, f: 26, fi: 6, allergens: ['soy'], prep: 35),
+  _r('ds6', 'Salad đậu lăng rau mầm sốt chanh',
+      kcal: 430, p: 22, c: 48, f: 14, fi: 14, tags: ['high_fiber'], prep: 15),
+];
+
+/// One snack per weekday (Mon → Sun), for "Phụ sáng", "Phụ chiều" and
+/// "Phụ tối".
+final List<Map<String, Object?>> mockSnacks = [
+  _r('sn1', 'Sữa chua dừa hạt chia & xoài',
+      kcal: 220, p: 4, c: 26, f: 11, fi: 6, tags: ['high_fiber'], prep: 5),
+  _r('sn2', 'Chuối nướng bơ đậu phộng',
+      kcal: 230,
+      p: 6,
+      c: 30,
+      f: 10,
+      fi: 4,
+      allergens: ['peanut'],
+      tags: ['quick'],
+      prep: 10),
+  _r('sn3', 'Bắp luộc',
+      kcal: 180, p: 6, c: 38, f: 2.5, fi: 4, tags: ['whole_food'], prep: 15),
+  _r('sn4', 'Sữa đậu nành & hạt điều rang',
+      kcal: 240,
+      p: 11,
+      c: 16,
+      f: 15,
+      fi: 2,
+      allergens: ['soy', 'tree_nut'],
+      tags: ['quick'],
+      prep: 3),
+  _r('sn5', 'Khoai lang luộc',
+      kcal: 170, p: 3, c: 39, f: 0.3, fi: 5, tags: ['whole_food'], prep: 20),
+  _r('sn6', 'Trái cây theo mùa & hạt bí',
+      kcal: 190, p: 5, c: 28, f: 7, fi: 5, tags: ['quick'], prep: 5),
+  _r('sn7', 'Chè đậu đen nước cốt dừa',
+      kcal: 240, p: 7, c: 42, f: 5, fi: 6, prep: 30),
+];
+
+/// Extra snacks the swap sheet and the AI can offer.
+final List<Map<String, Object?>> mockSnackSwaps = [
+  _r('ss1', 'Edamame luộc muối',
+      kcal: 190, p: 17, c: 14, f: 8, fi: 8, allergens: ['soy'], prep: 10),
+  _r('ss2', 'Sinh tố bơ sữa hạt',
+      kcal: 260, p: 4, c: 22, f: 18, fi: 7, tags: ['quick'], prep: 5),
+  _r('ss3', 'Hummus đậu gà & cà rốt que',
+      kcal: 200, p: 7, c: 22, f: 9, fi: 6, tags: ['high_fiber'], prep: 10),
+  _r('ss4', 'Bánh mì nướng bơ hạt điều',
+      kcal: 250,
+      p: 8,
+      c: 28,
+      f: 12,
+      fi: 3,
+      allergens: ['gluten', 'tree_nut'],
+      prep: 5),
+  _r('ss5', 'Táo & bơ hạt hướng dương',
+      kcal: 210, p: 5, c: 24, f: 11, fi: 5, tags: ['quick'], prep: 3),
+];
+
 /// Dishes built around common fridge items, offered when the plan is
 /// generated from the pantry (same ids as the scanner's menu suggestions, so
 /// the recipe screen knows them).
@@ -226,13 +290,31 @@ const Map<String, Object?> mockDailyTargets = {
   'fiberG': 32,
 };
 
-/// Seed profile per demo account: Minh Anh (and guests, and unknown ids) get
-/// [mockHealthProfileJson]; Lê Quang Tâm has his own.
-Map<String, Object?> mockHealthProfileJsonFor(String? userId,
+/// [mockDailyTargets] scaled to [kcal] (the member's TDEE-based target).
+Map<String, Object?> mockDailyTargetsFor(int kcal) {
+  final f = kcal / 1850;
+  int g(String key) => ((mockDailyTargets[key]! as int) * f).round();
+  return {
+    'calories': kcal,
+    'proteinG': g('proteinG'),
+    'carbsG': g('carbsG'),
+    'fatG': g('fatG'),
+    'fiberG': g('fiberG'),
+  };
+}
+
+/// Seed profile per demo account: Minh Anh (`u_me`) gets
+/// [mockHealthProfileJson] (with gender, birth year and "3 bữa + 1 phụ");
+/// Lê Quang Tâm (`u_chef_tam`) has an older profile without them (3 meals,
+/// no energy estimate until he adds gender and birth year). Anyone else (an
+/// account registered in this run, a guest) has none yet: `null`, like the
+/// server's 404, so the app asks them to set one up.
+Map<String, Object?>? mockHealthProfileJsonFor(String? userId,
     {required String syncProvider}) {
-  if (userId != 'u_chef_tam') {
+  if (userId == minhAnhAccount.userId) {
     return mockHealthProfileJson(syncProvider: syncProvider);
   }
+  if (userId != tamChefAccount.userId) return null;
   return {
     'heightCm': 168,
     'weightKg': 63,
@@ -249,6 +331,11 @@ Map<String, Object?> mockHealthProfileJson({required String syncProvider}) => {
       'weightKg': 66,
       'bmi': 22.3,
       'goal': 'lean_muscle',
+      'gender': 'Female',
+      'birthYear': 1997,
+      'activityLevel': 'light',
+      'mealPattern': ['breakfast', 'lunch', 'snack_pm', 'dinner'],
+      // Legacy shape (plain ids) on purpose: both shapes are read.
       'allergies': ['peanut'],
       'dietaryRestrictions': ['low_sodium'],
       'healthSync': {

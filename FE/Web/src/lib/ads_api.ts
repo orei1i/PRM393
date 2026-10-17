@@ -1,5 +1,6 @@
 // src/lib/ads_api.ts
-// Store ads ("Được tài trợ" restaurant cards in the mobile feed) for /ads.
+// Store ads for /ads: one "Được tài trợ" restaurant row at the top of the mobile
+// "Quán chay gần bạn" list (placement "nearby"; no longer in the feed or post detail).
 // Remote rows are normalised: INT ids → strings, enum values matched case-insensitively,
 // restaurant nested or flat (restaurantName / restaurantAddress), nullable coordinates.
 //
@@ -11,20 +12,21 @@
 // | POST   | /admin/ads/{id}/pause         | → AdCampaign                                              |
 // | POST   | /admin/ads/{id}/resume        | → AdCampaign (409 `ended` once ended)                     |
 // | DELETE | /admin/ads/{id}               | 204                                                       |
-// | GET    | /ads/feed?city=&lat=&lng=&limit= | Public (guests allowed), called by the mobile feed → AdFeedItem[] |
-// | POST   | /ads/{id}/impression · /click | Proposed: the mobile app reports views / taps (feeds impressions, clicks, spent) |
+// | GET    | /ads/feed?placement=nearby&city=&lat=&lng=&limit=1 | Public (guests allowed), called by "Quán chay gần bạn" → AdFeedItem[] |
+// | POST   | /ads/{id}/impression · /click | The app reports the first display / a tap (feeds impressions, clicks, spent) |
 //
-// GET /ads/feed returns only Running campaigns whose targetCity is null or matches `city`
-// (case / diacritic-insensitive), nearest first when lat/lng are sent, `limit` default 3:
-// [{ "id": 12, "restaurantId": 7,
+// GET /ads/feed returns only Running campaigns of `placement` (default nearby) whose targetCity is
+// null or matches `city` (case / diacritic-insensitive), nearest first when lat/lng are sent,
+// `limit` default 1:
+// [{ "id": 12, "restaurantId": 7, "placement": "nearby",
 //    "restaurant": { "id": 7, "name": "Bún Riêu Chay Hạnh Tâm", "address": "152 Đinh Tiên Hoàng, …",
 //                    "isVeganCertified": true, "latitude": 10.8003, "longitude": 106.6977,
 //                    "averageRating": 4.75, "reviewCount": 4 },
 //    "headline": "Bún riêu chay 35k — riêu đậu hũ mềm", "message": "Tô đầy đặn, …",
 //    "ctaType": "ViewStore", "ctaLabel": "Xem quán", "targetCity": "TP. Hồ Chí Minh",
 //    "startAt": "2026-10-04T17:00:00Z", "endAt": "2026-11-04T16:59:59.999Z", "distanceKm": 2.6 }]
-import type { AdCampaign, AdCtaType, AdFeedItem, AdInput, AdQuery, AdRestaurant, AdStatus } from "@/types/ads";
-import { AD_CTA_LABEL, AD_CTA_TYPES, AD_STATUSES, deriveAdStatus } from "@/types/ads";
+import type { AdCampaign, AdCtaType, AdFeedItem, AdInput, AdPlacement, AdQuery, AdRestaurant, AdStatus } from "@/types/ads";
+import { AD_CTA_LABEL, AD_CTA_TYPES, AD_NEARBY_LIMIT, AD_PLACEMENTS, AD_STATUSES, deriveAdStatus } from "@/types/ads";
 
 import { qs, request, USE_MOCK_DATA } from "./api_client";
 import { readSession } from "./auth";
@@ -65,6 +67,7 @@ export function normalizeAd(raw: Raw): AdCampaign {
     id: readId(raw.id),
     restaurantId: readId(raw.restaurantId ?? obj(raw.restaurant)?.id),
     restaurant: readRestaurant(raw),
+    placement: pick<AdPlacement>(AD_PLACEMENTS, raw.placement, "nearby"),
     headline: String(raw.headline ?? ""),
     message: String(raw.message ?? ""),
     ctaType: pick<AdCtaType>(AD_CTA_TYPES, raw.ctaType, "ViewStore"),
@@ -90,6 +93,7 @@ export function normalizeAdFeedItem(raw: Raw): AdFeedItem {
   return {
     id: readId(raw.id),
     restaurantId: readId(raw.restaurantId ?? r.id),
+    placement: pick<AdPlacement>(AD_PLACEMENTS, raw.placement, "nearby"),
     restaurant: { ...readRestaurant(raw), averageRating: optNumber(r.averageRating), reviewCount: num(r.reviewCount) },
     headline: String(raw.headline ?? ""),
     message: String(raw.message ?? ""),
@@ -145,10 +149,15 @@ export const adsApi = {
     await request<unknown>(`/admin/ads/${encodeURIComponent(id)}`, { method: "DELETE" });
   },
 
-  /** GET /ads/feed?city=&lat=&lng=&limit= — the public endpoint the mobile feed calls (documented here; the console does not use it). */
-  async feed(city: string | null, coords: { lat: number; lng: number } | null = null, limit = 3): Promise<AdFeedItem[]> {
-    if (USE_MOCK_DATA) return mock.getFeed(city, coords, limit);
-    const raw = await request<Raw[]>(`/ads/feed?${qs({ city: city ?? undefined, lat: coords?.lat, lng: coords?.lng, limit })}`);
+  /** GET /ads/feed?placement=nearby&city=&lat=&lng=&limit=1 — the public endpoint the app calls (documented here; the console does not use it). */
+  async feed(
+    city: string | null,
+    coords: { lat: number; lng: number } | null = null,
+    limit = AD_NEARBY_LIMIT,
+    placement: AdPlacement = "nearby",
+  ): Promise<AdFeedItem[]> {
+    if (USE_MOCK_DATA) return mock.getFeed(city, coords, limit, placement);
+    const raw = await request<Raw[]>(`/ads/feed?${qs({ placement, city: city ?? undefined, lat: coords?.lat, lng: coords?.lng, limit })}`);
     return raw.map(normalizeAdFeedItem);
   },
 };

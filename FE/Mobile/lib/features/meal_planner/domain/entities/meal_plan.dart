@@ -1,23 +1,10 @@
 // lib/features/meal_planner/domain/entities/meal_plan.dart
 import '../../../../core/utils/formatters.dart';
+import '../allergy_match.dart';
 import 'health_profile.dart';
+import 'meal_slot.dart';
 
-enum MealSlot {
-  breakfast('breakfast', 'Bữa sáng'),
-  lunch('lunch', 'Bữa trưa'),
-  dinner('dinner', 'Bữa tối');
-
-  const MealSlot(this.apiValue, this.label);
-  final String apiValue;
-  final String label;
-
-  static MealSlot? fromApi(String value) {
-    for (final slot in values) {
-      if (slot.apiValue == value) return slot;
-    }
-    return null;
-  }
-}
+export 'meal_slot.dart';
 
 /// The macros a dish can carry, with their Vietnamese labels.
 enum Macro {
@@ -149,11 +136,14 @@ class Recipe {
     this.source = MealSource.ai,
     this.sourceName,
     this.createdBy,
+    this.portion = 1,
   });
 
   final String id;
   final String name;
   final String? imageUrl;
+
+  /// For [portion] servings (what this slot holds), not per serving.
   final Nutrition nutrition;
   final List<String> allergens;
   final List<String> dietTags;
@@ -170,16 +160,31 @@ class Recipe {
   /// the catalogue.
   final String? createdBy;
 
+  /// Servings in the slot (`meal_plan_recipes.portion`): an AI plan sizes
+  /// portions so the day meets its kcal target. 1 = one serving.
+  final double portion;
+
+  /// "1,5 phần" when the slot holds more or less than one serving.
+  String? get portionLabel {
+    if (portion == 1) return null;
+    final text = portion
+        .toStringAsFixed(2)
+        .replaceFirst(RegExp(r'\.?0+$'), '')
+        .replaceAll('.', ',');
+    return '$text phần';
+  }
+
   /// `false` for dishes typed in without a kcal estimate.
   bool get hasNutrition => nutrition.calories > 0;
 
   /// Typed-in dishes have no recipe page.
   bool get hasDetail => source != MealSource.manual;
 
-  List<String> allergenConflicts(Iterable<String> userAllergies) {
-    final mine = userAllergies.toSet();
-    return allergens.where(mine.contains).toList();
-  }
+  /// The member's allergy keys this dish conflicts with: tagged allergen ids,
+  /// plus free-text allergies ("lá lốt") found in its name.
+  List<String> allergenConflicts(Iterable<String> userAllergies) =>
+      allergyConflicts(
+          tags: allergens, texts: [name], userAllergies: userAllergies);
 
   Recipe withSource(MealSource source, {String? sourceName}) => Recipe(
         id: id,
@@ -193,10 +198,12 @@ class Recipe {
         source: source,
         sourceName: sourceName ?? this.sourceName,
         createdBy: createdBy,
+        portion: portion,
       );
 }
 
-/// A dish a chef suggested to this member (VIP Menu buyers).
+/// A dish a chef suggested to this member ("Từ chuyên gia"), e.g. a day of a
+/// plan the member booked a chef for.
 class ChefSuggestion {
   const ChefSuggestion({
     required this.id,
@@ -250,6 +257,9 @@ class PantryItem {
     required this.id,
     required this.ingredient,
     this.scannedAt,
+    this.ingredientId,
+    this.category,
+    this.caloriesPer100g,
   });
 
   final String id;
@@ -257,6 +267,15 @@ class PantryItem {
 
   /// `null` for items typed in by hand.
   final DateTime? scannedAt;
+
+  /// The nutrition-DB row (`ingredients.id`) the name matched, if any.
+  final String? ingredientId;
+
+  /// `ingredients.category` api value (`leafy`, `mushroom`…), if known.
+  final String? category;
+
+  /// kcal per 100 g, if the ingredient is in the nutrition DB.
+  final int? caloriesPer100g;
 
   /// "Quét" when saved from a fridge scan, "Tự thêm" when typed in.
   PantrySource get source =>
@@ -310,6 +329,25 @@ class MealPlanDay {
   int conflictCount(Iterable<String> userAllergies) => meals.values
       .where((r) => r.allergenConflicts(userAllergies).isNotEmpty)
       .length;
+
+  /// Slots shown for this day: the member's [pattern] plus any other slot
+  /// that holds a dish (an extra meal added to this day only), in day order.
+  List<MealSlot> slotsFor(Iterable<MealSlot> pattern) {
+    final mine = pattern.toSet();
+    return [
+      for (final s in MealSlot.values)
+        if (mine.contains(s) || meals.containsKey(s)) s
+    ];
+  }
+
+  /// Slots "＋ Thêm bữa" can still add to this day.
+  List<MealSlot> missingSlots(Iterable<MealSlot> pattern) {
+    final shown = slotsFor(pattern).toSet();
+    return [
+      for (final s in MealSlot.values)
+        if (!shown.contains(s)) s
+    ];
+  }
 }
 
 class MealPlan {

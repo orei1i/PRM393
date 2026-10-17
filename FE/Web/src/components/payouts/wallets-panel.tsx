@@ -2,6 +2,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { Search, Wallet } from "lucide-react";
 
 import { EmptyState, ErrorState } from "@/components/admin/states";
@@ -14,7 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useChefWallets } from "@/lib/hooks/use-payouts";
 import { maskAccountNumber } from "@/lib/payouts_api";
 import { cn, formatNumber, formatPercent } from "@/lib/utils";
-import { PLATFORM_FEE_RATE } from "@/types/payouts";
+import { ESCROW_HOLD_DAYS, PLATFORM_FEE_RATE } from "@/types/payouts";
 
 const fold = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[Đđ]/g, "d").toLowerCase();
 
@@ -61,7 +62,8 @@ export function WalletsPanel() {
         <p className="w-full text-sm text-muted-foreground" aria-live="polite">
           {wallets.data
             ? `${formatNumber(rows?.length ?? 0)} ví${missingBank ? ` · ${formatNumber(missingBank)} chuyên gia chưa thêm tài khoản ngân hàng` : ""}. ` +
-              `Có thể rút = thu nhập đã giải ngân − phí ${formatPercent(PLATFORM_FEE_RATE)} − đã rút − đang xử lý rút.`
+              `Có thể rút = tiền đã giải ngân − phí ${formatPercent(PLATFORM_FEE_RATE)} − đã rút − đang xử lý rút. ` +
+              `Đang giữ: chưa hết ${ESCROW_HOLD_DAYS} ngày sau khi kế hoạch kết thúc.`
             : "Đang tải…"}
         </p>
       </div>
@@ -72,7 +74,7 @@ export function WalletsPanel() {
         <EmptyState
           icon={Wallet}
           title={search.trim() ? "Không có ví khớp từ khoá" : "Chưa có ví chuyên gia"}
-          description={search.trim() ? "Thử tên chuyên gia hoặc ngân hàng khác." : "Ví được tạo khi chuyên gia có đơn đầu tiên."}
+          description={search.trim() ? "Thử tên chuyên gia hoặc ngân hàng khác." : "Ví được tạo khi chuyên gia có lượt đặt đầu tiên được thanh toán."}
           action={
             search.trim() ? (
               <Button variant="outline" onClick={() => setSearchInput("")}>
@@ -82,13 +84,14 @@ export function WalletsPanel() {
           }
         />
       ) : (
-        <Table className="min-w-[1040px]">
+        <Table className="min-w-[1160px]">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead>Chuyên gia</TableHead>
               <TableHead className="text-right">Có thể rút</TableHead>
               <TableHead className="text-right">Đang xử lý rút</TableHead>
-              <TableHead className="text-right">Đang chờ (giữ)</TableHead>
+              <TableHead className="text-right">Đang giữ</TableHead>
+              <TableHead className="text-right">Tạm giữ do khiếu nại</TableHead>
               <TableHead className="text-right">Đã rút</TableHead>
               <TableHead className="text-right">Doanh thu · phí</TableHead>
               <TableHead>Tài khoản nhận</TableHead>
@@ -99,7 +102,7 @@ export function WalletsPanel() {
             {wallets.isLoading
               ? Array.from({ length: 5 }, (_, i) => (
                   <TableRow key={i}>
-                    <TableCell colSpan={8}>
+                    <TableCell colSpan={9}>
                       <Skeleton className="h-10" />
                     </TableCell>
                   </TableRow>
@@ -123,6 +126,18 @@ export function WalletsPanel() {
                     </TableCell>
                     <TableCell className="text-right">
                       <Money value={w.pending} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {w.frozen > 0 ? (
+                        <Link
+                          href="/disputes"
+                          className="font-mono text-destructive tabular underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+                        >
+                          {formatVnd(w.frozen)}
+                        </Link>
+                      ) : (
+                        <Money value={0} />
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       <Money value={w.withdrawn} />

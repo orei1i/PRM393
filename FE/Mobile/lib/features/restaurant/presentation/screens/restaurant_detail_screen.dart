@@ -1,5 +1,6 @@
 // lib/features/restaurant/presentation/screens/restaurant_detail_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/network/api_exception.dart';
@@ -14,12 +15,16 @@ import '../../../../core/widgets/user_avatar.dart';
 import '../../../../core/widgets/vl_card.dart';
 import '../../domain/entities/restaurant.dart';
 import '../controllers/restaurant_controllers.dart';
-import '../maps_launcher.dart';
+import '../widgets/restaurant_media_strip.dart';
 import '../widgets/restaurant_tile.dart';
 import '../widgets/review_sheet.dart';
+import '../widgets/vl_map.dart';
+import 'restaurant_route_screen.dart';
 
-/// Restaurant detail with reviews. Guests can read; writing a review needs
-/// sign-in. One review per member: "Sửa đánh giá của bạn" replaces it.
+/// Restaurant detail: an embedded OpenStreetMap (tap → full map), in-app
+/// "Chỉ đường", "Ảnh & video" and reviews. Guests can read; writing a review
+/// needs sign-in. One review per member: "Sửa đánh giá của bạn" replaces it.
+/// "Mở bằng Google Maps" (turn-by-turn) lives in the app-bar overflow.
 class RestaurantDetailScreen extends ConsumerWidget {
   const RestaurantDetailScreen(
       {super.key, required this.restaurantId, this.name});
@@ -38,10 +43,12 @@ class RestaurantDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(restaurantDetailProvider(restaurantId));
-    final title = async.valueOrNull?.restaurant.name ?? name ?? 'Quán chay';
+    final loaded = async.valueOrNull?.restaurant;
+    final title = loaded?.name ?? name ?? 'Quán chay';
     return Scaffold(
       appBar: AppBar(
         title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+        actions: [if (loaded != null) GoogleMapsMenu(restaurant: loaded)],
       ),
       body: async.when(
         data: (value) => _DetailBody(state: value),
@@ -72,19 +79,6 @@ class _DetailBody extends ConsumerWidget {
   const _DetailBody({required this.state});
 
   final RestaurantDetailState state;
-
-  Future<void> _openMaps(BuildContext context, WidgetRef ref, Uri uri) async {
-    var opened = false;
-    try {
-      opened = await ref.read(urlOpenerProvider)(uri);
-    } catch (_) {
-      opened = false;
-    }
-    if (!opened && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Không mở được Google Maps trên máy này.')));
-    }
-  }
 
   Future<void> _writeReview(BuildContext context, WidgetRef ref) async {
     if (!await ensureSignedIn(context, ref,
@@ -162,38 +156,35 @@ class _DetailBody extends ConsumerWidget {
               _CertificationNote(certified: r.isVeganCertified),
               const SizedBox(height: 12),
               _InfoRow(icon: Icons.place_outlined, text: r.address),
-              if (!r.hasLocation)
-                const _InfoRow(
-                  icon: Icons.location_off_outlined,
-                  text:
-                      'Chưa có vị trí: quán chưa có toạ độ nên chưa tính được khoảng cách.',
-                ),
               if (r.createdByName != null)
                 _InfoRow(
                   icon: Icons.person_add_alt_outlined,
                   text: 'Được gợi ý bởi ${r.createdByName}',
                 ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: () => _openMaps(context, ref, mapsSearchUri(r)),
-                    icon: const Icon(Icons.map_outlined),
-                    label: const Text('Mở bản đồ'),
-                  ),
-                  FilledButton.tonalIcon(
-                    onPressed: () =>
-                        _openMaps(context, ref, mapsDirectionsUri(r)),
-                    icon: const Icon(Icons.directions_outlined),
-                    label: const Text('Chỉ đường'),
-                  ),
-                ],
-              ),
+              const SizedBox(height: 4),
+              _LocationPreview(restaurant: r),
+              if (r.hasLocation) ...[
+                const SizedBox(height: 12),
+                FilledButton.tonalIcon(
+                  onPressed: () => Navigator.of(context)
+                      .push(RestaurantRouteScreen.route(r)),
+                  icon: const Icon(Icons.directions_outlined),
+                  label: const Text('Chỉ đường'),
+                ),
+              ],
             ],
           ),
         ),
+        if (state.media.isNotEmpty) ...[
+          const _SectionGap(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            child: Text('Ảnh & video (${state.media.length})',
+                style: context.textStyles.titleMedium),
+          ),
+          RestaurantMediaStrip(media: state.media),
+          const SizedBox(height: 16),
+        ],
         const _SectionGap(),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -232,6 +223,95 @@ class _DetailBody extends ConsumerWidget {
             _ReviewTile(review: review, isMine: review.id == mine?.id),
           ],
       ],
+    );
+  }
+}
+
+/// The embedded 180 dp map (tap → full map), or "Quán chưa có vị trí trên
+/// bản đồ" for places without coordinates.
+class _LocationPreview extends StatelessWidget {
+  const _LocationPreview({required this.restaurant});
+
+  final Restaurant restaurant;
+
+  @override
+  Widget build(BuildContext context) {
+    final r = restaurant;
+    final point = r.location;
+    if (point == null) {
+      return Container(
+        height: 72,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        decoration: BoxDecoration(
+          color: context.colors.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.location_off_outlined, color: context.vl.muted),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Quán chưa có vị trí trên bản đồ nên chưa tính được khoảng cách và chỉ đường.',
+                style: context.textStyles.bodyMedium
+                    ?.copyWith(color: context.vl.muted),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return Semantics(
+      button: true,
+      label: 'Bản đồ vị trí quán. Chạm để mở bản đồ lớn',
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: SizedBox(
+          height: 180,
+          child: VLMap(
+            center: point,
+            zoom: 16,
+            interactive: false,
+            onTap: () =>
+                Navigator.of(context).push(RestaurantMapScreen.route(r)),
+            layers: [
+              MarkerLayer(
+                markers: [
+                  Marker(
+                    point: point.latLng,
+                    width: RestaurantPin.size,
+                    height: RestaurantPin.size,
+                    child: RestaurantPin(
+                        certified: r.isVeganCertified,
+                        selected: true,
+                        label: r.name),
+                  ),
+                ],
+              ),
+            ],
+            overlays: [
+              Align(
+                alignment: Alignment.topRight,
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Material(
+                    color: context.colors.surface,
+                    shape: const CircleBorder(),
+                    elevation: 2,
+                    child: IconButton(
+                      tooltip: 'Mở bản đồ lớn',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => Navigator.of(context)
+                          .push(RestaurantMapScreen.route(r)),
+                      icon: const Icon(Icons.open_in_full_rounded, size: 20),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

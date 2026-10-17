@@ -1,13 +1,12 @@
 // lib/features/commerce/presentation/widgets/commerce_ui.dart
 //
-// Shared bits for the buyer and chef commerce screens: date formats and the
-// status / type chips.
+// Shared bits for the payment, booking and chef-studio screens: date formats
+// and the status chips.
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/widgets/shimmer.dart';
-import '../../../chef/domain/entities/chef.dart';
 import '../../domain/commerce_status.dart';
 
 String _two(int n) => n.toString().padLeft(2, '0');
@@ -18,11 +17,11 @@ String formatClock(DateTime d) => '${_two(d.hour)}:${_two(d.minute)}';
 /// "17/10/2026"
 String formatFullDate(DateTime d) => '${formatDayMonth(d)}/${d.year}';
 
-/// "T5, 17/10 · 19:30" (appointments).
+/// "T5, 17/10 · 19:30".
 String formatSlot(DateTime d) =>
     '${weekdayShort(d)}, ${formatDayMonth(d)} · ${formatClock(d)}';
 
-/// "19:30, 17/10/2026" (payments, grants).
+/// "19:30, 17/10/2026" (payments, ledger rows).
 String formatStamp(DateTime d) => '${formatClock(d)}, ${formatFullDate(d)}';
 
 enum _Tone { success, caution, error, neutral, ai }
@@ -94,7 +93,7 @@ Widget orderStatusTag(BuildContext context, OrderStatus status) => _tag(
       OrderStatus.pending => _Tone.caution,
       OrderStatus.paid => _Tone.success,
       OrderStatus.cancelled => _Tone.neutral,
-      OrderStatus.refunded => _Tone.ai,
+      OrderStatus.refunded || OrderStatus.partiallyRefunded => _Tone.ai,
     });
 
 Widget paymentStatusTag(BuildContext context, PaymentStatus status) => _tag(
@@ -107,42 +106,6 @@ Widget paymentStatusTag(BuildContext context, PaymentStatus status) => _tag(
       PaymentStatus.expired => _Tone.neutral,
       PaymentStatus.refunded => _Tone.ai,
     });
-
-Widget grantStatusTag(BuildContext context, GrantStatus status) => _tag(
-    context,
-    status.label,
-    switch (status) {
-      GrantStatus.active => _Tone.success,
-      GrantStatus.expired => _Tone.neutral,
-      GrantStatus.revoked => _Tone.error,
-    });
-
-Widget consultationStatusTag(BuildContext context, ConsultationStatus status) =>
-    _tag(
-        context,
-        status.label,
-        switch (status) {
-          ConsultationStatus.awaitingPayment ||
-          ConsultationStatus.pending =>
-            _Tone.caution,
-          ConsultationStatus.confirmed ||
-          ConsultationStatus.completed =>
-            _Tone.success,
-          ConsultationStatus.inProgress => _Tone.ai,
-          ConsultationStatus.declined => _Tone.error,
-          ConsultationStatus.cancelled => _Tone.neutral,
-        });
-
-Widget serviceTypeTag(BuildContext context, ServiceType type) => _tag(
-      context,
-      type.label,
-      _Tone.neutral,
-      icon: switch (type) {
-        ServiceType.consult => Icons.videocam_outlined,
-        ServiceType.course => Icons.school_outlined,
-        ServiceType.vipMenu => Icons.restaurant_menu_rounded,
-      },
-    );
 
 /// Label + value line used in detail blocks; wraps instead of overflowing
 /// at large text sizes.

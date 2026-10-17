@@ -3,7 +3,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { ExternalLink, Eye, EyeOff, Flag, Trash2 } from "lucide-react";
+import { CornerDownRight, ExternalLink, Eye, EyeOff, Flag, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { InitialsAvatar } from "@/components/admin/initials-avatar";
@@ -69,7 +69,7 @@ function Detail({
       { id: comment.id, action: "delete", reason: reason.trim() || undefined },
       {
         onSuccess: () => {
-          toast.success("Đã xoá bình luận");
+          toast.success(comment.replyCount > 0 ? `Đã xoá bình luận và ${comment.replyCount} phản hồi` : "Đã xoá bình luận");
           setConfirmDelete(false);
           onClose();
         },
@@ -97,7 +97,27 @@ function Detail({
           <p className="font-semibold">{comment.author.fullName}</p>
         </div>
 
+        {comment.parentId && (
+          <p className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+            <CornerDownRight className="size-4" aria-hidden />
+            Trả lời bình luận của <span className="font-semibold text-foreground">{comment.replyTo?.authorName ?? "một thành viên"}</span>
+          </p>
+        )}
+
         <p className="whitespace-pre-wrap rounded-lg bg-muted px-4 py-3 text-sm leading-relaxed">{comment.content}</p>
+
+        {comment.replyCount > 0 && (
+          <p className="text-sm text-muted-foreground">
+            Có {comment.replyCount} phản hồi. Xoá bình luận này sẽ xoá luôn các phản hồi.{" "}
+            <button
+              type="button"
+              className="font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+              onClick={() => router.push(`/comments?post=${encodeURIComponent(comment.postId)}`)}
+            >
+              Xem cả chuỗi
+            </button>
+          </p>
+        )}
 
         {comment.reportCount > 0 && (
           <p className="flex items-start gap-2 rounded-lg border border-ochre-border bg-ochre-soft px-3 py-2 text-sm text-ochre-text">
@@ -147,8 +167,11 @@ function Detail({
         }}
       >
         <DialogContent>
-          <DialogTitle>Xoá bình luận?</DialogTitle>
-          <DialogDescription>Bình luận bị xoá vĩnh viễn khỏi bài viết. Nếu chỉ cần gỡ tạm, hãy dùng “Ẩn”.</DialogDescription>
+          <DialogTitle>{comment.replyCount > 0 ? `Xoá bình luận và ${comment.replyCount} phản hồi?` : "Xoá bình luận?"}</DialogTitle>
+          <DialogDescription>
+            {comment.replyCount > 0 ? "Bình luận và toàn bộ phản hồi bên dưới" : "Bình luận"} bị xoá vĩnh viễn khỏi bài viết. Nếu chỉ cần gỡ
+            tạm, hãy dùng “Ẩn”.
+          </DialogDescription>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor={reasonId}>Lý do (gửi cho tác giả)</Label>
             <Textarea

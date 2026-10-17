@@ -1,8 +1,8 @@
 // lib/features/restaurant/data/mock/restaurant_mock_data.dart
 //
-// Same restaurants, ids, coordinates, certification and reviews as the web
-// admin mock (FE/Web/src/lib/mock_restaurants.ts), so the nearby list, search
-// and the sponsored "Được tài trợ" cards agree. Fictional names only: we never
+// Same restaurants, ids, coordinates, certification, media and reviews as
+// the web admin mock (FE/Web/src/lib/mock_restaurants.ts), so the nearby
+// list, its map, search and the sponsored "Được tài trợ" row agree. Fictional names only: we never
 // imply a real place's certification. Review comments mention dishes (bún
 // riêu, phở chay, cơm tấm chay, lẩu nấm, bánh xèo, sữa hạt) so dish search
 // and suggestions work.
@@ -127,6 +127,34 @@ final List<RestaurantSeed> mockRestaurantSeeds = [
   _s('rs_qa_fail', 'Quán thử nghiệm QA #fail',
       '1 Đường thử nghiệm, Q.5, TP.HCM', false, 'u_new_1'),
 ];
+
+typedef MediaSeed = (
+  String restaurantId,
+  String mediaType,
+  String file,
+  String? uploadedBy,
+  int daysAgo
+);
+
+/// `restaurant_media`, same order and files as the web mock (`rm_<n>` ids,
+/// `MEDIA_SEEDS` in FE/Web `src/lib/mock_restaurants.ts`). `null` uploader
+/// = the admin team. URLs are illustrative: the app draws an illustrated
+/// cover under each photo, so a missing file never shows as broken.
+const List<MediaSeed> mockRestaurantMediaSeeds = [
+  ('rs_an_lac', 'Image', 'an_lac_mat_tien.jpg', null, 40),
+  ('rs_an_lac', 'Image', 'an_lac_bun_rieu.jpg', 'u_me', 3),
+  ('rs_hanh_tam', 'Image', 'hanh_tam_to_bun.jpg', null, 30),
+  ('rs_hanh_tam', 'Video', 'hanh_tam_gioi_thieu.mp4', null, 30),
+  ('rs_moc_nhien', 'Image', 'moc_nhien_lau_nam.jpg', 'u_chef_tam', 12),
+  ('rs_nha_gao', 'Image', 'nha_gao_com_gao_lut.jpg', 'u_hoang_nam', 17),
+  ('rs_nha_gao', 'Image', 'nha_gao_quay.jpg', 'u_hoang_nam', 17),
+  ('rs_ut_muoi', 'Image', 'ut_muoi_com_tam.jpg', 'u_me', 1),
+  ('rs_ut_muoi', 'Image', 'ut_muoi_mat_tien.jpg', 'u_me', 1),
+  ('rs_ut_muoi', 'Video', 'ut_muoi_quay_quan.mp4', 'u_me', 1),
+  ('rs_nha_la', 'Image', 'nha_la_gian_hang.jpg', 'u_thao_vy', 4),
+];
+
+const mockMediaBase = 'https://res.cloudinary.com/veganlife';
 
 typedef ReviewSeed = (
   String userId,

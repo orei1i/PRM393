@@ -54,7 +54,9 @@ class ChefCard extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        'Từ ${formatVnd(chef.startingPriceVnd)}',
+                        chef.acceptingBookings
+                            ? 'Từ ${formatVnd(chef.startingPriceVnd)}/ngày'
+                            : 'Tạm ngưng nhận yêu cầu',
                         style: context.textStyles.titleSmall?.copyWith(
                           color: context.colors.primary,
                           fontWeight: FontWeight.w800,

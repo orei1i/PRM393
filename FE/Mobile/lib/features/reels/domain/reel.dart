@@ -1,6 +1,5 @@
 // lib/features/reels/domain/reel.dart
 import '../../community/domain/entities/post.dart';
-import '../../video/domain/entities/video_recipe.dart';
 
 /// A short vertical clip: a `posts` row with `media_type = Video`, played
 /// full screen. Like, save and comment go through the post.
@@ -17,9 +16,9 @@ class Reel {
 
   String get id => post.id;
 
-  /// "Xem công thức": the AI pipeline extracted a recipe from the video.
-  bool get hasRecipe =>
-      post.videoId != null && post.videoStatus == VideoAiStatus.ready;
+  /// "Xem công thức": the AI pipeline extracted a recipe from the video
+  /// (Công thức posts only).
+  bool get hasRecipe => post.hasAiRecipe;
 
   Reel withPost(Post updated) =>
       Reel(post: updated, videoUrl: videoUrl, durationSeconds: durationSeconds);

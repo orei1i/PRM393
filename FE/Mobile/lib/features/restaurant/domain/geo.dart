@@ -38,12 +38,29 @@ double haversineKm(GeoPoint a, GeoPoint b) {
   return 2 * _earthRadiusKm * math.asin(math.sqrt(h.toDouble()));
 }
 
-/// 0.367 → "370 m", 1.234 → "1,2 km", 12.6 → "13 km", null → "Chưa có vị trí".
+/// Every distance shown (list, map card, route, sponsored row): 0.367 →
+/// "370 m", 1.234 → "1,2 km", 12.6 → "13 km", 1141.2 → "1.141 km"
+/// (Vietnamese thousands separator), null → "Chưa có vị trí".
 String formatDistance(double? km) {
   if (km == null) return 'Chưa có vị trí';
   if (km < 0.05) return 'Dưới 50 m';
   final meters = (km * 100).round() * 10;
   if (meters < 1000) return '$meters m';
-  if (km < 10) return '${formatDecimal(km)} km';
-  return '${km.round()} km';
+  // 9.96 would read "10,0 km" with one decimal: whole km from there on.
+  if (km < 9.95) return '${formatDecimal(km)} km';
+  return '${formatInt(km)} km';
 }
+
+/// Driving time for a route summary: 540 → "≈ 9 phút", 3900 → "≈ 1 giờ 5
+/// phút", under a minute → "≈ 1 phút".
+String formatTravelTime(double seconds) {
+  final minutes = (seconds / 60).round().clamp(1, 1 << 30);
+  if (minutes < 60) return '≈ $minutes phút';
+  final hours = minutes ~/ 60;
+  final rest = minutes % 60;
+  return rest == 0 ? '≈ $hours giờ' : '≈ $hours giờ $rest phút';
+}
+
+/// "10.77690, 106.70090": a picked point without a known address.
+String formatCoordinates(GeoPoint p) =>
+    '${p.latitude.toStringAsFixed(5)}, ${p.longitude.toStringAsFixed(5)}';

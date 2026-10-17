@@ -10,6 +10,7 @@ import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/labels.dart';
 import '../../../../core/widgets/shimmer.dart';
 import '../../../../core/widgets/vl_card.dart';
+import '../../../ingredient/presentation/screens/pantry_screen.dart';
 import '../../../meal_planner/data/meal_planner_api_service.dart';
 import '../../../meal_planner/domain/entities/meal_plan.dart';
 import '../../../meal_planner/presentation/controllers/meal_plan_controller.dart';
@@ -30,8 +31,8 @@ import 'dashed_border.dart';
 /// thuần chay — không lưu" with the reason and "Gợi ý thay thế" (a tap adds
 /// the swap as a vegan item). The primary CTA "Lưu vào tủ lạnh" keeps only
 /// the confirmed vegan items in "Nguyên liệu trong tủ", then offers "Tạo
-/// thực đơn từ tủ lạnh" / "Xem trong Thực đơn". AI dish ideas from the same
-/// vegan items stay available below.
+/// thực đơn từ tủ lạnh" / "Xem tủ lạnh" (the fridge list with nutrition).
+/// AI dish ideas from the same vegan items stay available below.
 class ScannedIngredientsSheet extends ConsumerStatefulWidget {
   const ScannedIngredientsSheet({
     super.key,
@@ -46,8 +47,9 @@ class ScannedIngredientsSheet extends ConsumerStatefulWidget {
   /// scanner's top bar ("Đóng", torch) stays visible and tappable.
   final double reservedTop;
 
-  /// "Xem trong Thực đơn": leave the scanner for the Thực đơn tab. Defaults
-  /// to closing the scanner route with [ScannerExit.openPlanner].
+  /// Leave the scanner for the Thực đơn tab (after "Tạo thực đơn từ tủ
+  /// lạnh"). Defaults to closing the scanner route with
+  /// [ScannerExit.openPlanner].
   final VoidCallback? onOpenPlanner;
 
   /// Opens the low-confidence confirmation and applies the decision.
@@ -115,6 +117,7 @@ class _ScannedIngredientsSheetState
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
+        persist: MediaQuery.accessibleNavigationOf(context),
         content: Text('Đã bỏ ${removedItem.name.toLowerCase()}'),
         action: SnackBarAction(
           label: 'Hoàn tác',
@@ -130,6 +133,7 @@ class _ScannedIngredientsSheetState
     final slot = await AddToPlanSheet.show(context, m);
     if (slot == null || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
+    final keepSnack = MediaQuery.accessibleNavigationOf(context);
     final planner = ref.read(mealPlanControllerProvider.notifier);
     setState(() => _addingId = m.id);
     try {
@@ -151,6 +155,7 @@ class _ScannedIngredientsSheetState
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(
           duration: const Duration(seconds: 5),
+          persist: keepSnack,
           content: Text(
               'Đã thêm "${m.name}" vào ${slot.label.toLowerCase()} hôm nay.$warning'),
           action: added.replaced == null
@@ -174,7 +179,7 @@ class _ScannedIngredientsSheetState
   }
 
   /// "Lưu vào tủ lạnh": keeps the confirmed vegan items (names only, no
-  /// amounts) in "Nguyên liệu trong tủ" on the Thực đơn tab.
+  /// amounts) in "Nguyên liệu trong tủ".
   Future<void> _saveToPantry(List<DetectedIngredient> items) async {
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _savingPantry = true);
@@ -209,6 +214,14 @@ class _ScannedIngredientsSheetState
     final open = widget.onOpenPlanner;
     if (open != null) return open();
     Navigator.of(context).pop(ScannerExit.openPlanner);
+  }
+
+  /// "Xem tủ lạnh": the fridge list over the scanner. A week generated there
+  /// leaves the scanner for the Thực đơn tab.
+  Future<void> _openPantry() async {
+    final generated = await Navigator.of(context)
+        .push(PantryScreen.route(openedFromScanner: true));
+    if (generated == true && mounted) _openPlanner();
   }
 
   /// "Tạo thực đơn từ tủ lạnh": a new AI week built around the (vegan)
@@ -411,7 +424,7 @@ class _ScannedIngredientsSheetState
                       count: _savedCount,
                       generating: _generatingPlan,
                       onGenerate: _generateFromPantry,
-                      onOpenPlanner: _openPlanner,
+                      onOpenPantry: _openPantry,
                     )
                   else if (nothingToSave)
                     const _NothingToSave()
@@ -538,13 +551,13 @@ class _SavedPanel extends StatelessWidget {
     required this.count,
     required this.generating,
     required this.onGenerate,
-    required this.onOpenPlanner,
+    required this.onOpenPantry,
   });
 
   final int count;
   final bool generating;
   final VoidCallback onGenerate;
-  final VoidCallback onOpenPlanner;
+  final VoidCallback onOpenPantry;
 
   @override
   Widget build(BuildContext context) {
@@ -576,7 +589,7 @@ class _SavedPanel extends StatelessWidget {
                               color: vl.onSuccessContainer,
                               fontWeight: FontWeight.w700)),
                       Text(
-                        'Xem và sửa ở mục "Nguyên liệu trong tủ" của tab Thực đơn.',
+                        'Xem dinh dưỡng từng nguyên liệu và sửa danh sách trong "Nguyên liệu trong tủ".',
                         style: context.textStyles.bodySmall
                             ?.copyWith(color: vl.onSuccessContainer),
                       ),
@@ -606,12 +619,12 @@ class _SavedPanel extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
-              onPressed: generating ? null : onOpenPlanner,
+              onPressed: generating ? null : onOpenPantry,
               style: OutlinedButton.styleFrom(
                   backgroundColor: cs.surface,
                   minimumSize: const Size.fromHeight(48)),
-              icon: const Icon(Icons.calendar_month_outlined),
-              label: const Text('Xem trong Thực đơn'),
+              icon: const Icon(Icons.kitchen_outlined),
+              label: const Text('Xem tủ lạnh'),
             ),
           ],
         ),

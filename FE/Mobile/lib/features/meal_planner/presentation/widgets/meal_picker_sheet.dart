@@ -426,7 +426,8 @@ class _ChefTabState extends ConsumerState<_ChefTab>
               child: EmptyStateView(
                 icon: Icons.verified_outlined,
                 title: 'Chưa có đề xuất từ chuyên gia',
-                message: 'Đăng ký gói Thực đơn VIP để nhận món đề xuất.',
+                message:
+                    'Đặt chuyên gia lên thực đơn để nhận món đề xuất theo từng ngày.',
               ),
             ),
           );

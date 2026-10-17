@@ -6,19 +6,41 @@ import '../../data/community_api_service.dart';
 import '../../../video/domain/entities/video_recipe.dart';
 import '../../domain/entities/post.dart';
 
+/// The feed's filter chips: Tất cả · Công thức · Hỏi đáp · Có video.
+enum FeedFilter {
+  all('Tất cả'),
+  recipe('Công thức', type: PostType.recipe),
+  discussion('Hỏi đáp', type: PostType.discussion),
+  video('Có video', mediaType: PostMediaType.video);
+
+  const FeedFilter(this.label, {this.type, this.mediaType});
+  final String label;
+
+  /// `GET /posts?type=`.
+  final PostType? type;
+
+  /// `GET /posts?mediaType=`.
+  final PostMediaType? mediaType;
+
+  /// The Reels strip shows with "Tất cả" and "Có video" only.
+  bool get showsReels => this == all || this == video;
+
+  bool matches(Post post) =>
+      (type == null || post.type == type) &&
+      (mediaType == null || post.mediaType == mediaType);
+}
+
 class FeedState {
   const FeedState({
     required this.posts,
-    this.filter,
+    this.filter = FeedFilter.all,
     this.nextCursor,
     this.loadingMore = false,
     this.loadMoreError,
   });
 
   final List<Post> posts;
-
-  /// `null` = Tất cả.
-  final PostType? filter;
+  final FeedFilter filter;
   final String? nextCursor;
   final bool loadingMore;
   final Object? loadMoreError;
@@ -56,8 +78,8 @@ final feedControllerProvider =
 
 /// Bumped after the member posts, edits, deletes, likes, saves or comments.
 /// Lists built from the same data elsewhere ("Bài viết của tôi", "Đã lưu",
-/// "Bình luận", the stats on "Tôi") watch it and refetch instead of keeping
-/// numbers from before the change.
+/// "Bình luận", the stats on "Tôi", Reels) watch it and refetch instead of
+/// keeping numbers from before the change.
 final communityRevisionProvider =
     NotifierProvider<CommunityRevision, int>(CommunityRevision.new);
 
@@ -70,7 +92,7 @@ class CommunityRevision extends Notifier<int> {
 
 class FeedController extends AsyncNotifier<FeedState> {
   CommunityApiService get _api => ref.read(communityApiProvider);
-  PostType? _filter;
+  FeedFilter _filter = FeedFilter.all;
 
   @override
   Future<FeedState> build() async {
@@ -80,16 +102,18 @@ class FeedController extends AsyncNotifier<FeedState> {
   }
 
   Future<FeedState> _fetchFirstPage(CommunityApiService api) async {
-    final page = (await api.getFeed(type: _filter)).toEntity();
+    final page =
+        (await api.getFeed(type: _filter.type, mediaType: _filter.mediaType))
+            .toEntity();
     return FeedState(
         posts: page.items, filter: _filter, nextCursor: page.nextCursor);
   }
 
   FeedState? get _current => state.hasValue ? state.requireValue : null;
 
-  Future<void> setFilter(PostType? type) async {
-    if (type == _filter && state.hasValue) return;
-    _filter = type;
+  Future<void> setFilter(FeedFilter filter) async {
+    if (filter == _filter && state.hasValue) return;
+    _filter = filter;
     state = const AsyncLoading<FeedState>();
     state = await AsyncValue.guard(() => _fetchFirstPage(_api));
   }
@@ -107,9 +131,12 @@ class FeedController extends AsyncNotifier<FeedState> {
     state = AsyncData(
         current.copyWith(loadingMore: true, clearLoadMoreError: true));
     try {
-      final page =
-          (await _api.getFeed(type: current.filter, cursor: current.nextCursor))
-              .toEntity();
+      final page = (await _api.getFeed(
+        type: current.filter.type,
+        mediaType: current.filter.mediaType,
+        cursor: current.nextCursor,
+      ))
+          .toEntity();
       final latest = _current ?? current;
       final known = latest.posts.map((p) => p.id).toSet();
       state = AsyncData(latest.copyWith(
@@ -164,19 +191,24 @@ class FeedController extends AsyncNotifier<FeedState> {
     }
   }
 
-  void commentAdded(String postId) {
+  /// After comments were added (+1) or deleted (−1 − its replies) anywhere:
+  /// moves the feed copy's count by [delta].
+  void commentsChanged(String postId, int delta) {
     _changed();
     final post = _current?.byId(postId);
-    if (post != null) {
-      _replace(post.copyWith(commentCount: post.commentCount + 1));
+    if (post != null && delta != 0) {
+      _replace(post.copyWith(
+          commentCount: (post.commentCount + delta).clamp(0, 1 << 30)));
     }
   }
 
-  void commentRemoved(String postId) {
+  /// Sets the feed copy's count to what the server says (after a delete
+  /// whose reply count wasn't known).
+  void commentCountIs(String postId, int count) {
     _changed();
     final post = _current?.byId(postId);
-    if (post != null && post.commentCount > 0) {
-      _replace(post.copyWith(commentCount: post.commentCount - 1));
+    if (post != null && post.commentCount != count) {
+      _replace(post.copyWith(commentCount: count));
     }
   }
 
@@ -189,7 +221,7 @@ class FeedController extends AsyncNotifier<FeedState> {
     _changed();
     final current = _current;
     if (current == null || !post.isPublished) return;
-    if (current.filter != null && current.filter != post.type) return;
+    if (!current.filter.matches(post)) return;
     final pinned = current.posts.where((p) => p.isPinned).toList();
     final rest = current.posts.where((p) => !p.isPinned).toList();
     state = AsyncData(current.copyWith(posts: [...pinned, post, ...rest]));
@@ -222,7 +254,7 @@ class FeedController extends AsyncNotifier<FeedState> {
         posts: current.posts.where((p) => p.id != postId).toList()));
   }
 
-  /// Called by the video screen while it polls the AI pipeline.
+  /// Called by the post detail while it polls the AI pipeline.
   void videoStatusChanged(String videoId, VideoAiStatus status) {
     final current = _current;
     if (current == null) return;

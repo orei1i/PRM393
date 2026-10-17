@@ -2,14 +2,13 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../../core/network/api_exception.dart';
-import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/json_helpers.dart';
+import '../../../booking/data/mock/mock_booking_db.dart';
 import '../../../chef/data/mock/chef_mock_data.dart';
-import '../../../chef/domain/entities/chef.dart';
 import '../../domain/commerce_status.dart';
 
-/// Mock-only switch for the commerce and chef-studio lists, so their empty
-/// and error states can be seen on a device:
+/// Mock-only switch for the booking, wallet and chef-studio lists, so their
+/// empty and error states can be seen on a device:
 /// `flutter run --dart-define=MOCK_COMMERCE_SCENARIO=empty` (or `error`).
 const _scenarioFromEnv =
     String.fromEnvironment('MOCK_COMMERCE_SCENARIO', defaultValue: 'normal');
@@ -23,11 +22,15 @@ bool hasFailTrigger(String? text) =>
 
 String? _iso(DateTime? d) => d?.toUtc().toIso8601String();
 
+/// `chef_profiles` + the proposed booking prices
+/// (`price_per_day`, `feedback_price_per_day`, `min_plan_days`,
+/// `max_plan_days`, `accepting_bookings`).
 class MockChefRow {
   MockChefRow.fromSeed(Map<String, dynamic> json)
       : id = json['id'] as String,
         userId = json['userId'] as String,
         fullName = json['fullName'] as String,
+        email = json['email'] as String? ?? '',
         headline = json['headline'] as String,
         specialties = readStringList(json['specialties']),
         bio = json['bio'] as String,
@@ -36,7 +39,12 @@ class MockChefRow {
         yearsExperience = readInt(json['yearsExperience']),
         city = json['city'] as String,
         consultCount = readInt(json['consultCount']),
-        certificates = readStringList(json['certificates']);
+        certificates = readStringList(json['certificates']),
+        pricePerDay = readInt(json['pricePerDay']),
+        feedbackPricePerDay = readInt(json['feedbackPricePerDay']),
+        minPlanDays = readInt(json['minPlanDays']),
+        maxPlanDays = readInt(json['maxPlanDays']),
+        acceptingBookings = json['acceptingBookings'] as bool? ?? true;
 
   MockChefRow.created(
       {required this.id,
@@ -44,18 +52,25 @@ class MockChefRow {
       required this.fullName,
       required String specialty,
       required this.bio})
-      : headline = 'Chuyên gia VeganLife',
+      : email = '',
+        headline = 'Chuyên gia VeganLife',
         specialties = [specialty],
         rating = 0,
         reviewCount = 0,
         yearsExperience = 0,
         city = '',
         consultCount = 0,
-        certificates = const [];
+        certificates = const [],
+        pricePerDay = 120000,
+        feedbackPricePerDay = 180000,
+        minPlanDays = 3,
+        maxPlanDays = 30,
+        acceptingBookings = true;
 
   final String id;
   final String userId;
   String fullName;
+  final String email;
   String headline;
   List<String> specialties;
   String bio;
@@ -63,75 +78,48 @@ class MockChefRow {
   final int reviewCount;
   final int yearsExperience;
   final String city;
+
+  /// Finished bookings ("kế hoạch đã thiết kế").
   final int consultCount;
   final List<String> certificates;
+  int pricePerDay;
+  int feedbackPricePerDay;
+  int minPlanDays;
+  int maxPlanDays;
+  bool acceptingBookings;
+
+  /// The listed price per day for [dailyFeedback] or one-shot plans.
+  int priceFor({required bool dailyFeedback}) =>
+      dailyFeedback ? feedbackPricePerDay : pricePerDay;
 }
 
-class MockServiceRow {
-  MockServiceRow({
-    required this.id,
-    required this.chefId,
-    required this.title,
-    required this.type,
-    required this.price,
-    this.description = '',
-    this.durationMinutes,
-    this.contentUrl,
-  });
-
-  final String id;
-  final String chefId;
-  String title;
-  ServiceType type;
-  int price;
-  String description;
-  int? durationMinutes;
-  String? contentUrl;
-
-  /// [contentUrl] only goes to the owner (buyers get it from /content).
-  Map<String, dynamic> toJson({bool withContentUrl = false}) => {
-        'id': id,
-        'chefId': chefId,
-        'title': title,
-        'type': type.apiValue,
-        'price': price,
-        'description': description,
-        if (durationMinutes != null) 'durationMinutes': durationMinutes,
-        if (withContentUrl && contentUrl != null) 'contentUrl': contentUrl,
-      };
-}
-
+/// `orders` with `booking_id` (the only order type left).
 class MockOrderRow {
   MockOrderRow({
     required this.id,
     required this.userId,
     required this.buyerName,
-    required this.service,
+    required this.bookingId,
+    required this.chefId,
     required this.chefName,
+    required this.amount,
     required this.createdAt,
     this.status = OrderStatus.pending,
-  })  : serviceId = service.id,
-        serviceTitle = service.title,
-        type = service.type,
-        chefId = service.chefId,
-        amount = service.price;
+  });
 
   final String id;
   final String userId;
   final String buyerName;
-  final MockServiceRow service;
-
-  // Snapshot at purchase time: later edits to the service don't change it.
-  final String serviceId;
-  final String serviceTitle;
-  final ServiceType type;
+  final String bookingId;
   final String chefId;
   final String chefName;
+
+  /// = contract price, a snapshot.
   final int amount;
   final DateTime createdAt;
   OrderStatus status;
 
-  /// When the refund stub ran (chef wallet: the reversal's date).
+  /// When the refund (full or partial) was sent back.
   DateTime? refundedAt;
 }
 
@@ -153,47 +141,6 @@ class MockPaymentRow {
   final DateTime expiresAt;
   PaymentStatus status = PaymentStatus.pending;
   DateTime? paidAt;
-}
-
-class MockGrantRow {
-  MockGrantRow({
-    required this.id,
-    required this.paymentId,
-    required this.orderId,
-    required this.grantedAt,
-    required this.expiresAt,
-  });
-
-  final String id;
-  final String paymentId;
-  final String orderId;
-  final DateTime grantedAt;
-  final DateTime? expiresAt;
-  GrantStatus status = GrantStatus.active;
-}
-
-class MockConsultationRow {
-  MockConsultationRow({
-    required this.id,
-    required this.order,
-    required this.durationMinutes,
-    required this.startAt,
-    required this.createdAt,
-    this.status = ConsultationStatus.awaitingPayment,
-    this.buyerNote,
-  });
-
-  final String id;
-  final MockOrderRow order;
-  final int durationMinutes;
-  final DateTime startAt;
-  final DateTime createdAt;
-  ConsultationStatus status;
-  final String? buyerNote;
-  String? chefNotes;
-  String? declineReason;
-  DateTime? startedAt;
-  DateTime? completedAt;
 }
 
 class MockDocRow {
@@ -267,11 +214,11 @@ class MockWithdrawalRow {
   String? reason;
 }
 
-/// One static in-memory DB for chef profiles, services, orders, payments,
-/// access grants, consultations and knowledge docs. Shared by
-/// `MockChefRepository` (directory, slots), `MockCommerceRepository` (buyer)
-/// and `MockChefStudioRepository` (chef), so a consult Minh Anh pays for shows
-/// up for Tâm after switching accounts.
+/// One static in-memory DB for chef profiles, booking orders and PaymentOS
+/// payments, knowledge docs and wallets, plus the chef bookings themselves
+/// ([bookingDb]). Shared by the chef directory, the booking flows (member
+/// and chef), the payment screen and the chef wallet, so a booking Minh Anh
+/// pays shows up for Tâm after switching accounts.
 class MockCommerceDb {
   MockCommerceDb._();
 
@@ -279,13 +226,15 @@ class MockCommerceDb {
   static MockCommerceDb get instance =>
       _instance ??= MockCommerceDb._().._seed();
 
-  /// Mock clock. Tests move it forward instead of waiting (`#expire`).
+  /// Mock clock (also `MockBookingDb.clock`). Tests move it forward instead
+  /// of waiting (`#expire`, releaseAt).
   static DateTime Function() clock = DateTime.now;
 
   /// `normal` | `empty` | `error`, see [_scenarioFromEnv].
   static String scenario = _scenarioFromEnv;
 
-  /// Fresh seeds (seeded against [clock] on next use).
+  /// Fresh seeds — profiles, orders, bookings, wallets — seeded against
+  /// [clock] on next use.
   @visibleForTesting
   static void reset({DateTime Function()? clock}) {
     MockCommerceDb.clock = clock ?? DateTime.now;
@@ -303,20 +252,20 @@ class MockCommerceDb {
 
   static const paymentTtl = Duration(minutes: 15);
 
-  /// `#expire` in the booking note.
+  /// `#expire` in the booking needs.
   static const fastExpiryTtl = Duration(seconds: 30);
 
   final chefs = <MockChefRow>[];
-  final services = <MockServiceRow>[];
   final orders = <MockOrderRow>[];
   final payments = <MockPaymentRow>[];
-  final grants = <MockGrantRow>[];
-  final consultations = <MockConsultationRow>[];
   final docs = <MockDocRow>[];
 
   /// Chef wallet: keyed by chef profile id.
   final bankAccounts = <String, MockBankAccountRow>{};
   final withdrawals = <MockWithdrawalRow>[];
+
+  /// Chef meal-plan bookings, seeded with this DB.
+  late final MockBookingDb bookingDb;
 
   int _ids = 1000;
   int _refSeq = 0;
@@ -340,27 +289,11 @@ class MockCommerceDb {
   MockChefRow? chefOfUser(String userId) =>
       chefs.where((c) => c.userId == userId).firstOrNull;
 
-  MockServiceRow service(String id) => services.firstWhere((s) => s.id == id,
-      orElse: () => throw mockError(404, 'Dịch vụ không còn được bán.'));
-
-  List<MockServiceRow> servicesOf(String chefId) =>
-      services.where((s) => s.chefId == chefId).toList();
-
   MockOrderRow order(String id) => orders.firstWhere((o) => o.id == id,
       orElse: () => throw mockError(404, 'Không tìm thấy đơn hàng.'));
 
   MockPaymentRow payment(String id) => payments.firstWhere((p) => p.id == id,
       orElse: () => throw mockError(404, 'Không tìm thấy giao dịch.'));
-
-  MockConsultationRow consultation(String id) =>
-      consultations.firstWhere((c) => c.id == id,
-          orElse: () => throw mockError(404, 'Không tìm thấy lịch hẹn.'));
-
-  MockConsultationRow? consultationOf(String orderId) =>
-      consultations.where((c) => c.order.id == orderId).firstOrNull;
-
-  MockGrantRow? grantOf(String orderId) =>
-      grants.where((g) => g.orderId == orderId).lastOrNull;
 
   /// Latest payment attempt, expired lazily (the real BE does it on read or
   /// in a job).
@@ -370,77 +303,15 @@ class MockCommerceDb {
     return p;
   }
 
+  /// The attempt that was paid, if any.
+  MockPaymentRow? paidPayment(String orderId) => payments
+      .where((p) => p.orderId == orderId && p.paidAt != null)
+      .firstOrNull;
+
   void expireIfDue(MockPaymentRow p) {
     if (p.status == PaymentStatus.pending && !now.isBefore(p.expiresAt)) {
       p.status = PaymentStatus.expired;
     }
-  }
-
-  GrantStatus grantStatus(MockGrantRow g) => g.status == GrantStatus.active &&
-          g.expiresAt != null &&
-          g.expiresAt!.isBefore(now)
-      ? GrantStatus.expired
-      : g.status;
-
-  // ---- slots --------------------------------------------------------------
-
-  /// Paid consultations keep their slot; an unpaid one only while its QR is
-  /// still payable (it's released on expiry, failure or cancel).
-  bool holdsSlot(MockConsultationRow c) => switch (c.status) {
-        ConsultationStatus.pending ||
-        ConsultationStatus.confirmed ||
-        ConsultationStatus.inProgress =>
-          true,
-        ConsultationStatus.awaitingPayment =>
-          c.order.status == OrderStatus.pending &&
-              latestPayment(c.order.id)?.status == PaymentStatus.pending,
-        _ => false,
-      };
-
-  bool isSlotFree(String chefId, DateTime startAt,
-          {String? exceptConsultationId}) =>
-      !consultations.any((c) =>
-          c.order.chefId == chefId &&
-          c.id != exceptConsultationId &&
-          c.startAt.isAtSameMomentAs(startAt) &&
-          holdsSlot(c));
-
-  List<DateTime> freeSlots(String chefId) => buildSlots(chefId, now: now)
-      .where((s) => s.isAfter(now) && isSlotFree(chefId, s))
-      .toList();
-
-  /// Upcoming slots of the chef's calendar someone already holds (paid, or
-  /// an unpaid order whose QR is still payable). Sent as `bookedSlots` so
-  /// the booking sheet can grey them out.
-  List<DateTime> bookedSlots(String chefId) => buildSlots(chefId, now: now)
-      .where((s) => s.isAfter(now) && !isSlotFree(chefId, s))
-      .toList();
-
-  /// The member's own consultation (any chef) that overlaps
-  /// [startAt] … +[durationMinutes] and still holds its time, including an
-  /// AwaitingPayment hold. A member can't be in two consultations at once.
-  MockConsultationRow? memberClash(
-          String userId, DateTime startAt, int durationMinutes,
-          {String? exceptConsultationId}) =>
-      consultations
-          .where((c) =>
-              c.order.userId == userId &&
-              c.id != exceptConsultationId &&
-              holdsSlot(c) &&
-              c.startAt
-                  .isBefore(startAt.add(Duration(minutes: durationMinutes))) &&
-              startAt.isBefore(c.endAt))
-          .firstOrNull;
-
-  /// 409 `schedule_conflict` for [memberClash].
-  ApiException clashError(MockConsultationRow c) {
-    String two(int n) => n.toString().padLeft(2, '0');
-    final at = c.startAt;
-    return mockError(
-        409,
-        'Bạn đã có lịch lúc ${two(at.hour)}:${two(at.minute)} · '
-            '${formatLongDate(at)} với ${c.order.chefName} — chọn giờ khác nhé.',
-        'schedule_conflict');
   }
 
   // ---- state changes ------------------------------------------------------
@@ -459,48 +330,38 @@ class MockCommerceDb {
     return p;
   }
 
-  /// PaymentOS confirmed (the webhook, on the real BE): order Paid, access
-  /// granted in the same step, a consult goes to the chef for confirmation.
+  /// PaymentOS confirmed (the webhook, on the real BE): the order is Paid
+  /// and its booking's money goes into escrow in the same step.
   void markPaid(MockPaymentRow p) {
     final o = order(p.orderId);
-    final c = consultationOf(o.id);
     p
       ..status = PaymentStatus.paid
       ..paidAt = now;
     o.status = OrderStatus.paid;
-    final days = o.type.accessDays;
-    grants.add(MockGrantRow(
-      id: newId('gr'),
-      paymentId: p.id,
-      orderId: o.id,
-      grantedAt: now,
-      expiresAt: days != null
-          ? now.add(Duration(days: days))
-          : c?.startAt.add(const Duration(hours: 24)),
-    ));
-    if (c != null && c.status == ConsultationStatus.awaitingPayment) {
-      c.status = ConsultationStatus.pending;
-    }
+    bookingDb.onOrderPaid(o, p);
   }
 
-  /// Refund stub: statuses move, no money does.
-  void refund(MockOrderRow o) {
+  /// Refund through PaymentOS to the original payment method: the whole
+  /// amount, or [amount] of it (a Split decision).
+  void refund(MockOrderRow o, {int? amount}) {
+    final partial = amount != null && amount < o.amount;
     o
-      ..status = OrderStatus.refunded
+      ..status = partial ? OrderStatus.partiallyRefunded : OrderStatus.refunded
       ..refundedAt = now;
-    for (final p in payments.where((p) => p.orderId == o.id)) {
-      if (p.status == PaymentStatus.paid) p.status = PaymentStatus.refunded;
+    if (!partial) {
+      for (final p in payments.where((p) => p.orderId == o.id)) {
+        if (p.status == PaymentStatus.paid) p.status = PaymentStatus.refunded;
+      }
     }
-    grantOf(o.id)?.status = GrantStatus.revoked;
   }
 
-  /// An unpaid order: the QR stops working and the slot is released.
+  /// An unpaid order: the QR stops working.
   void cancelUnpaid(MockOrderRow o) {
+    if (o.status != OrderStatus.pending) return;
     o.status = OrderStatus.cancelled;
     for (final p in payments.where((p) => p.orderId == o.id)) {
       if (p.status == PaymentStatus.pending) p.status = PaymentStatus.expired;
     }
-    consultationOf(o.id)?.status = ConsultationStatus.cancelled;
   }
 
   /// The auto payout of a small withdrawal happens lazily on read.
@@ -515,31 +376,27 @@ class MockCommerceDb {
 
   // ---- wire JSON ----------------------------------------------------------
 
-  Map<String, dynamic> chefJson(MockChefRow c, {required bool detail}) {
-    final own = servicesOf(c.id);
-    return {
-      'id': c.id,
-      'userId': c.userId,
-      'fullName': c.fullName,
-      'headline': c.headline,
-      'specialties': c.specialties,
-      'rating': c.rating,
-      'reviewCount': c.reviewCount,
-      'yearsExperience': c.yearsExperience,
-      'city': c.city,
-      'startingPriceVnd': own.isEmpty
-          ? 0
-          : own.map((s) => s.price).reduce((a, b) => a < b ? a : b),
-      'consultCount': c.consultCount,
-      if (detail) ...{
-        'bio': c.bio,
-        'certificates': c.certificates,
-        'services': own.map((s) => s.toJson()).toList(),
-        'availableSlots': freeSlots(c.id).map(_iso).toList(),
-        'bookedSlots': bookedSlots(c.id).map(_iso).toList(),
-      },
-    };
-  }
+  Map<String, dynamic> chefJson(MockChefRow c, {required bool detail}) => {
+        'id': c.id,
+        'userId': c.userId,
+        'fullName': c.fullName,
+        'headline': c.headline,
+        'specialties': c.specialties,
+        'rating': c.rating,
+        'reviewCount': c.reviewCount,
+        'yearsExperience': c.yearsExperience,
+        'city': c.city,
+        'consultCount': c.consultCount,
+        'pricePerDay': c.pricePerDay,
+        'feedbackPricePerDay': c.feedbackPricePerDay,
+        'minPlanDays': c.minPlanDays,
+        'maxPlanDays': c.maxPlanDays,
+        'acceptingBookings': c.acceptingBookings,
+        if (detail) ...{
+          'bio': c.bio,
+          'certificates': c.certificates,
+        },
+      };
 
   Map<String, dynamic> paymentJson(MockPaymentRow p) {
     expireIfDue(p);
@@ -557,57 +414,22 @@ class MockCommerceDb {
     };
   }
 
-  Map<String, dynamic> grantJson(MockGrantRow g) => {
-        'id': g.id,
-        'paymentId': g.paymentId,
-        'grantedAt': _iso(g.grantedAt),
-        'expiresAt': _iso(g.expiresAt),
-        'status': grantStatus(g).apiValue,
-      };
-
-  Map<String, dynamic> consultationJson(MockConsultationRow c) => {
-        'id': c.id,
-        'orderId': c.order.id,
-        'chefId': c.order.chefId,
-        'chefName': c.order.chefName,
-        'buyer': {'id': c.order.userId, 'fullName': c.order.buyerName},
-        'serviceId': c.order.serviceId,
-        'serviceTitle': c.order.serviceTitle,
-        'durationMinutes': c.durationMinutes,
-        'amount': c.order.amount,
-        'startAt': _iso(c.startAt),
-        'status': c.status.apiValue,
-        'buyerNote': c.buyerNote,
-        'chefNotes': c.chefNotes,
-        'declineReason': c.declineReason,
-        'startedAt': _iso(c.startedAt),
-        'completedAt': _iso(c.completedAt),
-        'createdAt': _iso(c.createdAt),
-      };
-
-  Map<String, dynamic> orderJson(MockOrderRow o, {bool withBuyer = false}) {
+  Map<String, dynamic> orderJson(MockOrderRow o) {
+    bookingDb.settle();
     final payment = latestPayment(o.id);
-    final grant = grantOf(o.id);
-    final consultation = consultationOf(o.id);
+    final booking = bookingDb.find(o.bookingId);
     return {
       'id': o.id,
       'userId': o.userId,
-      'serviceId': o.serviceId,
+      'bookingId': o.bookingId,
       'amount': o.amount,
       'status': o.status.apiValue,
       'createdAt': _iso(o.createdAt),
-      'service': {
-        'id': o.serviceId,
-        'title': o.serviceTitle,
-        'type': o.type.apiValue,
-        'chefId': o.chefId,
-        'chefName': o.chefName,
-      },
-      if (withBuyer) 'buyer': {'id': o.userId, 'fullName': o.buyerName},
+      'booking': booking == null
+          ? {'id': o.bookingId, 'chefId': o.chefId, 'chefName': o.chefName}
+          : bookingDb.orderBookingJson(booking),
       'payment': payment == null ? null : paymentJson(payment),
-      'accessGrant': grant == null ? null : grantJson(grant),
-      'consultation':
-          consultation == null ? null : consultationJson(consultation),
+      'escrow': booking?.escrow?.toJson(),
     };
   }
 
@@ -615,93 +437,14 @@ class MockCommerceDb {
 
   void _seed() {
     for (final json in seedChefs) {
-      final chef = MockChefRow.fromSeed(json);
-      chefs.add(chef);
-      for (final s in (json['services'] as List<Object?>)
-          .whereType<Map<String, dynamic>>()) {
-        final minutes = readInt(s['durationMinutes']);
-        services.add(MockServiceRow(
-          id: s['id'] as String,
-          chefId: chef.id,
-          title: s['title'] as String,
-          type: ServiceType.fromApi(s['type']),
-          price: readInt(s['price']),
-          description: s['description'] as String? ?? '',
-          durationMinutes: minutes > 0 ? minutes : null,
-          contentUrl: s['contentUrl'] as String?,
-        ));
-      }
+      chefs.add(MockChefRow.fromSeed(json));
     }
-
     final now = this.now;
-    DateTime day(int offset, int hour, [int minute = 0]) =>
-        DateTime(now.year, now.month, now.day + offset, hour, minute);
-    final inTenMinutes =
-        DateTime(now.year, now.month, now.day, now.hour, now.minute + 10);
-    const me = ('u_me', 'Minh Anh');
 
-    // Tâm's calendar (Lê Quang Tâm, u_chef_tam).
-    _seedConsult('cs_tam_nam', ('u_hoang_nam', 'Hoàng Nam'), 'svc_tam_consult',
-        startAt: day(2, 14),
-        status: ConsultationStatus.pending,
-        paidAt: now.subtract(const Duration(hours: 5)),
-        note:
-            'Nhà mình 4 người, bé 6 tuổi kén rau. Muốn thực đơn tối dễ nấu trong 30 phút.');
-    _seedConsult('cs_tam_vy', ('u_thao_vy', 'Thảo Vy'), 'svc_tam_consult',
-        startAt: inTenMinutes,
-        status: ConsultationStatus.confirmed,
-        paidAt: now.subtract(const Duration(days: 3)),
-        note: 'Mình mới ăn chay 2 tháng, hay bị đói giữa buổi chiều.');
-    _seedConsult('cs_tam_tram', ('u_ngoc_tram', 'Ngọc Trâm'), 'svc_tam_consult',
-        startAt: day(-10, 14),
-        status: ConsultationStatus.completed,
-        paidAt: day(-13, 20),
-        note: 'Cần thực đơn chay cho mẹ bị tiểu đường type 2.',
-        chefNotes:
-            'Ưu tiên gạo lứt, yến mạch và đậu; chia 5 bữa nhỏ. Hạn chế nước ép trái cây. '
-            'Đã gửi file thực đơn 7 ngày và danh sách đi chợ qua email.');
-    _seedPackage('od_tam_huy', ('u_duc_huy', 'Đức Huy'), 'svc_tam_course',
-        paidAt: now.subtract(const Duration(days: 5)));
-    // Earlier package sales: already past the hold period in Tâm's wallet.
-    _seedPackage(
-        'od_tam_vip_phuong', ('u_lan_phuong', 'Lan Phương'), 'svc_tam_vip',
-        paidAt: now.subtract(const Duration(days: 12)));
-    _seedPackage('od_tam_vip_tram', ('u_bao_tram', 'Bảo Trâm'), 'svc_tam_vip',
-        paidAt: now.subtract(const Duration(days: 15)));
-    _seedPackage('od_tam_vip_han', ('u_gia_han', 'Gia Hân'), 'svc_tam_vip',
-        paidAt: now.subtract(const Duration(days: 25)));
-    _seedPackage(
-        'od_tam_course_viet', ('u_quoc_viet', 'Quốc Việt'), 'svc_tam_course',
-        paidAt: now.subtract(const Duration(days: 40)));
-
-    // Minh Anh (u_me).
-    _seedConsult('cs_seed_1', me, 'svc_ha_plan',
-        startAt: day(2, 19, 30),
-        status: ConsultationStatus.confirmed,
-        paidAt: now.subtract(const Duration(days: 1)),
-        note: 'Mình hay mệt buổi chiều, muốn kiểm tra B12 và sắt.');
-    _seedConsult('cs_seed_2', me, 'svc_tam_consult',
-        startAt: day(-10, 9),
-        status: ConsultationStatus.completed,
-        paidAt: day(-13, 8),
-        chefNotes:
-            'Thực đơn 7 ngày đã gửi kèm. Nấu sẵn đậu gà và gạo lứt vào Chủ Nhật, '
-            'mỗi tối chỉ cần 20 phút xào rau và làm nước sốt.');
-    _seedPackage('od_me_course', me, 'svc_tam_course',
-        paidAt: now.subtract(const Duration(days: 20)));
-    // Still waiting for payment: "Thanh toán tiếp" resumes it.
-    final vip = _newOrder('od_me_vip_ha', me, 'svc_ha_vip',
-        createdAt: now.subtract(const Duration(minutes: 3)));
-    payments.add(MockPaymentRow(
-      id: 'pay_me_vip_ha',
-      orderId: vip.id,
-      transactionRef: nextRef(vip.createdAt),
-      amount: vip.amount,
-      createdAt: vip.createdAt,
-      expiresAt: vip.createdAt.add(paymentTtl),
-    ));
-
-    // Tâm's wallet: bank account and past withdrawals.
+    // Tâm's wallet: bank account and withdrawals (same ids and amounts as
+    // the web console, FE/Web src/lib/mock_payouts.ts). wd_tam_3 is above
+    // the 5.000.000đ auto-approve limit, so it waits for an admin and keeps
+    // "Có thể rút" at 110.000đ.
     bankAccounts['u_chef_tam'] = MockBankAccountRow(
       bankName: 'Vietcombank',
       accountNumber: '0071000456789',
@@ -729,6 +472,15 @@ class MockCommerceDb {
         createdAt: now.subtract(const Duration(days: 17)),
         status: 'Completed',
         processedAt: now.subtract(const Duration(days: 16, hours: 22)),
+      ),
+      MockWithdrawalRow(
+        id: 'wd_tam_3',
+        chefId: 'u_chef_tam',
+        amount: 5100000,
+        bankName: 'Vietcombank',
+        accountNumber: '0071000456789',
+        createdAt: now.subtract(const Duration(hours: 3, minutes: 12)),
+        reason: 'Trên 5.000.000đ: chờ Ban quản trị duyệt (1–2 ngày làm việc).',
       ),
     ]);
 
@@ -761,89 +513,9 @@ class MockCommerceDb {
             'Tài liệu khẳng định "thải độc" nhưng chưa có nguồn y khoa. Vui lòng bổ sung nguồn hoặc bỏ phần này.',
       ),
     ]);
-  }
 
-  MockOrderRow _newOrder(String id, (String, String) buyer, String serviceId,
-      {required DateTime createdAt}) {
-    final s = service(serviceId);
-    final o = MockOrderRow(
-      id: id,
-      userId: buyer.$1,
-      buyerName: buyer.$2,
-      service: s,
-      chefName: chef(s.chefId).fullName,
-      createdAt: createdAt,
-    );
-    orders.add(o);
-    return o;
+    // Bookings last: their seed orders and payments land in [orders] and
+    // [payments].
+    bookingDb = MockBookingDb.attach(this)..seed();
   }
-
-  void _pay(MockOrderRow o, DateTime paidAt) {
-    final p = MockPaymentRow(
-      id: 'pay_${o.id}',
-      orderId: o.id,
-      transactionRef: nextRef(o.createdAt),
-      amount: o.amount,
-      createdAt: o.createdAt,
-      expiresAt: o.createdAt.add(paymentTtl),
-    )
-      ..status = PaymentStatus.paid
-      ..paidAt = paidAt;
-    payments.add(p);
-    o.status = OrderStatus.paid;
-    final days = o.type.accessDays;
-    final c = consultationOf(o.id);
-    grants.add(MockGrantRow(
-      id: 'gr_${o.id}',
-      paymentId: p.id,
-      orderId: o.id,
-      grantedAt: paidAt,
-      expiresAt: days != null
-          ? paidAt.add(Duration(days: days))
-          : c?.startAt.add(const Duration(hours: 24)),
-    ));
-  }
-
-  void _seedConsult(
-    String id,
-    (String, String) buyer,
-    String serviceId, {
-    required DateTime startAt,
-    required ConsultationStatus status,
-    required DateTime paidAt,
-    String? note,
-    String? chefNotes,
-  }) {
-    final createdAt = paidAt.subtract(const Duration(minutes: 4));
-    final o = _newOrder('od_${id.substring(3)}', buyer, serviceId,
-        createdAt: createdAt);
-    final c = MockConsultationRow(
-      id: id,
-      order: o,
-      durationMinutes: o.service.durationMinutes ?? 60,
-      startAt: startAt,
-      createdAt: createdAt,
-      status: status,
-      buyerNote: note,
-    );
-    consultations.add(c);
-    _pay(o, paidAt);
-    if (status == ConsultationStatus.completed) {
-      c
-        ..startedAt = startAt
-        ..completedAt = c.endAt
-        ..chefNotes = chefNotes;
-    }
-  }
-
-  void _seedPackage(String id, (String, String) buyer, String serviceId,
-      {required DateTime paidAt}) {
-    final o = _newOrder(id, buyer, serviceId,
-        createdAt: paidAt.subtract(const Duration(minutes: 3)));
-    _pay(o, paidAt);
-  }
-}
-
-extension on MockConsultationRow {
-  DateTime get endAt => startAt.add(Duration(minutes: durationMinutes));
 }

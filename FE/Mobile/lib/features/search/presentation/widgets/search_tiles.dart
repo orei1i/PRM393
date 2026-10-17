@@ -24,13 +24,18 @@ class SearchRowDivider extends StatelessWidget {
       );
 }
 
-/// "Công thức" row: dish name, kcal, vegan tag.
+/// "Công thức" row: dish name, kcal, vegan tag. [dense] drops the side
+/// padding (inside an already padded list).
 class SearchRecipeTile extends StatelessWidget {
   const SearchRecipeTile(
-      {super.key, required this.recipe, required this.onTap});
+      {super.key,
+      required this.recipe,
+      required this.onTap,
+      this.dense = false});
 
   final RecipeSummary recipe;
   final VoidCallback onTap;
+  final bool dense;
 
   @override
   Widget build(BuildContext context) {
@@ -43,12 +48,14 @@ class SearchRecipeTile extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+          padding: dense
+              ? const EdgeInsets.symmetric(vertical: 8)
+              : const EdgeInsets.fromLTRB(16, 12, 12, 12),
           child: Row(
             children: [
               Container(
-                width: 48,
-                height: 48,
+                width: dense ? 40 : 48,
+                height: dense ? 40 : 48,
                 decoration: BoxDecoration(
                   color: context.colors.secondaryContainer,
                   borderRadius: BorderRadius.circular(12),
@@ -94,7 +101,7 @@ class SearchPostTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final meta = [
-      post.type.label,
+      post.hasVideo ? '${post.type.label} · Video' : post.type.label,
       post.author.name,
       relativeTime(post.createdAt),
     ].join(' · ');
@@ -112,10 +119,10 @@ class SearchPostTile extends StatelessWidget {
                 child: post.hasCover
                     ? FoodCover(
                         seed: post.coverSeed,
-                        imageUrl: post.imageUrl,
+                        imageUrl: post.imageSrc,
                         aspectRatio: 4 / 3,
                         borderRadius: BorderRadius.circular(10),
-                        child: post.type == PostType.video
+                        child: post.hasVideo
                             ? _VideoBadge(seconds: post.videoDurationSeconds)
                             : null,
                       )
@@ -179,9 +186,9 @@ class RelatedPostCard extends StatelessWidget {
           children: [
             FoodCover(
               seed: post.coverSeed,
-              imageUrl: post.imageUrl,
+              imageUrl: post.imageSrc,
               aspectRatio: 16 / 9,
-              child: post.type == PostType.video
+              child: post.hasVideo
                   ? _VideoBadge(seconds: post.videoDurationSeconds)
                   : null,
             ),

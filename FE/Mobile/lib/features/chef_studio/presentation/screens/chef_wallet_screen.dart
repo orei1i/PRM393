@@ -9,6 +9,7 @@ import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/vl_card.dart';
+import '../../../booking/domain/booking_rules.dart';
 import '../../../commerce/presentation/widgets/commerce_ui.dart';
 import '../../data/models/wallet_models.dart';
 import '../../domain/wallet_rules.dart';
@@ -17,8 +18,9 @@ import '../widgets/chef_only_gate.dart';
 import 'bank_account_form_screen.dart';
 import 'withdraw_screen.dart';
 
-/// "Ví của tôi": balance (Có thể rút · Đang chờ · Đã rút), bank account,
-/// withdrawal requests and the monthly ledger.
+/// "Ví của tôi": balance (Có thể rút · Đang giữ · Tạm giữ do khiếu nại ·
+/// Đã rút), bank account, withdrawal requests and the monthly ledger, one
+/// row per paid booking that follows its escrow hold.
 class ChefWalletScreen extends StatelessWidget {
   const ChefWalletScreen({super.key});
 
@@ -199,7 +201,9 @@ class _BalanceCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              figure('Đang chờ', wallet.pending),
+              figure('Đang giữ', wallet.pending),
+              const SizedBox(width: 12),
+              figure('Tạm giữ do khiếu nại', wallet.frozen),
               const SizedBox(width: 12),
               figure('Đã rút', wallet.withdrawn),
             ],
@@ -212,8 +216,9 @@ class _BalanceCard extends StatelessWidget {
           ],
           const SizedBox(height: 10),
           Text(
-            'Phí nền tảng $percent% mỗi giao dịch. Tiền tư vấn được cộng khi buổi tư vấn hoàn thành; '
-            'khoá học và thực đơn VIP được cộng sau ${wallet.holdDays} ngày kể từ khi khách thanh toán.',
+            'Phí nền tảng $percent% mỗi kế hoạch. Tiền thành viên trả được giữ đến '
+            '${wallet.holdDays} ngày sau khi kế hoạch kết thúc, rồi chuyển vào "Có thể rút" nếu không có khiếu nại; '
+            'khi có khiếu nại, tiền tạm giữ đến khi Ban quản trị quyết định.',
             style: context.textStyles.bodySmall?.copyWith(color: vl.muted),
           ),
           const SizedBox(height: 12),
@@ -276,11 +281,11 @@ Widget _ledgerTag(BuildContext context, LedgerStatus status) {
         vl.successContainer,
         vl.onSuccessContainer
       ),
-    LedgerStatus.pending || LedgerStatus.processing => (
+    LedgerStatus.held || LedgerStatus.processing => (
         vl.cautionContainer,
         vl.onCautionContainer
       ),
-    LedgerStatus.rejected => (
+    LedgerStatus.frozen || LedgerStatus.rejected => (
         context.colors.errorContainer,
         context.colors.onErrorContainer
       ),
@@ -436,13 +441,20 @@ class _LedgerTile extends StatelessWidget {
     };
     final title = switch (t.type) {
       WalletEntryType.withdrawal => 'Rút tiền về ${t.bankName ?? 'ngân hàng'}',
-      _ => '${t.type.label} · ${t.serviceTitle ?? ''}',
+      _ => '${t.type.label} · ${t.planTitle ?? ''}',
     };
     final details = <String>[
       formatStamp(t.createdAt),
       if (t.transactionRef != null) 'Mã GD ${t.transactionRef}',
-      if (t.buyerName != null) t.buyerName!,
+      if (t.memberName != null) t.memberName!,
     ].join(' · ');
+    final holdNote = switch (t.status) {
+      LedgerStatus.held when t.releaseAt != null =>
+        'Giữ đến ${formatVnStamp(t.releaseAt!)} ($kEscrowHoldDays ngày sau khi kế hoạch kết thúc)',
+      LedgerStatus.frozen =>
+        'Tạm giữ do khiếu nại — chờ Ban quản trị quyết định',
+      _ => null,
+    };
     final sign = t.net >= 0 ? '+' : '−';
     final faded = t.status == LedgerStatus.rejected;
 
@@ -471,6 +483,12 @@ class _LedgerTile extends StatelessWidget {
                   Text(
                       'Gộp ${formatVnd(t.gross!.abs())} · Phí ${formatVnd(t.fee!.abs())} · Thực nhận ${formatVnd(t.net.abs())}',
                       style: context.textStyles.bodySmall),
+                ],
+                if (holdNote != null) ...[
+                  const SizedBox(height: 2),
+                  Text(holdNote,
+                      style: context.textStyles.bodySmall
+                          ?.copyWith(color: vl.onCautionContainer)),
                 ],
                 if (t.note != null) ...[
                   const SizedBox(height: 2),

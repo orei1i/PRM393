@@ -4,18 +4,23 @@ import 'dart:math' as math;
 import '../../../../core/models/author_summary.dart';
 import '../../../video/domain/entities/video_recipe.dart';
 
+/// `posts.type`: only "Công thức" and "Hỏi đáp". A photo or a video is an
+/// attachment ([PostMediaType]), not a category.
 enum PostType {
   recipe('recipe', 'Công thức'),
-  video('video', 'Video'),
-  discussion('discussion', 'Thảo luận');
+  discussion('discussion', 'Hỏi đáp');
 
   const PostType(this.apiValue, this.label);
   final String apiValue;
   final String label;
 
-  static PostType fromApi(String? value) =>
-      values.firstWhere((t) => t.apiValue == value,
-          orElse: () => PostType.discussion);
+  /// Legacy wire value `video` reads as [recipe]; unknown values read as
+  /// [discussion].
+  static PostType fromApi(String? value) {
+    if (value == 'video') return PostType.recipe;
+    return values.firstWhere((t) => t.apiValue == value,
+        orElse: () => PostType.discussion);
+  }
 }
 
 /// `posts.status`. New and edited posts are published unless the AI
@@ -39,7 +44,8 @@ enum PostStatus {
   }
 }
 
-/// `posts.media_type`. The FE [PostType] stays the category shown in the UI.
+/// `posts.media_type`: the one attachment a post may carry
+/// (`posts.media_url`).
 enum PostMediaType {
   text('Text'),
   image('Image'),
@@ -56,9 +62,11 @@ enum PostMediaType {
     return null;
   }
 
-  /// What the server would store when the field is missing.
-  static PostMediaType derive({required String type, String? imageUrl}) {
-    if (type == PostType.video.apiValue) return video;
+  /// What the server would store when the field is missing: the legacy
+  /// `type: "video"` or a linked video is a video, an image URL an image.
+  static PostMediaType derive(
+      {required String type, String? imageUrl, String? videoId}) {
+    if (type == 'video' || videoId != null) return video;
     if (imageUrl != null) return image;
     return text;
   }
@@ -74,6 +82,47 @@ enum ReportReason {
   const ReportReason(this.apiValue, this.label);
   final String apiValue;
   final String label;
+}
+
+/// The restaurant a post checks in at (`posts.restaurant_id`, organic, not
+/// paid): "— tại Quán Chay An Lạc" plus a chip that opens the restaurant.
+class TaggedRestaurant {
+  const TaggedRestaurant({
+    required this.id,
+    required this.name,
+    this.district,
+    this.isCertified = false,
+  });
+
+  final String id;
+  final String name;
+
+  /// "Q.1", "Q. Bình Thạnh"…
+  final String? district;
+  final bool isCertified;
+
+  /// "Q.1" from "12 Nguyễn Thị Minh Khai, P. Đa Kao, Q.1, TP.HCM": the part
+  /// naming the district ("Q.", "Quận", "Huyện", "TP. Thủ Đức"), else the
+  /// part before the city.
+  static String? districtOf(String address) {
+    final parts = address
+        .split(',')
+        .map((p) => p.trim())
+        .where((p) => p.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return null;
+    for (final p in parts.reversed) {
+      final lower = p.toLowerCase();
+      if (lower.startsWith('q.') ||
+          lower.startsWith('quận') ||
+          lower.startsWith('huyện') ||
+          lower.startsWith('h.') ||
+          lower.startsWith('tp. thủ đức')) {
+        return p;
+      }
+    }
+    return parts.length >= 2 ? parts[parts.length - 2] : null;
+  }
 }
 
 class Post {
@@ -100,6 +149,7 @@ class Post {
     this.mediaUrl,
     this.rejectionReason,
     this.updatedAt,
+    this.restaurant,
   }) : _mediaType = mediaType;
 
   final String id;
@@ -114,6 +164,8 @@ class Post {
   final List<String> tags;
   final String? imageUrl;
   final int likeCount;
+
+  /// Every comment, replies included.
   final int commentCount;
   final bool likedByMe;
   final bool savedByMe;
@@ -121,6 +173,7 @@ class Post {
   /// Pinned by an admin from the web console.
   final bool isPinned;
 
+  /// The AI recipe of an attached video (Công thức + video only).
   final String? videoId;
   final int? videoDurationSeconds;
   final VideoAiStatus? videoStatus;
@@ -132,16 +185,30 @@ class Post {
   final PostMediaType? _mediaType;
   PostMediaType get mediaType =>
       _mediaType ??
-      PostMediaType.derive(type: type.apiValue, imageUrl: imageUrl);
+      PostMediaType.derive(
+          type: type.apiValue, imageUrl: imageUrl, videoId: videoId);
 
-  /// Uploaded video / image URL, or the pasted video link.
+  /// Uploaded video / image URL.
   final String? mediaUrl;
 
   /// The admin's note when [status] is [PostStatus.rejected].
   final String? rejectionReason;
   final DateTime? updatedAt;
 
-  bool get hasCover => type != PostType.discussion || imageUrl != null;
+  /// "— tại {quán}"; `null` when the post tags no restaurant.
+  final TaggedRestaurant? restaurant;
+
+  bool get hasVideo => mediaType == PostMediaType.video;
+
+  /// The attached photo, if any.
+  String? get imageSrc =>
+      imageUrl ?? (mediaType == PostMediaType.image ? mediaUrl : null);
+
+  /// "Xem công thức": the AI pipeline extracted a recipe from the video.
+  bool get hasAiRecipe => videoId != null && videoStatus == VideoAiStatus.ready;
+
+  /// Recipes get an illustrated cover; Q&A only shows a real attachment.
+  bool get hasCover => type == PostType.recipe || hasVideo || imageSrc != null;
 
   bool get isPublished => status == PostStatus.published;
   bool get isPending => status == PostStatus.pending;
@@ -184,10 +251,13 @@ class Post {
       mediaUrl: mediaUrl,
       rejectionReason: rejectionReason,
       updatedAt: updatedAt,
+      restaurant: restaurant,
     );
   }
 }
 
+/// A comment. Top-level comments carry [replyCount] and a preview of their
+/// first [replies]; replies ([parentId] set) are one level deep.
 class Comment {
   const Comment({
     required this.id,
@@ -196,7 +266,10 @@ class Comment {
     required this.createdAt,
     this.pending = false,
     this.postId,
+    this.parentId,
     this.updatedAt,
+    this.replyCount = 0,
+    this.replies = const [],
   });
 
   final String id;
@@ -208,12 +281,29 @@ class Comment {
   final bool pending;
 
   final String? postId;
+
+  /// The top-level comment this one answers; `null` for a top-level one.
+  final String? parentId;
   final DateTime? updatedAt;
+
+  /// Top-level only: every reply, loaded or not.
+  final int replyCount;
+
+  /// Top-level only: the first replies, oldest first (the server previews 2).
+  final List<Comment> replies;
+
+  bool get isReply => parentId != null;
 
   /// Shows "(đã sửa)".
   bool get isEdited => updatedAt != null;
 
-  Comment copyWith({String? text, DateTime? updatedAt, bool? pending}) =>
+  Comment copyWith({
+    String? text,
+    DateTime? updatedAt,
+    bool? pending,
+    int? replyCount,
+    List<Comment>? replies,
+  }) =>
       Comment(
         id: id,
         author: author,
@@ -221,8 +311,19 @@ class Comment {
         createdAt: createdAt,
         pending: pending ?? this.pending,
         postId: postId,
+        parentId: parentId,
         updatedAt: updatedAt ?? this.updatedAt,
+        replyCount: replyCount ?? this.replyCount,
+        replies: replies ?? this.replies,
       );
+}
+
+/// One page of comments (newest first) or of replies (oldest first).
+class CommentPage {
+  const CommentPage({required this.items, this.nextCursor});
+
+  final List<Comment> items;
+  final String? nextCursor;
 }
 
 /// One of the member's comments, listed under "Nội dung của tôi › Bình luận".
@@ -233,6 +334,7 @@ class MyComment {
     required this.postTitle,
     required this.text,
     required this.createdAt,
+    this.parentId,
     this.updatedAt,
   });
 
@@ -241,6 +343,9 @@ class MyComment {
   final String postTitle;
   final String text;
   final DateTime createdAt;
+
+  /// Set when the comment is a reply.
+  final String? parentId;
   final DateTime? updatedAt;
 
   bool get isEdited => updatedAt != null;

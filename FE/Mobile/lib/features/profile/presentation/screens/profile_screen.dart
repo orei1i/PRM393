@@ -14,11 +14,13 @@ import '../../../../core/widgets/shimmer.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/user_avatar.dart';
 import '../../../../core/widgets/vl_card.dart';
-import '../../../chef/presentation/screens/my_consultations_screen.dart';
-import '../../../chef_studio/presentation/screens/chef_bookings_screen.dart';
-import '../../../chef_studio/presentation/screens/chef_dashboard_screen.dart';
+import '../../../booking/presentation/controllers/booking_controllers.dart';
+import '../../../booking/presentation/screens/booking_history_screen.dart';
+import '../../../booking/presentation/screens/chef_booking_inbox_screen.dart';
+import '../../../chef_studio/presentation/screens/chef_knowledge_docs_screen.dart';
+import '../../../chef_studio/presentation/screens/chef_profile_edit_screen.dart';
 import '../../../chef_studio/presentation/screens/chef_wallet_screen.dart';
-import '../../../commerce/presentation/screens/my_orders_screen.dart';
+import '../../../commerce/presentation/widgets/commerce_ui.dart';
 import '../../../meal_planner/presentation/screens/health_profile_edit_screen.dart';
 import '../../domain/entities/user_profile.dart';
 import '../controllers/profile_controller.dart';
@@ -26,7 +28,9 @@ import 'chef_application_screen.dart';
 import 'edit_profile_screen.dart';
 import 'my_posts_screen.dart';
 
-/// Tab "Tôi": account, health summary, my content, consultations, settings.
+/// Tab "Tôi": account, health summary, my content, "Lịch sử tư vấn",
+/// settings; chefs also get the "Chuyên gia" section (requests, wallet,
+/// profile & prices, knowledge docs).
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
@@ -38,7 +42,7 @@ class ProfileScreen extends StatelessWidget {
         icon: Icons.person_outline_rounded,
         title: 'Hồ sơ VeganLife của bạn',
         message:
-            'Đăng nhập để lưu công thức, đăng bài và đặt lịch với chuyên gia.',
+            'Đăng nhập để lưu công thức, đăng bài và đặt chuyên gia lên thực đơn.',
         benefits: [
           'Bài viết, video và công thức đã lưu ở một nơi',
           'Hồ sơ sức khoẻ dùng chung cho thực đơn AI và chuyên gia',
@@ -172,33 +176,11 @@ class _Loaded extends ConsumerWidget {
         _ChefApplicationCard(profile: profile, isChef: isChef),
         const SizedBox(height: 16),
         if (isChef) ...[
-          _Section(
-            title: 'Chuyên gia',
-            children: [
-              _MenuTile(
-                icon: Icons.space_dashboard_outlined,
-                title: 'Bảng điều khiển chuyên gia',
-                onTap: () =>
-                    Navigator.of(context).push(ChefDashboardScreen.route()),
-              ),
-              _MenuTile(
-                icon: Icons.event_available_outlined,
-                title: 'Lịch hẹn & đơn hàng',
-                onTap: () =>
-                    Navigator.of(context).push(ChefBookingsScreen.route()),
-              ),
-              _MenuTile(
-                icon: Icons.account_balance_wallet_outlined,
-                title: 'Ví của tôi',
-                onTap: () =>
-                    Navigator.of(context).push(ChefWalletScreen.route()),
-              ),
-            ],
-          ),
+          const _ChefSection(),
           const SizedBox(height: 12),
         ],
         _Section(
-          title: 'Nội dung & lịch hẹn',
+          title: 'Nội dung & tư vấn',
           children: [
             _MenuTile(
               icon: Icons.article_outlined,
@@ -213,15 +195,11 @@ class _Loaded extends ConsumerWidget {
                   .push(MyPostsScreen.route(initialTab: 1)),
             ),
             _MenuTile(
-              icon: Icons.receipt_long_outlined,
-              title: 'Đơn hàng của tôi',
-              onTap: () => Navigator.of(context).push(MyOrdersScreen.route()),
-            ),
-            _MenuTile(
-              icon: Icons.event_note_outlined,
-              title: 'Lịch tư vấn',
+              icon: Icons.history_rounded,
+              title: 'Lịch sử tư vấn',
+              trailing: 'Chuyên gia bạn đã đặt, kế hoạch nhận được, khiếu nại',
               onTap: () =>
-                  Navigator.of(context).push(MyConsultationsScreen.route()),
+                  Navigator.of(context).push(BookingHistoryScreen.route()),
             ),
           ],
         ),
@@ -288,15 +266,7 @@ class _AccountCard extends StatelessWidget {
                     style: context.textStyles.bodyMedium
                         ?.copyWith(color: context.vl.muted)),
                 const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    VLTag.neutral(context, profile.role.label),
-                    if (profile.signedInWithGoogle)
-                      VLTag.neutral(context, 'Google'),
-                  ],
-                ),
+                VLTag.neutral(context, profile.role.label),
               ],
             ),
           ),
@@ -347,7 +317,35 @@ class _HealthCard extends ConsumerWidget {
     return VLCard(
       onTap: () => _edit(context, ref),
       child: switch (async) {
-        AsyncData(:final value) => Column(
+        AsyncData(value: null) => Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.monitor_heart_outlined,
+                      color: context.colors.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('Hồ sơ sức khoẻ',
+                        style: context.textStyles.titleMedium),
+                  ),
+                  Text('Thiết lập',
+                      style: context.textStyles.labelLarge?.copyWith(
+                          color: context.colors.primary,
+                          fontWeight: FontWeight.w700)),
+                  Icon(Icons.chevron_right_rounded,
+                      color: context.colors.primary),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Bạn chưa có hồ sơ sức khoẻ. Thêm chiều cao, cân nặng, mục tiêu '
+                'và dị ứng để AI lên thực đơn phù hợp.',
+                style: context.textStyles.bodyMedium,
+              ),
+            ],
+          ),
+        AsyncData(:final value?) => Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
@@ -379,15 +377,20 @@ class _HealthCard extends ConsumerWidget {
                   spacing: 6,
                   runSpacing: 6,
                   children: [
+                    // Wraps at large text sizes (a VLTag would overflow).
                     for (final a in value.allergies)
-                      VLTag.caution(
-                          context, 'Dị ứng ${allergenLabel(a).toLowerCase()}')
+                      StatusPill(
+                        label: 'Dị ứng ${allergenLabel(a).toLowerCase()}',
+                        icon: Icons.warning_amber_rounded,
+                        background: context.vl.cautionContainer,
+                        foreground: context.vl.onCautionContainer,
+                      ),
                   ],
                 ),
               ],
               const SizedBox(height: 8),
               Text(
-                'Dùng cho thực đơn AI và chỉ chia sẻ với chuyên gia khi bạn đặt lịch.',
+                'Dùng cho thực đơn AI và chỉ chia sẻ với chuyên gia khi bạn đặt chuyên gia.',
                 style: context.textStyles.bodySmall
                     ?.copyWith(color: context.vl.muted),
               ),
@@ -406,7 +409,7 @@ class _ChefApplicationCard extends StatelessWidget {
 
   final UserProfile profile;
 
-  /// Signed in with the Chef role: the card opens the chef dashboard.
+  /// Signed in with the Chef role: the card opens "Yêu cầu tư vấn".
   final bool isChef;
 
   @override
@@ -425,22 +428,22 @@ class _ChefApplicationCard extends StatelessWidget {
           vl.successContainer,
           vl.onSuccessContainer,
           'Bạn là chuyên gia đã xác minh',
-          'Quản lý dịch vụ, lịch hẹn, đơn hàng và tài liệu kiến thức của bạn.',
-          'Mở bảng điều khiển',
+          'Nhận yêu cầu thiết kế thực đơn, thoả thuận giá, soạn kế hoạch và theo dõi ví của bạn.',
+          'Mở yêu cầu tư vấn',
         ),
       ChefApplicationStatus.none => (
           Icons.workspace_premium_outlined,
           vl.aiContainer,
           vl.onAiContainer,
           'Trở thành chuyên gia',
-          'Bạn là đầu bếp hoặc chuyên gia dinh dưỡng? Gửi chứng chỉ để nhận tư vấn có phí trên VeganLife.',
+          'Bạn là đầu bếp hoặc chuyên gia dinh dưỡng? Gửi chứng chỉ để nhận thiết kế thực đơn có phí trên VeganLife.',
           'Đăng ký',
         ),
       ChefApplicationStatus.pending => (
           Icons.hourglass_top_rounded,
           vl.cautionContainer,
           vl.onCautionContainer,
-          'Hồ sơ chuyên gia đang được duyệt',
+          'Hồ sơ chuyên gia đang chờ duyệt',
           'Ban quản trị sẽ phản hồi trong 1–3 ngày làm việc.',
           null,
         ),
@@ -468,7 +471,7 @@ class _ChefApplicationCard extends StatelessWidget {
       onTap: action == null
           ? null
           : () => Navigator.of(context).push(isChef
-              ? ChefDashboardScreen.route()
+              ? ChefBookingInboxScreen.route()
               : ChefApplicationScreen.route()),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -486,7 +489,7 @@ class _ChefApplicationCard extends StatelessWidget {
                 Text(body,
                     style: context.textStyles.bodySmall?.copyWith(color: fg)),
                 // Under the text rather than beside it, so a long label
-                // ("Mở bảng điều khiển") never squeezes the body at large
+                // ("Mở yêu cầu tư vấn") never squeezes the body at large
                 // text sizes.
                 if (action != null) ...[
                   const SizedBox(height: 8),
@@ -497,6 +500,90 @@ class _ChefApplicationCard extends StatelessWidget {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Tôi › "Chuyên gia" (role Chef): the KPI row "Yêu cầu mới · Đang thực
+/// hiện · Đang giữ (đ)" and the chef tools.
+class _ChefSection extends ConsumerWidget {
+  const _ChefSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final stats = ref.watch(chefBookingStatsProvider);
+    final pending = stats?.needsAction ?? 0;
+    return _Section(
+      title: 'Chuyên gia',
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+          child: Row(
+            children: [
+              _Kpi(
+                  value: stats == null ? '–' : formatInt(stats.newRequests),
+                  label: 'Yêu cầu mới'),
+              _Kpi(
+                  value: stats == null ? '–' : formatInt(stats.inProgress),
+                  label: 'Đang thực hiện'),
+              _Kpi(
+                  value: stats == null ? '–' : formatInt(stats.heldNet),
+                  label: 'Đang giữ (đ)'),
+            ],
+          ),
+        ),
+        _MenuTile(
+          icon: Icons.inbox_outlined,
+          title: 'Yêu cầu tư vấn',
+          badge: pending,
+          onTap: () =>
+              Navigator.of(context).push(ChefBookingInboxScreen.route()),
+        ),
+        _MenuTile(
+          icon: Icons.account_balance_wallet_outlined,
+          title: 'Ví của tôi',
+          onTap: () => Navigator.of(context).push(ChefWalletScreen.route()),
+        ),
+        _MenuTile(
+          icon: Icons.storefront_outlined,
+          title: 'Hồ sơ & bảng giá',
+          onTap: () =>
+              Navigator.of(context).push(ChefProfileEditScreen.route()),
+        ),
+        _MenuTile(
+          icon: Icons.menu_book_outlined,
+          title: 'Tài liệu kiến thức',
+          onTap: () =>
+              Navigator.of(context).push(ChefKnowledgeDocsScreen.route()),
+        ),
+      ],
+    );
+  }
+}
+
+class _Kpi extends StatelessWidget {
+  const _Kpi({required this.value, required this.label});
+
+  final String value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(value,
+                style: context.textStyles.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w800)),
+          ),
+          Text(label,
+              textAlign: TextAlign.center,
+              style: context.textStyles.bodySmall
+                  ?.copyWith(color: context.vl.muted)),
         ],
       ),
     );
@@ -543,6 +630,7 @@ class _MenuTile extends StatelessWidget {
     required this.onTap,
     this.trailing,
     this.destructive = false,
+    this.badge = 0,
   });
 
   final IconData icon;
@@ -551,13 +639,20 @@ class _MenuTile extends StatelessWidget {
   final String? trailing;
   final bool destructive;
 
+  /// Items waiting on the user ("Yêu cầu tư vấn").
+  final int badge;
+
   @override
   Widget build(BuildContext context) {
     final color = destructive ? context.colors.error : null;
     // The value ("Theo hệ thống") goes under the title, not beside it, so
     // it can wrap at large text sizes instead of eating the tile's width.
     return ListTile(
-      leading: Icon(icon, color: color),
+      leading: Badge(
+        isLabelVisible: badge > 0,
+        label: Text('$badge'),
+        child: Icon(icon, color: color),
+      ),
       title: Text(title, style: TextStyle(color: color)),
       subtitle: trailing == null
           ? null

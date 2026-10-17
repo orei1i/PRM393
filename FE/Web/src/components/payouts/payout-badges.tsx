@@ -4,7 +4,7 @@
 "use client";
 
 import * as React from "react";
-import { Ban, CircleCheck, Eye, EyeOff, Hourglass, RotateCcw, ShieldAlert, Wallet, Zap } from "lucide-react";
+import { Ban, CircleCheck, Eye, EyeOff, Hourglass, Lock, RotateCcw, ShieldAlert, Snowflake, Wallet, Zap } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -61,16 +61,34 @@ export function ApprovalRuleBadge({ requiresApproval }: { requiresApproval: bool
 }
 
 export function LedgerStatusBadge({ status }: { status: LedgerStatus }) {
+  if (status === "Frozen") {
+    return (
+      <Badge variant="outline" className="border-destructive/40 text-destructive">
+        <Snowflake aria-hidden />
+        {LEDGER_STATUS_LABEL[status]}
+      </Badge>
+    );
+  }
   const variant =
     status === "Available" || status === "Completed"
       ? "sprout"
-      : status === "Pending" || status === "Processing"
+      : status === "Held" || status === "Processing"
         ? "ochre"
         : status === "Reversed"
           ? "ai"
           : "secondary";
   const Icon =
-    status === "Available" ? Wallet : status === "Completed" ? CircleCheck : status === "Reversed" ? RotateCcw : status === "Rejected" ? Ban : Hourglass;
+    status === "Available"
+      ? Wallet
+      : status === "Completed"
+        ? CircleCheck
+        : status === "Reversed"
+          ? RotateCcw
+          : status === "Rejected"
+            ? Ban
+            : status === "Held"
+              ? Lock
+              : Hourglass;
   return (
     <Badge variant={variant}>
       <Icon aria-hidden />

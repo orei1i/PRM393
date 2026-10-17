@@ -2,7 +2,7 @@
 "use client";
 
 import * as React from "react";
-import { ExternalLink, MessageSquareText, Star, Trash2 } from "lucide-react";
+import { ExternalLink, Image as ImageIcon, MessageSquareText, Play, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { ErrorState } from "@/components/admin/states";
@@ -21,10 +21,57 @@ import { CertifiedBadge, CertifiedSwitch, formatRating, hasCoords, RatingSummary
 
 const dateVi = new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
 
-/** Google Maps search link: coordinates when known, otherwise the address. */
-export function mapsUrl(r: Pick<AdminRestaurant, "latitude" | "longitude" | "address" | "name">) {
-  const query = hasCoords(r) ? `${r.latitude},${r.longitude}` : `${r.name}, ${r.address}`;
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+/** OpenStreetMap link: a marker at the coordinates when known, otherwise an address search. */
+export function osmUrl(r: Pick<AdminRestaurant, "latitude" | "longitude" | "address" | "name">) {
+  if (hasCoords(r)) return `https://www.openstreetmap.org/?mlat=${r.latitude}&mlon=${r.longitude}#map=17/${r.latitude}/${r.longitude}`;
+  return `https://www.openstreetmap.org/search?query=${encodeURIComponent(r.address)}`;
+}
+
+/** Only http(s) media URLs are rendered (they come from app users). */
+function safeHttpUrl(raw: string) {
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function MediaGallery({ restaurant }: { restaurant: AdminRestaurant }) {
+  const items = restaurant.media.map((m) => ({ ...m, href: safeHttpUrl(m.mediaUrl) })).filter((m) => m.href !== null);
+  if (items.length === 0) {
+    return (
+      <p className="flex items-center gap-2 rounded-lg bg-muted px-3 py-3 text-sm text-muted-foreground">
+        <ImageIcon className="size-4 shrink-0" aria-hidden />
+        Quán chưa có ảnh hoặc video.
+      </p>
+    );
+  }
+  return (
+    <ul className="grid grid-cols-3 gap-2" aria-label="Ảnh và video của quán">
+      {items.map((m) => (
+        <li key={m.id} className="min-w-0">
+          <a
+            href={m.href ?? undefined}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group flex flex-col gap-1 rounded-lg focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+            aria-label={`Mở ${m.mediaType === "Video" ? "video" : "ảnh"} trong tab mới${m.uploadedBy ? ` · ${m.uploadedBy.fullName} đăng` : ""}`}
+          >
+            <span className="relative flex aspect-square items-center justify-center overflow-hidden rounded-lg border bg-muted text-muted-foreground">
+              {m.mediaType === "Video" ? <Play className="size-6" aria-hidden /> : <ImageIcon className="size-6" aria-hidden />}
+              {m.mediaType === "Image" && (
+                <span aria-hidden className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url("${m.href}")` }} />
+              )}
+            </span>
+            <span className="truncate text-[11px] text-muted-foreground">
+              {m.mediaType === "Video" ? "Video" : "Ảnh"} · {m.uploadedBy?.fullName ?? "Ban quản trị"}
+            </span>
+          </a>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 export function RestaurantDrawer({
@@ -123,11 +170,19 @@ function Detail({ restaurant, onClose }: { restaurant: AdminRestaurant; onClose:
         </dl>
 
         <Button asChild size="sm" variant="outline" className="w-fit">
-          <a href={mapsUrl(restaurant)} target="_blank" rel="noopener noreferrer">
+          <a href={osmUrl(restaurant)} target="_blank" rel="noopener noreferrer">
             <ExternalLink aria-hidden />
-            Mở Google Maps
+            {hasCoords(restaurant) ? "Xem trên OpenStreetMap" : "Tìm địa chỉ trên OpenStreetMap"}
           </a>
         </Button>
+
+        <section aria-label="Ảnh và video" className="flex flex-col gap-2">
+          <h3 className="flex items-center gap-2 text-sm font-bold">
+            Ảnh & video
+            <span className="rounded-full bg-muted px-1.5 font-mono text-[11px] tabular">{restaurant.media.length}</span>
+          </h3>
+          <MediaGallery restaurant={restaurant} />
+        </section>
 
         <section className="flex items-start justify-between gap-4 rounded-lg border p-3">
           <div className="min-w-0">

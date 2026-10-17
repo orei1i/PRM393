@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/theme/vl_colors.dart';
+import '../../../../core/utils/energy.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/widgets/vl_card.dart';
 import '../../domain/entities/meal_plan.dart';
@@ -133,6 +134,9 @@ class DailyMacroCard extends StatelessWidget {
     final vl = context.vl;
     final kcalRatio =
         targets.calories == 0 ? 0.0 : totals.calories / targets.calories;
+    // The target is an estimate: same rounding as "Hồ sơ sức khoẻ" (2.060,
+    // not 2.063). The day's total is a sum of dishes, shown exactly.
+    final target = Energy.formatKcal(targets.calories);
 
     return VLCard(
       child: Column(
@@ -153,7 +157,7 @@ class DailyMacroCard extends StatelessWidget {
                           weight: FontWeight.w700,
                           color: context.colors.onSurface)),
                   TextSpan(
-                      text: ' / ${formatInt(targets.calories)} kcal',
+                      text: ' / $target kcal',
                       style: AppTypography.mono(
                           size: 12, weight: FontWeight.w500, color: vl.muted)),
                 ]),
@@ -169,8 +173,7 @@ class DailyMacroCard extends StatelessWidget {
               color: kcalRatio > 1.1 ? vl.caution : vl.success,
               backgroundColor: vl.skeletonBase,
               semanticsLabel: 'Năng lượng trong ngày',
-              semanticsValue:
-                  '${formatInt(totals.calories)} trên ${formatInt(targets.calories)} kcal',
+              semanticsValue: '${formatInt(totals.calories)} trên $target kcal',
             ),
           ),
           const SizedBox(height: 16),

@@ -6,7 +6,7 @@ import 'package:flutter/widgets.dart';
 const double kFloatingBarGap = 16;
 
 /// Bottom padding for the main list of a shell tab (Trang chủ, Thực đơn,
-/// Chuyên gia / Khách hàng, Tôi) so its last item scrolls clear of the
+/// Chuyên gia, Tôi) so its last item scrolls clear of the
 /// floating bottom bar: the capsule, the scan button rising out of it, the
 /// gap under it and the system gesture area.
 ///

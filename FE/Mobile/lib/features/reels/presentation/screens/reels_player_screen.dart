@@ -8,9 +8,9 @@ import '../../domain/reel.dart';
 import '../widgets/reel_page.dart';
 
 /// Full-screen vertical Reels player: swipe up for the next clip, tap to
-/// pause, like / comment / share / save on the right, author, caption and
-/// "Xem công thức" at the bottom. Clips autoplay muted; the speaker button
-/// turns sound on for the whole session.
+/// pause, like / comment / save on the right (comments open in a sheet),
+/// author, caption and "Xem công thức" (sheet) at the bottom. Clips autoplay
+/// muted; the speaker button turns sound on for the whole session.
 class ReelsPlayerScreen extends ConsumerStatefulWidget {
   const ReelsPlayerScreen(
       {super.key, required this.reels, this.initialIndex = 0});
@@ -101,7 +101,7 @@ class _ReelsPlayerScreenState extends ConsumerState<ReelsPlayerScreen> {
                       const SizedBox(width: 8),
                       const Expanded(
                         child: Text(
-                          'Reels',
+                          'Bếp nhanh',
                           style: TextStyle(
                               color: Colors.white,
                               fontSize: 18,

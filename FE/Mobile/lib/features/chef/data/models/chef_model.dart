@@ -1,15 +1,18 @@
 // lib/features/chef/data/models/chef_model.dart
 //
-// GET /chefs?q=&specialty=   → [ChefDto]   (list omits bio/services/slots)
-// GET /chefs/{id}            → ChefDto with "services" and "availableSlots"
-//                              (ISO-8601, UTC; slots held by unpaid orders are
-//                              already left out) and, optionally,
-//                              "bookedSlots": the chef's slots someone already
-//                              holds (paid or an unpaid hold), shown greyed out
-// SQL `chef_profiles` has a single `specialty`; the list form is accepted too.
+// GET /chefs?q=&specialty=   → [ChefDto]   (list omits bio / certificates)
+// GET /chefs/{id}            → ChefDto
+// { "id": 3, "userId": 12, "fullName": "Lê Quang Tâm", "headline": "…",
+//   "specialty": "Ẩm thực chay Việt",                // SQL keeps one; a list is accepted too
+//   "rating": 4.9, "reviewCount": 212, "yearsExperience": 15, "city": "TP. Hồ Chí Minh",
+//   "consultCount": 640,
+//   "pricePerDay": 150000, "feedbackPricePerDay": 180000,   // proposed chef_profiles columns
+//   "minPlanDays": 3, "maxPlanDays": 30, "acceptingBookings": true,
+//   "bio": "…", "certificates": ["…"] }
+// Services and time slots are gone (plan D15a); legacy `services`,
+// `availableSlots` and `startingPriceVnd` are ignored.
 import '../../../../core/utils/json_helpers.dart';
 import '../../domain/entities/chef.dart';
-import 'service_model.dart';
 
 class ChefDto {
   const ChefDto({
@@ -21,28 +24,25 @@ class ChefDto {
     required this.reviewCount,
     required this.yearsExperience,
     required this.city,
-    required this.startingPriceVnd,
+    required this.pricePerDay,
+    required this.feedbackPricePerDay,
     this.userId,
+    this.minPlanDays = 3,
+    this.maxPlanDays = 30,
+    this.acceptingBookings = true,
     this.bio = '',
     this.consultCount = 0,
     this.certificates = const [],
-    this.services = const [],
-    this.availableSlots = const [],
-    this.bookedSlots = const [],
   });
 
   factory ChefDto.fromJson(Map<String, dynamic> json) {
-    final services = json['services'] is List<Object?>
-        ? (json['services'] as List<Object?>)
-            .whereType<Map<String, dynamic>>()
-            .map(ServiceDto.fromJson)
-            .toList()
-        : const <ServiceDto>[];
-    List<DateTime> slots(Object? value) => value is List<Object?>
-        ? value.map(readDateTime).whereType<DateTime>().toList()
-        : const [];
     final specialty = json['specialty'];
-    final startingPrice = readInt(json['startingPriceVnd']);
+    int orDefault(Object? value, int fallback) {
+      final n = readInt(value);
+      return n > 0 ? n : fallback;
+    }
+
+    final pricePerDay = orDefault(json['pricePerDay'], 0);
     return ChefDto(
       id: json['id']?.toString() ?? '',
       userId: json['userId']?.toString(),
@@ -55,15 +55,14 @@ class ChefDto {
       reviewCount: readInt(json['reviewCount']),
       yearsExperience: readInt(json['yearsExperience']),
       city: json['city'] as String? ?? '',
-      startingPriceVnd: startingPrice > 0 || services.isEmpty
-          ? startingPrice
-          : services.map((s) => s.price).reduce((a, b) => a < b ? a : b),
+      pricePerDay: pricePerDay,
+      feedbackPricePerDay: orDefault(json['feedbackPricePerDay'], pricePerDay),
+      minPlanDays: orDefault(json['minPlanDays'], 3),
+      maxPlanDays: orDefault(json['maxPlanDays'], 30),
+      acceptingBookings: json['acceptingBookings'] as bool? ?? true,
       bio: json['bio'] as String? ?? '',
       consultCount: readInt(json['consultCount']),
       certificates: readStringList(json['certificates']),
-      services: services,
-      availableSlots: slots(json['availableSlots']),
-      bookedSlots: slots(json['bookedSlots']),
     );
   }
 
@@ -76,13 +75,14 @@ class ChefDto {
   final int reviewCount;
   final int yearsExperience;
   final String city;
-  final int startingPriceVnd;
+  final int pricePerDay;
+  final int feedbackPricePerDay;
+  final int minPlanDays;
+  final int maxPlanDays;
+  final bool acceptingBookings;
   final String bio;
   final int consultCount;
   final List<String> certificates;
-  final List<ServiceDto> services;
-  final List<DateTime> availableSlots;
-  final List<DateTime> bookedSlots;
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -94,15 +94,14 @@ class ChefDto {
         'reviewCount': reviewCount,
         'yearsExperience': yearsExperience,
         'city': city,
-        'startingPriceVnd': startingPriceVnd,
+        'pricePerDay': pricePerDay,
+        'feedbackPricePerDay': feedbackPricePerDay,
+        'minPlanDays': minPlanDays,
+        'maxPlanDays': maxPlanDays,
+        'acceptingBookings': acceptingBookings,
         'bio': bio,
         'consultCount': consultCount,
         'certificates': certificates,
-        'services': services.map((s) => s.toJson()).toList(),
-        'availableSlots':
-            availableSlots.map((d) => d.toUtc().toIso8601String()).toList(),
-        'bookedSlots':
-            bookedSlots.map((d) => d.toUtc().toIso8601String()).toList(),
       };
 
   Chef toEntity() => Chef(
@@ -115,12 +114,13 @@ class ChefDto {
         reviewCount: reviewCount,
         yearsExperience: yearsExperience,
         city: city,
-        startingPriceVnd: startingPriceVnd,
+        pricePerDay: pricePerDay,
+        feedbackPricePerDay: feedbackPricePerDay,
+        minPlanDays: minPlanDays,
+        maxPlanDays: maxPlanDays,
+        acceptingBookings: acceptingBookings,
         bio: bio,
         consultCount: consultCount,
         certificates: certificates,
-        services: services.map((s) => s.toEntity()).toList(),
-        availableSlots: availableSlots,
-        bookedSlots: bookedSlots,
       );
 }

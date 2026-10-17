@@ -8,14 +8,14 @@ import '../../../core/widgets/sign_in_sheet.dart';
 import '../data/community_api_service.dart';
 import '../domain/entities/post.dart';
 import 'controllers/feed_controller.dart';
-import 'screens/comments_screen.dart';
 import 'screens/create_post_screen.dart';
 import 'widgets/report_post_sheet.dart';
 
-/// Shared like / save / comment / report handlers for the feed card and the
-/// post detail screen, plus the author's own edit / delete. Each returns the
-/// post as it should now be displayed, or `null` when nothing changed (guest
-/// dismissed sign-in, request failed).
+/// Shared like / save / report handlers for the feed card, the post detail
+/// and Reels, plus the author's own edit / delete and the "Nội dung của tôi
+/// › Bình luận" comment actions. Each returns the post as it should now be
+/// displayed, or `null` when nothing changed (guest dismissed sign-in,
+/// request failed). Comments themselves live in the post detail.
 abstract final class PostActions {
   static Future<Post?> toggleLike(
       BuildContext context, WidgetRef ref, Post post) async {
@@ -52,26 +52,6 @@ abstract final class PostActions {
       if (context.mounted) _snack(context, describeError(e));
       return null;
     }
-  }
-
-  /// Opens the full-screen thread. [onAdded] fires for each confirmed
-  /// comment, [onRemoved] / [onEdited] after the member deletes or edits
-  /// their own. [autofocus] opens the composer straight away.
-  static Future<void> openComments(
-    BuildContext context,
-    Post post, {
-    ValueChanged<Comment>? onAdded,
-    ValueChanged<Comment>? onRemoved,
-    ValueChanged<Comment>? onEdited,
-    bool autofocus = false,
-  }) {
-    return Navigator.of(context).push(CommentsScreen.route(
-      post,
-      onAdded: onAdded,
-      onRemoved: onRemoved,
-      onEdited: onEdited,
-      autofocus: autofocus,
-    ));
   }
 
   static Future<void> report(
@@ -136,7 +116,8 @@ abstract final class PostActions {
     }
   }
 
-  /// Deletes one of the member's comments after confirming. `true` if gone.
+  /// "Nội dung của tôi › Bình luận": deletes one of the member's comments
+  /// (a top-level one with its replies) after confirming. `true` if gone.
   static Future<bool> deleteComment(BuildContext context, WidgetRef ref,
       {required String postId, required String commentId}) async {
     final messenger = ScaffoldMessenger.of(context);
@@ -145,15 +126,21 @@ abstract final class PostActions {
     final ok = await confirm(
       context,
       title: 'Xoá bình luận?',
-      message: 'Bình luận sẽ bị xoá vĩnh viễn.',
+      message: 'Bình luận và các phản hồi của nó sẽ bị xoá vĩnh viễn.',
     );
     if (!ok) return false;
     try {
       await api.deleteComment(postId, commentId);
-      feed.commentRemoved(postId);
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(const SnackBar(content: Text('Đã xoá bình luận')));
+      // How many replies went with it is the server's business: take the
+      // post's new count from it.
+      try {
+        feed.commentCountIs(postId, (await api.getPost(postId)).commentCount);
+      } catch (_) {
+        feed.commentsChanged(postId, -1);
+      }
       return true;
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text(describeError(e))));

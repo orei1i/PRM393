@@ -24,6 +24,14 @@ abstract interface class SearchApiService {
     GeoPoint? near,
     int limit = 10,
   });
+
+  /// Autocomplete while typing (2+ characters): queries, recipes, posts and
+  /// restaurants, at most [limit].
+  Future<List<SearchSuggestItemDto>> suggest(String query, {int limit = 8});
+
+  /// The idle page: trending queries, categories, seasonal dishes, popular
+  /// recipes and the nearest restaurants.
+  Future<SearchDiscoverDto> discover({GeoPoint? near});
 }
 
 class RemoteSearchApiService implements SearchApiService {
@@ -52,6 +60,30 @@ class RemoteSearchApiService implements SearchApiService {
           },
         );
         return SearchResultDto.fromJson(res.data!);
+      });
+
+  @override
+  Future<List<SearchSuggestItemDto>> suggest(String query, {int limit = 8}) =>
+      guardApi(() async {
+        final res = await _dio.get<List<dynamic>>(
+          ApiEndpoints.searchSuggest,
+          queryParameters: {'q': query, 'limit': limit},
+        );
+        return SearchSuggestItemDto.listFromJson(res.data);
+      });
+
+  @override
+  Future<SearchDiscoverDto> discover({GeoPoint? near}) => guardApi(() async {
+        final res = await _dio.get<Map<String, dynamic>>(
+          ApiEndpoints.searchDiscover,
+          queryParameters: {
+            if (near != null) ...{
+              'lat': near.latitude,
+              'lng': near.longitude,
+            },
+          },
+        );
+        return SearchDiscoverDto.fromJson(res.data!);
       });
 }
 

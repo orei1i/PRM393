@@ -11,14 +11,20 @@ import '../../../../core/widgets/user_avatar.dart';
 import '../../../../core/widgets/vl_card.dart';
 import '../../domain/entities/post.dart';
 import '../post_actions.dart';
+import 'restaurant_tag.dart';
 import 'video_status_chip.dart';
 
 const _likeRed = Color(0xFFE11D48);
 
-/// Feed item, edge to edge like a social feed: author row → title → body
-/// (4 lines, "Xem thêm") → full-bleed media → tags → stats → Thích /
-/// Bình luận / Lưu. Lists separate items with [PostListGap]. Likes, saves and
-/// comments only work on published posts.
+/// Feed item, edge to edge like a social feed: author row ("— tại {quán}")
+/// → title → body (4 lines, "Xem thêm") → restaurant chip → full-bleed
+/// photo or video frame → tags → stats → Thích / Bình luận / Lưu. Lists
+/// separate items with [PostListGap]. Likes, saves and comments only work on
+/// published posts.
+///
+/// [onOpen] (body, photo, video frame) opens the post detail at the top,
+/// [onComment] ("Bình luận") at the comments with the composer focused,
+/// [onOpenComments] ("N bình luận") at the comments without focus.
 class PostCard extends StatelessWidget {
   const PostCard({
     super.key,
@@ -27,8 +33,8 @@ class PostCard extends StatelessWidget {
     required this.onLike,
     required this.onComment,
     required this.onSave,
+    this.onOpenComments,
     this.onReport,
-    this.onOpenVideo,
   });
 
   final Post post;
@@ -36,14 +42,16 @@ class PostCard extends StatelessWidget {
   final VoidCallback onLike;
   final VoidCallback onComment;
   final VoidCallback onSave;
+  final VoidCallback? onOpenComments;
   final VoidCallback? onReport;
-  final VoidCallback? onOpenVideo;
 
   @override
   Widget build(BuildContext context) {
-    final isVideo = post.type == PostType.video;
+    final isVideo = post.hasVideo;
+    final image = post.imageSrc;
     // Photos read best tall; covers and video frames stay 16:9.
-    final aspect = !isVideo && post.imageUrl != null ? 4 / 5 : 16 / 9;
+    final aspect = !isVideo && image != null ? 4 / 5 : 16 / 9;
+    final restaurant = post.restaurant;
     return Material(
       color: context.colors.surface,
       child: InkWell(
@@ -84,6 +92,10 @@ class PostCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     _ExpandableBody(text: post.body),
                   ],
+                  if (restaurant != null) ...[
+                    const SizedBox(height: 8),
+                    RestaurantTagChip(restaurant: restaurant),
+                  ],
                 ],
               ),
             ),
@@ -91,10 +103,10 @@ class PostCard extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: GestureDetector(
-                  onTap: isVideo ? onOpenVideo ?? onOpen : onOpen,
+                  onTap: onOpen,
                   child: FoodCover(
                     seed: post.coverSeed,
-                    imageUrl: post.imageUrl,
+                    imageUrl: image,
                     aspectRatio: aspect,
                     child: isVideo ? _VideoOverlay(post: post) : null,
                   ),
@@ -116,6 +128,7 @@ class PostCard extends StatelessWidget {
               post: post,
               onLike: onLike,
               onComment: onComment,
+              onOpenComments: onOpenComments ?? onOpen,
               onSave: onSave,
               enabled: post.isPublished,
             ),
@@ -228,8 +241,14 @@ class PostAuthorRow extends ConsumerWidget {
     final me = ref.watch(
         sessionControllerProvider.select((s) => s.isGuest ? null : s.userId));
     final own = me != null && me == post.author.id;
+    final hasMenu = own || onReport != null;
+    final strong =
+        context.textStyles.labelLarge?.copyWith(fontWeight: FontWeight.w700);
+    final restaurant = post.restaurant;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 4, 10),
+      // The "⋯" button brings its own inset; without it the text keeps the
+      // 16 dp page margin instead of running into the screen edge.
+      padding: EdgeInsets.fromLTRB(16, 12, hasMenu ? 4 : 16, 10),
       child: Row(
         children: [
           UserAvatar(
@@ -241,29 +260,56 @@ class PostAuthorRow extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
+                // Name and badge stay together; "— tại {quán}" follows on
+                // the same line when it fits, else on its own line.
+                Wrap(
+                  spacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Flexible(
-                      child: Text(
-                        post.author.name,
-                        overflow: TextOverflow.ellipsis,
-                        style: context.textStyles.labelLarge
-                            ?.copyWith(fontWeight: FontWeight.w700),
-                      ),
+                    Row(
+                      key: const ValueKey('post-author-name'),
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            post.author.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: strong,
+                          ),
+                        ),
+                        if (post.author.isVerifiedChef) ...[
+                          const SizedBox(width: 4),
+                          Icon(Icons.verified_rounded,
+                              size: 16, color: context.vl.success),
+                          const SizedBox(width: 2),
+                          Text('Chuyên gia',
+                              maxLines: 1,
+                              style: context.textStyles.labelMedium
+                                  ?.copyWith(color: context.vl.success)),
+                        ],
+                      ],
                     ),
-                    if (post.author.isVerifiedChef) ...[
-                      const SizedBox(width: 4),
-                      Icon(Icons.verified_rounded,
-                          size: 16, color: context.vl.success),
-                      const SizedBox(width: 2),
-                      Text('Chuyên gia',
-                          style: context.textStyles.labelMedium
-                              ?.copyWith(color: context.vl.success)),
-                    ],
+                    if (restaurant != null)
+                      Text.rich(
+                        key: const ValueKey('post-author-restaurant'),
+                        TextSpan(children: [
+                          TextSpan(
+                            text: '— tại ',
+                            style: context.textStyles.labelLarge
+                                ?.copyWith(color: context.vl.muted),
+                          ),
+                          TextSpan(text: restaurant.name, style: strong),
+                        ]),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                   ],
                 ),
                 Text(
                   '${relativeTime(post.createdAt)} · ${post.type.label}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: context.textStyles.bodySmall
                       ?.copyWith(color: context.vl.muted),
                 ),
@@ -319,7 +365,8 @@ class PostAuthorRow extends ConsumerWidget {
 }
 
 /// Stats line ("❤ 214 · 27 bình luận"), a hairline, then three equal
-/// buttons: Thích · Bình luận · Lưu.
+/// buttons: Thích · Bình luận · Lưu. "N bình luận" calls [onOpenComments]
+/// (default: [onComment]).
 class PostActionsBar extends StatelessWidget {
   const PostActionsBar({
     super.key,
@@ -327,6 +374,7 @@ class PostActionsBar extends StatelessWidget {
     required this.onLike,
     required this.onComment,
     required this.onSave,
+    this.onOpenComments,
     this.enabled = true,
   });
 
@@ -334,6 +382,7 @@ class PostActionsBar extends StatelessWidget {
   final VoidCallback onLike;
   final VoidCallback onComment;
   final VoidCallback onSave;
+  final VoidCallback? onOpenComments;
 
   /// `false` while the post waits for review (or was rejected).
   final bool enabled;
@@ -360,9 +409,12 @@ class PostActionsBar extends StatelessWidget {
                 const Spacer(),
                 if (post.commentCount > 0)
                   InkWell(
-                    onTap: enabled ? onComment : null,
-                    child: Text('${formatInt(post.commentCount)} bình luận',
-                        style: muted),
+                    onTap: enabled ? (onOpenComments ?? onComment) : null,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Text('${formatInt(post.commentCount)} bình luận',
+                          style: muted),
+                    ),
                   ),
               ],
             ),

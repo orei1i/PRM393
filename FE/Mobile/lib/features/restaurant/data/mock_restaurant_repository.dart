@@ -14,7 +14,8 @@ import 'restaurant_api_service.dart';
 /// for the whole app session; [reset] restores the seeds for tests.
 ///
 /// `#fail` in a review comment, a suggested name/address or a list query →
-/// 503; any write on "Quán thử nghiệm QA #fail" → 503 too.
+/// 503; any write on "Quán thử nghiệm QA #fail" → 503 too. Suggestions keep
+/// their coordinates and media (at most 5 photos and 1 video → else 400).
 class MockRestaurantRepository implements RestaurantApiService {
   MockRestaurantRepository({
     required this.isSignedIn,
@@ -129,6 +130,7 @@ class MockRestaurantRepository implements RestaurantApiService {
     String? query,
     bool certifiedOnly = false,
     RestaurantSort sort = RestaurantSort.distance,
+    double? radiusKm,
     int? limit,
   }) async {
     await mockDelay(500);
@@ -140,10 +142,40 @@ class MockRestaurantRepository implements RestaurantApiService {
       rows = rows.where((r) =>
           byDish.contains(r.id) || matchesQuery('${r.name} ${r.address}', q));
     }
-    final list = rows.map((r) => _dto(r, near)).toList()
-      ..sort(sort == RestaurantSort.rating ? _byRating : _byDistance);
+    var list = rows.map((r) => _dto(r, near)).toList();
+    if (radiusKm != null && near != null) {
+      list = list
+          .where((r) => r.distanceKm != null && r.distanceKm! <= radiusKm)
+          .toList();
+    }
+    list.sort(sort == RestaurantSort.rating ? _byRating : _byDistance);
     return limit == null ? list : list.take(limit).toList();
   }
+
+  @override
+  Future<List<RestaurantMediaDto>> getMedia(String restaurantId) async {
+    await mockDelay(300);
+    _find(restaurantId);
+    return [
+      for (final m in _db.media)
+        if (m.restaurantId == restaurantId) _mediaDto(m),
+    ];
+  }
+
+  RestaurantMediaDto _mediaDto(_MediaRow m) => RestaurantMediaDto.fromJson({
+        'id': m.id,
+        'mediaType': m.type.apiValue,
+        'mediaUrl': m.url,
+        'uploadedBy': m.uploadedBy == null
+            ? null
+            : {
+                'id': m.uploadedBy,
+                'fullName': m.uploadedByName ??
+                    mockRestaurantPeople[m.uploadedBy] ??
+                    'Thành viên',
+              },
+        'createdAt': m.createdAt.toUtc().toIso8601String(),
+      });
 
   @override
   Future<RestaurantDto> getRestaurant(String id, {GeoPoint? near}) async {
@@ -211,6 +243,20 @@ class MockRestaurantRepository implements RestaurantApiService {
     if (address.length < 10) {
       throw _invalid('Địa chỉ cần ít nhất 10 ký tự.');
     }
+    final images = request.media
+        .where((m) => m.mediaType == RestaurantMediaType.image)
+        .length;
+    final videos = request.media.length - images;
+    if (images > CreateRestaurantRequestDto.maxImages ||
+        videos > CreateRestaurantRequestDto.maxVideos) {
+      throw _invalid('Tối đa 5 ảnh và 1 video cho mỗi gợi ý.');
+    }
+    if (request.media.any((m) => m.mediaUrl.trim().isEmpty)) {
+      throw _invalid('Ảnh hoặc video chưa tải lên xong.');
+    }
+    if ((request.latitude == null) != (request.longitude == null)) {
+      throw _invalid('Toạ độ cần đủ vĩ độ và kinh độ.');
+    }
     if (_fails(name) || _fails(address)) {
       throw _unavailable('gửi được gợi ý quán');
     }
@@ -234,6 +280,18 @@ class MockRestaurantRepository implements RestaurantApiService {
       lng: request.longitude,
     );
     _db.restaurants.add(row);
+    final now = DateTime.now();
+    for (final m in request.media) {
+      _db.media.add(_MediaRow(
+        id: 'rm_u_${now.millisecondsSinceEpoch}_${_db.seq++}',
+        restaurantId: row.id,
+        type: m.mediaType,
+        url: m.mediaUrl,
+        uploadedBy: currentUserId(),
+        uploadedByName: currentUserName(),
+        createdAt: now,
+      ));
+    }
     return _dto(row, null);
   }
 
@@ -284,6 +342,26 @@ class _RestaurantRow {
   final double? lng;
 }
 
+class _MediaRow {
+  _MediaRow({
+    required this.id,
+    required this.restaurantId,
+    required this.type,
+    required this.url,
+    required this.createdAt,
+    this.uploadedBy,
+    this.uploadedByName,
+  });
+
+  final String id;
+  final String restaurantId;
+  final RestaurantMediaType type;
+  final String url;
+  final String? uploadedBy;
+  final String? uploadedByName;
+  final DateTime createdAt;
+}
+
 class _ReviewRow {
   _ReviewRow({
     required this.id,
@@ -314,6 +392,7 @@ class _MockRestaurantDb {
 
   final restaurants = <_RestaurantRow>[];
   final reviews = <_ReviewRow>[];
+  final media = <_MediaRow>[];
   int seq = 0;
 
   void reset() {
@@ -330,6 +409,21 @@ class _MockRestaurantDb {
             lat: s.lat,
             lng: s.lng,
           )));
+    media
+      ..clear()
+      ..addAll([
+        for (final (i, (restaurantId, type, file, by, daysAgo))
+            in mockRestaurantMediaSeeds.indexed)
+          _MediaRow(
+            id: 'rm_${i + 1}',
+            restaurantId: restaurantId,
+            type: RestaurantMediaType.fromApi(type),
+            url: '$mockMediaBase/${type == 'Video' ? 'video' : 'image'}'
+                '/upload/v1/restaurants/$file',
+            uploadedBy: by,
+            createdAt: now.subtract(Duration(days: daysAgo)),
+          ),
+      ]);
     reviews.clear();
     for (final MapEntry(key: restaurantId, value: seeds)
         in mockReviewSeeds.entries) {

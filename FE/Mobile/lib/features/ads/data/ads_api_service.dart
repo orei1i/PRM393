@@ -9,13 +9,25 @@ import '../../../core/network/dio_client.dart';
 import 'mock_ads_repository.dart';
 import 'models/ad_feed_item.dart';
 
-/// Store ads shown as "Được tài trợ" cards (public, guests too). Campaigns
-/// are managed on the web console (`/ads`).
+/// Store ads ("Được tài trợ", public, guests too). Campaigns are managed on
+/// the web console (`/ads`); the app shows one row at the top of "Quán chay
+/// gần bạn" and reports its impressions and clicks.
 abstract interface class AdsApiService {
-  /// Running campaigns for [city] (or nationwide), nearest first when
-  /// [lat] / [lng] are given.
-  Future<List<AdFeedItemDto>> getFeed(
-      {String? city, double? lat, double? lng, int limit = 3});
+  /// Running campaigns of [placement] for [city] (or nationwide), nearest
+  /// first when [lat] / [lng] are given.
+  Future<List<AdFeedItemDto>> getFeed({
+    String placement = AdPlacement.nearby,
+    String? city,
+    double? lat,
+    double? lng,
+    int limit = AdPlacement.nearbyLimit,
+  });
+
+  /// `POST /ads/{id}/impression`: the row was displayed.
+  Future<void> reportImpression(String adId);
+
+  /// `POST /ads/{id}/click`: the row (or its button) was tapped.
+  Future<void> reportClick(String adId);
 }
 
 class RemoteAdsApiService implements AdsApiService {
@@ -24,11 +36,17 @@ class RemoteAdsApiService implements AdsApiService {
   final Dio _dio;
 
   @override
-  Future<List<AdFeedItemDto>> getFeed(
-          {String? city, double? lat, double? lng, int limit = 3}) =>
+  Future<List<AdFeedItemDto>> getFeed({
+    String placement = AdPlacement.nearby,
+    String? city,
+    double? lat,
+    double? lng,
+    int limit = AdPlacement.nearbyLimit,
+  }) =>
       guardApi(() async {
         final res = await _dio
             .get<List<dynamic>>(ApiEndpoints.adsFeed, queryParameters: {
+          'placement': placement,
           if (city != null) 'city': city,
           if (lat != null) 'lat': lat,
           if (lng != null) 'lng': lng,
@@ -39,6 +57,14 @@ class RemoteAdsApiService implements AdsApiService {
             .map(AdFeedItemDto.fromJson)
             .toList();
       });
+
+  @override
+  Future<void> reportImpression(String adId) =>
+      guardApi(() => _dio.post<void>(ApiEndpoints.adImpression(adId)));
+
+  @override
+  Future<void> reportClick(String adId) =>
+      guardApi(() => _dio.post<void>(ApiEndpoints.adClick(adId)));
 }
 
 final adsApiProvider = Provider<AdsApiService>((ref) {

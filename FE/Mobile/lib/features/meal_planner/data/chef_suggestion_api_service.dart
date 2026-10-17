@@ -1,32 +1,29 @@
 // lib/features/meal_planner/data/chef_suggestion_api_service.dart
 //
-// Chef side of "Từ chuyên gia": a chef suggests a dish to a member who uses
-// one of their packages; the member then finds it in Thực đơn › Chọn món ›
-// Từ chuyên gia (`MealPlannerApiService.getChefSuggestions`).
+// How dishes reach the member's Thực đơn › Chọn món › "Từ chuyên gia"
+// (`MealPlannerApiService.getChefSuggestions`).
 //
-// POST /chefs/me/clients/{userId}/suggestions          (role Chef only)
-// { "name": "Bún gạo lứt xào rau củ", "calories": 480,
-//   "ingredients": ["Bún gạo lứt", "Cải thìa"], "note": "…",
-//   "slot": "dinner" | null, "targetDate": "2026-10-17" | null }
-// → SentSuggestionDto (201). 400 on invalid input, 403 for non-chefs, 404
-// when the member has no package with this chef.
-// GET /chefs/me/clients/{userId}/suggestions → [SentSuggestionDto]
-// { "id": "sg_…", "userId": 7, "createdAt": "…", "note": "…",
-//   "slot": "dinner", "targetDate": "2026-10-17",
+// Since the chef business moved to N-day meal-plan bookings (plan D15b),
+// a chef no longer suggests single dishes to "clients": the server turns
+// every plan day the chef sends (`POST /chefs/me/bookings/{id}/plan/days/
+// {dayIndex}/send` or `/plan/send`) into "Từ chuyên gia" rows with the slot,
+// the target date and the chef's name. There is no client endpoint for it
+// any more (`/chefs/me/clients/{userId}/suggestions` is obsolete).
+//
+// This file is the mock side of that delivery: [deliverChefPlanMeal] is
+// what the mock booking server calls when a day is sent, and
+// [MockChefSuggestionRepository] keeps the old single-dish entry point for
+// tests and seeds. Both write through [MockRecipeBook], the store the
+// member's planner reads.
+//
+// A delivered row (MockRecipeBook / GET /meal-plans/chef-suggestions):
+// { "id": "sg_…", "chefId": "u_chef_tam", "chefName": "Lê Quang Tâm", "note": "…",
+//   "slot": "dinner", "targetDate": "2026-10-17", "createdAt": "…",
 //   "recipe": { "id": "cs_…", "name": "…", "caloriesCache": 480,
 //               "ingredients": [{ "name": "…" }], … } }
-// Proposed table `chef_meal_suggestions (id, chef_id, user_id, recipe_id, note,
-// slot, target_date, created_at)`; the dish itself is a `recipes` row
-// created by the chef.
-import 'package:dio/dio.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-
-import '../../../core/config/env.dart';
-import '../../../core/network/api_endpoints.dart';
+// Deprecated table `chef_meal_suggestions`; the BE derives these rows from
+// `booking_plan_days` / `booking_plan_meals`.
 import '../../../core/network/api_exception.dart';
-import '../../../core/network/dio_client.dart';
-import '../../../core/session/session_controller.dart';
-import '../../../core/session/user_role.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/utils/json_helpers.dart';
 import '../../../core/utils/mock_delay.dart';
@@ -144,38 +141,65 @@ class SentSuggestionDto {
   final DateTime? createdAt;
 }
 
+/// Single-dish delivery (mock and tests only; see the file header).
 abstract interface class ChefSuggestionApiService {
-  /// What the signed-in chef suggested to [userId], newest first.
+  /// What the signed-in chef delivered to [userId], newest first.
   Future<List<SentSuggestionDto>> sentTo(String userId);
 
-  /// Sends a dish to [userId]'s "Từ chuyên gia" list.
+  /// Puts a dish in [userId]'s "Từ chuyên gia" list.
   Future<SentSuggestionDto> send(String userId, SendChefSuggestionDto request);
 }
 
-class RemoteChefSuggestionApiService implements ChefSuggestionApiService {
-  RemoteChefSuggestionApiService(this._dio);
-
-  final Dio _dio;
-
-  @override
-  Future<List<SentSuggestionDto>> sentTo(String userId) => guardApi(() async {
-        final res = await _dio
-            .get<List<dynamic>>(ApiEndpoints.myChefClientSuggestions(userId));
-        return (res.data ?? const [])
-            .whereType<Map<String, dynamic>>()
-            .map(SentSuggestionDto.fromJson)
-            .toList();
-      });
-
-  @override
-  Future<SentSuggestionDto> send(
-          String userId, SendChefSuggestionDto request) =>
-      guardApi(() async {
-        final res = await _dio.post<Map<String, dynamic>>(
-            ApiEndpoints.myChefClientSuggestions(userId),
-            data: request.toJson());
-        return SentSuggestionDto.fromJson(res.data!);
-      });
+/// Delivers one meal of a sent booking plan day to the member's "Từ chuyên
+/// gia" list (D15b): [slot] and [date] become the suggestion's slot and
+/// target date, [chefName] its source. Allergens are inferred from the name
+/// and [ingredients] like the server does, so the planner warns about
+/// them. Returns the stored row.
+Map<String, Object?> deliverChefPlanMeal({
+  required String memberId,
+  required String chefUserId,
+  required String chefName,
+  required MealSlot slot,
+  required DateTime date,
+  required String name,
+  int? calories,
+  double? proteinG,
+  double? carbsG,
+  double? fatG,
+  List<String> ingredients = const [],
+  String? instructions,
+  String? note,
+}) {
+  final cleanIngredients = [
+    for (final i in ingredients)
+      if (i.trim().isNotEmpty) i.trim(),
+  ];
+  return MockRecipeBook.addChefSuggestion(
+    userId: memberId,
+    chefId: chefUserId,
+    chefName: chefName,
+    note: (note?.trim().isEmpty ?? true) ? null : note!.trim(),
+    slot: slot.apiValue,
+    targetDate: toApiDate(date),
+    recipe: {
+      'name': name.trim(),
+      // Only what the chef entered: no "Đạm 0 g" for unknown macros.
+      if (calories != null) 'caloriesCache': calories,
+      if (proteinG != null) 'proteinG': proteinG,
+      if (carbsG != null) 'carbsG': carbsG,
+      if (fatG != null) 'fatG': fatG,
+      'allergens':
+          MockMealPlannerRepository.detectAllergens(name, cleanIngredients)
+              .toList(),
+      'dietTags': <String>[],
+      'servings': 1,
+      'ingredients': [
+        for (final i in cleanIngredients)
+          {'name': i, 'quantity': null, 'unit': ''},
+      ],
+      'instructions': instructions?.trim() ?? '',
+    },
+  );
 }
 
 /// Writes through [MockRecipeBook], the store the member's planner reads,
@@ -267,17 +291,3 @@ class MockChefSuggestionRepository implements ChefSuggestionApiService {
     return SentSuggestionDto.fromJson(Map<String, dynamic>.from(row));
   }
 }
-
-final chefSuggestionApiProvider = Provider<ChefSuggestionApiService>((ref) {
-  if (Env.useMockData) {
-    return MockChefSuggestionRepository(
-      chefUserId: () => ref.read(sessionControllerProvider).userId,
-      chefName: () =>
-          ref.read(sessionControllerProvider).displayName ?? 'Chuyên gia',
-      isChef: () =>
-          ref.read(sessionControllerProvider).role == UserRole.chef &&
-          !ref.read(sessionControllerProvider).isGuest,
-    );
-  }
-  return RemoteChefSuggestionApiService(ref.watch(dioProvider));
-});

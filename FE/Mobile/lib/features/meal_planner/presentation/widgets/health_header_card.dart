@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/theme/vl_colors.dart';
+import '../../../../core/utils/energy.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/labels.dart';
 import '../../../../core/widgets/vl_card.dart';
@@ -70,6 +71,8 @@ class HealthHeaderCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
+          _EnergyLine(profile: profile),
+          const SizedBox(height: 8),
           Wrap(
             spacing: 6,
             runSpacing: 6,
@@ -80,6 +83,104 @@ class HealthHeaderCard extends StatelessWidget {
                 VLTag.neutral(context, dietTagLabel(r)),
               HealthSyncBadge(sync: profile.healthSync),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "Nhu cầu ≈ 1.960 kcal/ngày · Nữ, 29 tuổi", or what to add for it.
+class _EnergyLine extends StatelessWidget {
+  const _EnergyLine({required this.profile});
+
+  final HealthProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    final vl = context.vl;
+    final tdee = profile.tdee;
+    if (tdee == null) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline_rounded, size: 16, color: vl.muted),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              'Thêm giới tính và năm sinh để tính nhu cầu năng lượng chính xác hơn',
+              style: context.textStyles.bodySmall?.copyWith(color: vl.muted),
+            ),
+          ),
+        ],
+      );
+    }
+    final who = [
+      if (profile.gender case final g?) g.label,
+      if (profile.age case final a?) '$a tuổi',
+    ].join(', ');
+    return Row(
+      children: [
+        Icon(Icons.local_fire_department_outlined,
+            size: 18, color: context.colors.primary),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text.rich(
+            TextSpan(children: [
+              TextSpan(
+                text: 'Nhu cầu ≈ ${Energy.formatKcal(tdee)} kcal/ngày',
+                style: context.textStyles.labelLarge,
+              ),
+              if (who.isNotEmpty)
+                TextSpan(
+                  text: ' · $who',
+                  style:
+                      context.textStyles.bodySmall?.copyWith(color: vl.muted),
+                ),
+            ]),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Instead of [HealthHeaderCard] while the member has no health profile (a
+/// new account): what it is for and "Thiết lập hồ sơ".
+class HealthProfileSetupCard extends StatelessWidget {
+  const HealthProfileSetupCard({super.key, required this.onSetUp});
+
+  final VoidCallback onSetUp;
+
+  @override
+  Widget build(BuildContext context) {
+    return VLCard(
+      onTap: onSetUp,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.monitor_heart_outlined, color: context.colors.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('Thiết lập hồ sơ sức khoẻ',
+                    style: context.textStyles.titleMedium),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Bạn chưa có hồ sơ sức khoẻ. Thêm chiều cao, cân nặng, mục tiêu và '
+            'dị ứng để AI tính nhu cầu năng lượng và lên thực đơn phù hợp.',
+            style: context.textStyles.bodyMedium
+                ?.copyWith(color: context.vl.muted),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: onSetUp,
+            icon: const Icon(Icons.edit_outlined),
+            label: const Text('Thiết lập hồ sơ'),
           ),
         ],
       ),

@@ -2,24 +2,18 @@
 "use client";
 
 import * as React from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Receipt, Search } from "lucide-react";
+import { toast } from "sonner";
 
 import { EmptyState, ErrorState } from "@/components/admin/states";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input, NativeSelect } from "@/components/ui/form-controls";
+import { Input } from "@/components/ui/form-controls";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useOrders } from "@/lib/hooks/use-commerce";
 import { formatNumber } from "@/lib/utils";
-import {
-  ORDER_STATUS_LABEL,
-  SERVICE_TYPE_LABEL,
-  SERVICE_TYPES,
-  type AdminOrder,
-  type CommerceSummary,
-  type OrderStatus,
-  type ServiceType,
-} from "@/types/commerce";
+import { ORDER_STATUS_LABEL, ORDER_STATUSES, type AdminOrder, type CommerceSummary, type OrderStatus } from "@/types/commerce";
 
 import { OrderDrawer } from "./order-drawer";
 import { OrderTable } from "./order-table";
@@ -28,21 +22,40 @@ type StatusTab = OrderStatus | "all";
 
 const STATUS_TABS: { value: StatusTab; label: string }[] = [
   { value: "all", label: "Tất cả" },
-  { value: "Pending", label: ORDER_STATUS_LABEL.Pending },
-  { value: "Paid", label: ORDER_STATUS_LABEL.Paid },
-  { value: "Cancelled", label: ORDER_STATUS_LABEL.Cancelled },
-  { value: "Refunded", label: ORDER_STATUS_LABEL.Refunded },
+  ...ORDER_STATUSES.map((s) => ({ value: s, label: ORDER_STATUS_LABEL[s] })),
 ];
 
 export function OrdersPanel({ summary }: { summary: CommerceSummary | undefined }) {
+  const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const openParam = params.get("open");
+
   const [status, setStatus] = React.useState<StatusTab>("all");
-  const [type, setType] = React.useState<ServiceType | "all">("all");
   const [searchInput, setSearchInput] = React.useState("");
   const search = React.useDeferredValue(searchInput);
   const [selected, setSelected] = React.useState<AdminOrder | null>(null);
+  /** Order id from `?open=` (links from /disputes) waiting for the unfiltered list. */
+  const [pendingOpen, setPendingOpen] = React.useState<string | null>(null);
 
-  const query = React.useMemo(() => ({ status, type, search }), [status, type, search]);
+  React.useEffect(() => {
+    if (!openParam) return;
+    setStatus("all");
+    setSearchInput("");
+    setPendingOpen(openParam);
+    router.replace(pathname, { scroll: false });
+  }, [openParam, pathname, router]);
+
+  const query = React.useMemo(() => ({ status, search }), [status, search]);
   const orders = useOrders(query);
+
+  React.useEffect(() => {
+    if (!pendingOpen || status !== "all" || search !== "" || !orders.data || orders.isPlaceholderData) return;
+    const found = orders.data.find((o) => o.id === pendingOpen);
+    if (found) setSelected(found);
+    else toast.error("Không tìm thấy đơn hàng", { description: pendingOpen });
+    setPendingOpen(null);
+  }, [pendingOpen, status, search, orders.data, orders.isPlaceholderData]);
 
   // Keep the drawer in sync with refetched / optimistically patched rows.
   const selectedId = selected?.id ?? null;
@@ -57,7 +70,7 @@ export function OrdersPanel({ summary }: { summary: CommerceSummary | undefined 
     return formatNumber(tab === "all" ? summary.totalOrders : summary.byStatus[tab]);
   };
 
-  const filtered = type !== "all" || search.trim().length > 0;
+  const filtered = search.trim().length > 0;
 
   return (
     <Card className="gap-0 py-0">
@@ -72,32 +85,19 @@ export function OrdersPanel({ summary }: { summary: CommerceSummary | undefined 
             ))}
           </TabsList>
         </Tabs>
-        <div className="relative w-full sm:w-72 xl:ml-auto">
+        <div className="relative w-full sm:w-80 xl:ml-auto">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
           <Input
             type="search"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Mã giao dịch, người mua, chuyên gia, dịch vụ…"
+            placeholder="Mã đơn, mã đặt, mã giao dịch, thành viên, chuyên gia…"
             aria-label="Tìm đơn hàng"
             className="pl-9"
           />
         </div>
-        <NativeSelect
-          aria-label="Lọc theo loại dịch vụ"
-          value={type}
-          onChange={(e) => setType(e.target.value as ServiceType | "all")}
-          className="w-full sm:w-44"
-        >
-          <option value="all">Tất cả loại</option>
-          {SERVICE_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {SERVICE_TYPE_LABEL[t]}
-            </option>
-          ))}
-        </NativeSelect>
         <p className="w-full text-sm text-muted-foreground" aria-live="polite">
-          {orders.data ? `${formatNumber(orders.data.length)} đơn hàng` : "Đang tải…"}
+          {orders.data ? `${formatNumber(orders.data.length)} đơn thanh toán đặt chuyên gia` : "Đang tải…"}
         </p>
       </div>
 
@@ -107,19 +107,11 @@ export function OrdersPanel({ summary }: { summary: CommerceSummary | undefined 
         <EmptyState
           icon={Receipt}
           title={filtered || status !== "all" ? "Không có đơn hàng khớp bộ lọc" : "Chưa có đơn hàng"}
-          description={
-            filtered ? "Thử bỏ bớt từ khoá hoặc đổi loại dịch vụ." : "Đơn mua dịch vụ của chuyên gia từ ứng dụng sẽ xuất hiện ở đây."
-          }
+          description={filtered ? "Thử bỏ bớt từ khoá." : "Khi thành viên đồng ý giá với chuyên gia, đơn thanh toán sẽ xuất hiện ở đây."}
           action={
             filtered ? (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setSearchInput("");
-                  setType("all");
-                }}
-              >
-                Xoá bộ lọc
+              <Button variant="outline" onClick={() => setSearchInput("")}>
+                Xoá từ khoá
               </Button>
             ) : undefined
           }

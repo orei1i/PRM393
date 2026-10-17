@@ -1,25 +1,25 @@
 // src/lib/mock_payouts.ts
 // In-memory chef wallets and withdrawal requests for /payouts.
 //
-// Earnings are derived at read time from the orders in mock_commerce.ts (read-only) with
-// the mobile wallet rules (wallet_rules.dart): 10% platform fee; Course / VIP Menu money is
-// released 7 days after payment, a Consult when it is Completed; a refund reverses it. A refund
-// made on /orders therefore shows up in the chef's wallet straight away.
+// Earnings are derived at read time from the escrow holds of chef bookings (mock_bookings.ts,
+// read-only) with the mobile wallet rules: a paid booking is "Đang giữ" until the plan's end date
+// 23:59 (VN) + ESCROW_HOLD_DAYS (3) days, "Tạm giữ do khiếu nại" while a complaint is open, then
+// "Có thể rút" at net 90% (10% platform fee) — or "Đã hoàn" when an admin refunds it in full on
+// /disputes (a split releases price − refund). A decision on /disputes therefore shows up in the
+// chef's wallet straight away.
 //
-// Mirrors the mobile mock (MockCommerceDb): Lê Quang Tâm's bank account (Vietcombank
-// 0071000456789, LE QUANG TAM) and his two past withdrawals (2.000.000đ rejected,
-// 1.000.000đ paid). The web order seeds lack two of Tâm's older package sales that the mobile
-// mock has (Gia Hân's VIP menu, Quốc Việt's course — the datasets are independent, plan D13),
-// so they are seeded here as wallet-only income. Before his seeded 5.100.000đ request Tâm's
-// wallet equals the mobile one: có thể rút 5.462.000đ · đang chờ 1.521.000đ · đã rút 1.000.000đ.
-// That request is above 5.000.000đ, so it waits for an admin and holds the amount in
-// "Đang xử lý" (có thể rút 362.000đ until it is completed; rejecting it gives 5.462.000đ back).
+// Withdrawal and bank-account seeds mirror the mobile mock (MockCommerceDb): Lê Quang Tâm's
+// Vietcombank 0071000456789 (LE QUANG TAM), his 2.000.000đ rejected and 1.000.000đ paid
+// withdrawals. Tâm's released bookings (b_ma_tam_done 900.000đ + b_han_tam_done 6.000.000đ →
+// net 6.210.000đ) minus 1.000.000đ withdrawn give 5.210.000đ; his seeded 5.100.000đ request is
+// above 5.000.000đ, so it waits for an admin and holds the amount in "Đang xử lý" (có thể rút
+// 110.000đ until it is completed; rejecting it gives 5.210.000đ back). Đang giữ 1.134.000đ
+// (Thảo Vy) · tạm giữ 945.000đ (Ngọc Trâm, cp_tram_tam).
 //
 // Requests ≤ 5.000.000đ pay out on their own at `autoApproveAt` (settled lazily on read, like
 // the mobile mock). Thu Hà's seeded 400.000đ request does so a few minutes after page load.
 // QA: `#fail` in the transfer reference, the rejection reason or the search box → 503.
 import type { AdminSession } from "@/types/admin";
-import type { AdminOrder } from "@/types/commerce";
 import { MIN_AUDIT_NOTE_LENGTH } from "@/types/moderation";
 import type {
   BankAccount,
@@ -33,19 +33,11 @@ import type {
   WithdrawalRequest,
   WithdrawalStatus,
 } from "@/types/payouts";
-import {
-  AUTO_APPROVE_LIMIT,
-  PACKAGE_HOLD_DAYS,
-  PLATFORM_FEE_RATE,
-  platformFee,
-  TRANSFER_REF_MAX,
-  TRANSFER_REF_MIN,
-  WITHDRAWAL_STATUSES,
-} from "@/types/payouts";
+import { AUTO_APPROVE_LIMIT, PLATFORM_FEE_RATE, platformFee, TRANSFER_REF_MAX, TRANSFER_REF_MIN, WITHDRAWAL_STATUSES } from "@/types/payouts";
 
 import { ApiError } from "./api_error";
 import { logAction } from "./mock_admin";
-import { listOrders } from "./mock_commerce";
+import { escrowLedger, type EscrowLedgerEntry } from "./mock_bookings";
 import { sleep } from "./mock_data";
 
 const MIN = 60_000;
@@ -193,74 +185,70 @@ const copy = (w: WithdrawalRequest): WithdrawalRequest => ({ ...w, chef: { ...w.
 
 interface Earning {
   chefId: string;
-  orderId: string;
-  serviceTitle: string;
-  buyerName: string;
-  transactionRef: string;
+  bookingId: string;
+  orderId: string | null;
+  planTitle: string;
+  memberName: string;
+  transactionRef: string | null;
+  /** What the chef earns on: contract price, or price − refund after a split decision. */
   gross: number;
-  paidAt: number;
-  status: Extract<LedgerStatus, "Pending" | "Available" | "Reversed">;
-  refundedAt: number | null;
+  fee: number;
+  status: Extract<LedgerStatus, "Held" | "Frozen" | "Available" | "Reversed">;
+  /** When the money became available (release) or was held (payment). */
+  at: number;
+  releaseAt: string;
+  complaintId: string | null;
+  note: string | null;
 }
 
-/** Older sales of Tâm that only the mobile mock has (see the header). */
-const WALLET_ONLY_SALES: Omit<Earning, "status" | "refundedAt">[] = [
-  {
-    chefId: "u_chef_tam",
-    orderId: "od_tam_vip_han",
-    serviceTitle: "Thực đơn VIP 30 ngày cho gia đình",
-    buyerName: "Gia Hân",
-    gross: 1_500_000,
-    paidAt: NOW - 25 * DAY,
-    transactionRef: `VL${yymmdd(NOW - 25 * DAY)}9001`,
-  },
-  {
-    chefId: "u_chef_tam",
-    orderId: "od_tam_course_viet",
-    serviceTitle: "Khoá meal prep chay 4 tuần",
-    buyerName: "Quốc Việt",
-    gross: 990_000,
-    paidAt: NOW - 40 * DAY,
-    transactionRef: `VL${yymmdd(NOW - 40 * DAY)}9002`,
-  },
-];
-
-const ALL_ORDERS = { status: "all", type: "all", search: "" } as const;
-
-function earningsFrom(orders: AdminOrder[], now: number): Earning[] {
-  const list: Earning[] = WALLET_ONLY_SALES.map((s) => ({
-    ...s,
-    status: s.paidAt + PACKAGE_HOLD_DAYS * DAY <= now ? "Available" : "Pending",
-    refundedAt: null,
-  }));
-  for (const o of orders) {
-    if (o.status !== "Paid" && o.status !== "Refunded") continue;
-    const paid = o.payments.find((p) => p.paidAt !== null);
-    if (!paid?.paidAt) continue;
-    const paidAt = Date.parse(paid.paidAt);
-    const c = o.consultation;
-    const releasedAt =
-      o.service.type === "Consult"
-        ? c?.status === "Completed"
-          ? Date.parse(c.startAt) + (c.durationMinutes ?? 60) * MIN
-          : null
-        : paidAt + PACKAGE_HOLD_DAYS * DAY;
-    list.push({
-      chefId: o.service.chefId,
-      orderId: o.id,
-      serviceTitle: o.service.title,
-      buyerName: o.buyer.fullName,
-      transactionRef: paid.transactionRef,
-      gross: o.amount,
-      paidAt,
-      status: o.status === "Refunded" ? "Reversed" : releasedAt !== null && releasedAt <= now ? "Available" : "Pending",
-      refundedAt: o.status === "Refunded" ? (o.resolution ? Date.parse(o.resolution.at) : Math.min(now, paidAt + DAY)) : null,
-    });
+function earningOf(e: EscrowLedgerEntry): Earning {
+  const common = {
+    chefId: e.chefId,
+    bookingId: e.bookingId,
+    orderId: e.orderId,
+    planTitle: e.planTitle,
+    memberName: e.memberName,
+    transactionRef: e.transactionRef,
+    releaseAt: e.releaseAt,
+    complaintId: e.complaintId,
+  };
+  switch (e.status) {
+    case "Held":
+    case "Frozen":
+      return { ...common, gross: e.amount, fee: platformFee(e.amount), status: e.status, at: Date.parse(e.heldAt), note: null };
+    case "Released":
+      return {
+        ...common,
+        gross: e.releasedAmount,
+        fee: e.feeAmount,
+        status: "Available",
+        at: Date.parse(e.releasedAt ?? e.releaseAt),
+        note: e.complaintId ? "Giải ngân theo quyết định khiếu nại" : null,
+      };
+    case "PartiallyRefunded":
+      return {
+        ...common,
+        gross: e.releasedAmount,
+        fee: e.feeAmount,
+        status: "Available",
+        at: Date.parse(e.releasedAt ?? e.decidedAt ?? e.heldAt),
+        note: `Hoàn ${vnd(e.refundedAmount)} cho thành viên theo quyết định khiếu nại`,
+      };
+    case "Refunded":
+      return {
+        ...common,
+        gross: e.amount,
+        fee: platformFee(e.amount),
+        status: "Reversed",
+        at: Date.parse(e.decidedAt ?? e.heldAt),
+        note: `Đã hoàn toàn bộ ${vnd(e.refundedAmount)} cho thành viên`,
+      };
   }
-  return list;
 }
 
-const net = (e: Pick<Earning, "gross">) => e.gross - platformFee(e.gross);
+const earningsNow = (now: number) => escrowLedger(now).map(earningOf);
+
+const net = (e: Pick<Earning, "gross" | "fee">) => e.gross - e.fee;
 const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
 
 function walletOf(chefId: string, earnings: Earning[]): ChefWallet {
@@ -277,11 +265,12 @@ function walletOf(chefId: string, earnings: Earning[]): ChefWallet {
     chefId,
     chef: { ...CHEFS[chefId] },
     available: released - withdrawn - processing,
-    pending: sum(mine.filter((e) => e.status === "Pending").map(net)),
+    pending: sum(mine.filter((e) => e.status === "Held").map(net)),
+    frozen: sum(mine.filter((e) => e.status === "Frozen").map(net)),
     processing,
     withdrawn,
     grossSales: sum(live.map((e) => e.gross)),
-    feeTotal: sum(live.map((e) => platformFee(e.gross))),
+    feeTotal: sum(live.map((e) => e.fee)),
     bankAccount: account ? { ...account } : null,
     lastWithdrawalAt: lastPaid,
   };
@@ -319,10 +308,10 @@ export async function listWithdrawals(query: WithdrawalQuery): Promise<Withdrawa
 }
 
 export async function listChefWallets(): Promise<ChefWallet[]> {
-  const [orders] = await Promise.all([listOrders(ALL_ORDERS), sleep(150)]);
+  await sleep(300);
   const now = Date.now();
   settle(now);
-  const earnings = earningsFrom(orders, now);
+  const earnings = earningsNow(now);
   return Object.keys(CHEFS)
     .map((id) => walletOf(id, earnings))
     .sort((a, b) => b.available + b.processing - (a.available + a.processing) || a.chef.fullName.localeCompare(b.chef.fullName, "vi"));
@@ -333,25 +322,29 @@ export async function listWalletTransactions(chefId: string, limit: number): Pro
     await sleep(200);
     throw new ApiError("Không tìm thấy ví của chuyên gia.", 404, "not_found");
   }
-  const [orders] = await Promise.all([listOrders(ALL_ORDERS), sleep(150)]);
+  await sleep(300);
   const now = Date.now();
   settle(now);
   const rows: WalletTransaction[] = [];
-  for (const e of earningsFrom(orders, now).filter((x) => x.chefId === chefId)) {
-    const common = { orderId: e.orderId, transactionRef: e.transactionRef, serviceTitle: e.serviceTitle, buyerName: e.buyerName, bankName: null, note: null };
-    rows.push({ id: `tx_in_${e.orderId}`, type: "Income", status: e.status, createdAt: iso(e.paidAt), gross: e.gross, fee: platformFee(e.gross), net: net(e), ...common });
-    if (e.refundedAt !== null) {
-      rows.push({
-        id: `tx_rf_${e.orderId}`,
-        type: "Refund",
-        status: "Reversed",
-        createdAt: iso(e.refundedAt),
-        gross: -e.gross,
-        fee: -platformFee(e.gross),
-        net: -net(e),
-        ...common,
-      });
-    }
+  for (const e of earningsNow(now).filter((x) => x.chefId === chefId)) {
+    rows.push({
+      id: `tx_in_${e.bookingId}`,
+      type: "Income",
+      status: e.status,
+      createdAt: iso(e.at),
+      gross: e.gross,
+      fee: e.fee,
+      net: net(e),
+      bookingId: e.bookingId,
+      orderId: e.orderId,
+      transactionRef: e.transactionRef,
+      planTitle: e.planTitle,
+      memberName: e.memberName,
+      releaseAt: e.status === "Held" ? e.releaseAt : null,
+      complaintId: e.complaintId,
+      bankName: null,
+      note: e.note,
+    });
   }
   for (const w of withdrawals.filter((x) => x.chefId === chefId)) {
     rows.push({
@@ -360,12 +353,15 @@ export async function listWalletTransactions(chefId: string, limit: number): Pro
       status: w.status,
       createdAt: w.createdAt,
       net: -w.amount,
+      bookingId: null,
       orderId: null,
       transactionRef: w.transactionRef,
-      serviceTitle: null,
-      buyerName: null,
+      planTitle: null,
+      memberName: null,
       gross: null,
       fee: null,
+      releaseAt: null,
+      complaintId: null,
       bankName: `${w.bankAccount.bankName} ${maskAccount(w.bankAccount.accountNumber)}`,
       note: w.reason,
     });
@@ -374,16 +370,15 @@ export async function listWalletTransactions(chefId: string, limit: number): Pro
 }
 
 export async function getPayoutSummary(): Promise<PayoutSummary> {
-  const [orders] = await Promise.all([listOrders(ALL_ORDERS), sleep(150)]);
+  await sleep(300);
   const now = Date.now();
   settle(now);
-  const earnings = earningsFrom(orders, now);
+  const earnings = earningsNow(now);
   const wallets = Object.keys(CHEFS).map((id) => walletOf(id, earnings));
   const monthStart = new Date(new Date(now).getFullYear(), new Date(now).getMonth(), 1).getTime();
   const paidThisMonth = withdrawals.filter((w) => w.status === "Completed" && w.processedAt !== null && Date.parse(w.processedAt) >= monthStart);
   const awaiting = withdrawals.filter((w) => w.status === "Processing" && w.requiresApproval);
-  const paidOrders = orders.filter((o) => o.status === "Paid");
-  const paidGross = sum(paidOrders.map((o) => o.amount));
+  const released = earnings.filter((e) => e.status === "Available");
   const byStatus = Object.fromEntries(WITHDRAWAL_STATUSES.map((s) => [s, withdrawals.filter((w) => w.status === s).length])) as Record<
     WithdrawalStatus,
     number
@@ -391,12 +386,13 @@ export async function getPayoutSummary(): Promise<PayoutSummary> {
   return {
     totalAvailable: sum(wallets.map((w) => w.available)),
     totalPending: sum(wallets.map((w) => w.pending)),
+    totalFrozen: sum(wallets.map((w) => w.frozen)),
     totalProcessing: sum(wallets.map((w) => w.processing)),
     paidOutThisMonth: sum(paidThisMonth.map((w) => w.amount)),
     paidOutThisMonthCount: paidThisMonth.length,
-    platformFee: sum(paidOrders.map((o) => platformFee(o.amount))),
-    paidGross,
-    paidOrderCount: paidOrders.length,
+    platformFee: sum(released.map((e) => e.fee)),
+    releasedGross: sum(released.map((e) => e.gross)),
+    releasedCount: released.length,
     feeRate: PLATFORM_FEE_RATE,
     autoApproveLimit: AUTO_APPROVE_LIMIT,
     byStatus,

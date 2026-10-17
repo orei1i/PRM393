@@ -96,7 +96,7 @@ export default function AdsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Quảng cáo cửa hàng"
-        description="Thẻ “Được tài trợ” giới thiệu quán chay trên bảng tin của ứng dụng di động, theo thành phố và thời gian chạy."
+        description="Dòng “Được tài trợ” ở đầu danh sách Quán chay gần bạn trong ứng dụng (tối đa 1 quán mỗi lần), theo thành phố và thời gian chạy."
         actions={
           <>
             <Button
@@ -209,7 +209,7 @@ export default function AdsPage() {
                 ? "Thử đổi khu vực hoặc bỏ bớt từ khoá."
                 : status !== "all"
                   ? "Chưa có chiến dịch nào ở trạng thái này."
-                  : "Tạo chiến dịch đầu tiên để giới thiệu quán chay trên bảng tin ứng dụng."
+                  : "Tạo chiến dịch đầu tiên để giới thiệu quán chay ở đầu danh sách Quán chay gần bạn."
             }
             action={
               filtered ? (
@@ -243,7 +243,7 @@ export default function AdsPage() {
         <DialogContent>
           <DialogTitle>Xoá quảng cáo?</DialogTitle>
           <DialogDescription>
-            {deleting ? `“${deleting.headline}” của ${deleting.restaurant.name}` : ""} sẽ ngừng hiển thị trên bảng tin và bị xoá cùng số liệu hiển thị,
+            {deleting ? `“${deleting.headline}” của ${deleting.restaurant.name}` : ""} sẽ ngừng hiển thị trong danh sách Quán chay gần bạn và bị xoá cùng số liệu hiển thị,
             lượt nhấp. Không thể hoàn tác — muốn dừng tạm thời thì dùng công tắc Tạm dừng.
           </DialogDescription>
           <DialogFooter>
