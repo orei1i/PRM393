@@ -3,3 +3,10 @@ _logs/
 # Local screenshots and Kotlin daemon error logs
 _screenshots/
 .kotlin/
+
+# Generated Flutter artifacts at FE root
+.dart_tool/
+.flutter-plugins-dependencies
+build/
+android/
+ios/

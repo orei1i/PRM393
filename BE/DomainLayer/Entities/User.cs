@@ -20,6 +20,6 @@ namespace DomainLayer.Entities
 
         public string? GoogleId { get; set; }
 
-        public string Role { get; set; } = "Member";
+        public string Role { get; set; } = "User";
     }
 }

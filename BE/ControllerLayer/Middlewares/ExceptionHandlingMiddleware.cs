@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using ControllerLayer.Models;
+using DomainLayer.Exceptions;
 
 namespace ControllerLayer.Middlewares
 {
@@ -43,11 +44,20 @@ namespace ControllerLayer.Middlewares
 
             var (statusCode, message) = ex switch
             {
-                KeyNotFoundException     => (HttpStatusCode.NotFound,           ex.Message),
-                UnauthorizedAccessException => (HttpStatusCode.Unauthorized,    ex.Message),
-                ArgumentException        => (HttpStatusCode.BadRequest,         ex.Message),
-                InvalidOperationException => (HttpStatusCode.BadRequest,        ex.Message),
-                _                        => (HttpStatusCode.InternalServerError,"Đã xảy ra lỗi, vui lòng thử lại sau.")
+                BadRequestException         => (HttpStatusCode.BadRequest,          ex.Message),
+                UnauthorizedException       => (HttpStatusCode.Unauthorized,        ex.Message),
+                ForbiddenException          => (HttpStatusCode.Forbidden,           ex.Message),
+                NotFoundException           => (HttpStatusCode.NotFound,            ex.Message),
+                ConflictException           => (HttpStatusCode.Conflict,            ex.Message),
+                AccountLockedException      => ((HttpStatusCode)423,                ex.Message),
+                TooManyRequestsException    => ((HttpStatusCode)429,                ex.Message),
+                ServerFailureException      => (HttpStatusCode.InternalServerError, ex.Message),
+                DomainException             => (HttpStatusCode.BadRequest,          ex.Message),
+                KeyNotFoundException        => (HttpStatusCode.NotFound,            ex.Message),
+                UnauthorizedAccessException => (HttpStatusCode.Unauthorized,       ex.Message),
+                ArgumentException           => (HttpStatusCode.BadRequest,          ex.Message),
+                InvalidOperationException   => (HttpStatusCode.BadRequest,          ex.Message),
+                _                           => (HttpStatusCode.InternalServerError, "Đã xảy ra lỗi, vui lòng thử lại sau.")
             };
 
             context.Response.StatusCode = (int)statusCode;

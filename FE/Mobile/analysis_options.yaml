@@ -6,6 +6,11 @@ analyzer:
     strict-raw-types: true
   errors:
     unawaited_futures: ignore
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
 
 linter:
   rules:

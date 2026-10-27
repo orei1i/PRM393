@@ -93,6 +93,7 @@ builder.Services.AddScoped(typeof(IGenericRepository<>), typeof(GenericRepositor
 
 // ─── Application Services ─────────────────────────────────────────────────────
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
 
 // ─────────────────────────────────────────────────────────────────────────────
 var app = builder.Build();
