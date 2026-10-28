@@ -1,6 +1,8 @@
 using ApplicationLayer.DTOs.Users;
 using ApplicationLayer.Interfaces;
 using DomainLayer.Entities;
+using DomainLayer.Enums;
+using DomainLayer.Exceptions;
 using DomainLayer.Interfaces;
 
 namespace ApplicationLayer.Services
@@ -61,7 +63,19 @@ namespace ApplicationLayer.Services
             return true;
         }
 
-        // ─── Mapping helper ──────────────────────────────────────────────
+        public async Task<UserProfileResponse> GetCurrentUserProfileAsync(string userId)
+        {
+            var user = await _userRepository.FindByIdAsync(userId);
+            if (user == null || user.IsDeleted)
+                throw new NotFoundException($"Không tìm thấy user với id: {userId}");
+
+            if (user.Status == GeneralEnum.UserStatusEnum.Locked || user.Status == GeneralEnum.UserStatusEnum.Banned)
+                throw new AccountLockedException();
+
+            return MapToProfileResponse(user);
+        }
+
+        // ─── Mapping helpers ──────────────────────────────────────────────
         private static UserResponse MapToResponse(User user) => new()
         {
             Id        = user.Id,
@@ -72,6 +86,29 @@ namespace ApplicationLayer.Services
             Status    = user.Status,
             AuthType  = user.AuthType,
             CreatedAt = user.CreatedAt
+        };
+
+        private static UserProfileResponse MapToProfileResponse(User user) => new()
+        {
+            Id        = user.Id,
+            Email     = user.Email,
+            FullName  = user.FullName,
+            Phone     = user.Phone,
+            Role      = user.Role,
+            Status    = user.Status,
+            AuthType  = user.AuthType,
+            CreatedAt = user.CreatedAt,
+            Stats     = new UserStatsDto
+            {
+                Posts = 0,
+                LikesReceived = 0,
+                Saved = 0
+            },
+            ChefApplication = new ChefApplicationSummaryDto
+            {
+                Status = user.Role == "Chef" ? "approved" : "none",
+                RejectReason = null
+            }
         };
     }
 }

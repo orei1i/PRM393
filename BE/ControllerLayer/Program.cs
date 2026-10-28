@@ -28,15 +28,15 @@ builder.Services.AddSwaggerGen(c =>
         Version = "v1"
     });
 
-    // Swagger hỗ trợ JWT Bearer
+    // Swagger hỗ trợ JWT Bearer — chỉ cần paste token, Swagger tự thêm "Bearer "
     c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
     {
         Name         = "Authorization",
-        Type         = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
-        Scheme       = "Bearer",
+        Type         = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
+        Scheme       = "bearer",
         BearerFormat = "JWT",
         In           = Microsoft.OpenApi.Models.ParameterLocation.Header,
-        Description  = "Nhập: Bearer {token}"
+        Description  = "Chỉ cần paste token (không cần gõ 'Bearer ')"
     });
     c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
     {

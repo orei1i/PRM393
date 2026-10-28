@@ -18,5 +18,8 @@ namespace ApplicationLayer.Interfaces
 
         /// <summary>Xóa mềm user (soft delete).</summary>
         Task<bool> DeleteUserAsync(string id);
+
+        /// <summary>Lấy thông tin hồ sơ của người dùng hiện tại (kèm stats và chefApplication).</summary>
+        Task<UserProfileResponse> GetCurrentUserProfileAsync(string userId);
     }
 }

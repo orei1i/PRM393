@@ -12,9 +12,21 @@ namespace InfrastructureLayer.Repository
     {
         protected readonly IMongoCollection<T> _collection;
 
+        public GenericRepository(MongoDbContext context)
+        {
+            var collectionName = GetDefaultCollectionName();
+            _collection = context.Database.GetCollection<T>(collectionName);
+        }
+
         public GenericRepository(MongoDbContext context, string collectionName)
         {
             _collection = context.Database.GetCollection<T>(collectionName);
+        }
+
+        private static string GetDefaultCollectionName()
+        {
+            var name = typeof(T).Name;
+            return name.EndsWith("s", StringComparison.OrdinalIgnoreCase) ? name : $"{name}s";
         }
 
         public async Task<T> CreateAsync(T entity)
