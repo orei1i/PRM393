@@ -1,6 +1,329 @@
-@ControllerLayer_HostAddress = http://localhost:5298
+@HostAddress = http://localhost:5001
+@Token = YOUR_JWT_TOKEN_HERE
 
-GET {{ControllerLayer_HostAddress}}/weatherforecast/
+### 0. Đăng nhập lấy Token
+POST {{HostAddress}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "minhanh.nguyen@gmail.com",
+  "password": "Password123!"
+}
+
+### ==============================================================================
+### MEDIA MODULE TEST CASES
+### ==============================================================================
+
+### 1.1 Tải ảnh lên (Hợp lệ)
+# Lưu ý: Với REST Client / VS Code / Rider, dùng multipart/form-data gửi file từ máy
+POST {{HostAddress}}/api/v1/media/images
+Authorization: Bearer {{Token}}
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="sample.jpg"
+Content-Type: image/jpeg
+
+< ./sample.jpg
+--boundary--
+
+### 1.2 Tải video lên (Hợp lệ)
+POST {{HostAddress}}/api/v1/media/videos
+Authorization: Bearer {{Token}}
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="short_video.mp4"
+Content-Type: video/mp4
+
+< ./short_video.mp4
+--boundary--
+
+
+### ==============================================================================
+### POSTS MODULE TEST CASES
+### ==============================================================================
+
+### 2.1 Xem bảng tin Feed (Guest - Không cần Token)
+GET {{HostAddress}}/api/v1/posts?page=1&pageSize=10
 Accept: application/json
 
-###
+### 2.2 Xem bảng tin Feed (Member - Kèm Token để nhận cờ likedByMe)
+GET {{HostAddress}}/api/v1/posts?page=1&pageSize=10
+Authorization: Bearer {{Token}}
+Accept: application/json
+
+### 2.3 Tạo bài viết mới (Thảo luận dạng Text)
+POST {{HostAddress}}/api/v1/posts
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "type": "discussion",
+  "title": "Hỏi kinh nghiệm nấu nước dùng phở chay ngọt thanh",
+  "body": "Chào mọi người, mình đang thử hầm củ cải trắng, lê và bắp ngọt nhưng nước dùng vẫn hơi nhạt. Ai có bí quyết gì chỉ mình với!",
+  "tags": ["kinh-nghiem", "pho-chay"],
+  "mediaType": "Text"
+}
+
+### 2.4 Tạo bài viết công thức kèm ảnh
+POST {{HostAddress}}/api/v1/posts
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "type": "recipe",
+  "title": "Công thức nấm đùi gà kho tiêu xanh đậm đà",
+  "body": "Nấm đùi gà giòn ngọt kho cùng tiêu xanh cay ấm nồng, ăn kèm cơm nóng cực kỳ đưa cơm.",
+  "tags": ["mon-kho", "nam-dui-ga", "de-lam"],
+  "mediaType": "Image",
+  "mediaUrl": "https://res.cloudinary.com/dummy/image/upload/v1/sample.jpg"
+}
+
+### 2.5 Xem chi tiết bài viết (Thay {{postId}} bằng ID thật)
+@postId = 672000000000000000000001
+GET {{HostAddress}}/api/v1/posts/{{postId}}
+Accept: application/json
+
+### 2.6 Thích / Bỏ thích bài viết (Toggle Like)
+# Gọi lần 1: liked = true, likeCount tăng 1
+# Gọi lần 2: liked = false, likeCount giảm 1
+POST {{HostAddress}}/api/v1/posts/{{postId}}/like
+Authorization: Bearer {{Token}}
+
+### 2.7 Báo cáo bài viết (Lần 1 & 2 ghi nhận, lần 3 bài viết chuyển trạng thái Pending tự ẩn khỏi Feed)
+POST {{HostAddress}}/api/v1/posts/{{postId}}/reports
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "reason": "Bài viết có chứa hình ảnh không phù hợp với tiêu chuẩn cộng đồng thuần chay."
+}
+
+### 2.8 Xóa bài viết (Chỉ tác giả hoặc Admin)
+DELETE {{HostAddress}}/api/v1/posts/{{postId}}
+Authorization: Bearer {{Token}}
+
+
+### ==============================================================================
+### COMMENTS MODULE TEST CASES
+### ==============================================================================
+
+### 3.1 Xem danh sách bình luận của bài viết (Kèm preview 2 phản hồi)
+GET {{HostAddress}}/api/v1/posts/{{postId}}/comments?page=1&pageSize=10
+Accept: application/json
+
+### 3.2 Thêm bình luận gốc (Top-level comment)
+POST {{HostAddress}}/api/v1/posts/{{postId}}/comments
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "content": "Món này hầm thêm củ sen và mía lau là nước dùng ngọt thanh tự nhiên nhé bạn!"
+}
+
+### 3.3 Phản hồi lại bình luận trên (Sub-comment / Reply)
+@parentCommentId = 672000000000000000000002
+POST {{HostAddress}}/api/v1/posts/{{postId}}/comments
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "content": "Cảm ơn bạn nhiều nha, để tối nay mình nấu thử luôn!",
+  "parentId": "{{parentCommentId}}"
+}
+
+### 3.4 Xóa bình luận (Chỉ tác giả bình luận hoặc Admin)
+DELETE {{HostAddress}}/api/v1/comments/{{parentCommentId}}
+Authorization: Bearer {{Token}}
+
+
+### ==============================================================================
+### 4. HEALTH PROFILE & ALLERGENS TEST CASES
+### ==============================================================================
+
+### 4.1 Lấy danh mục dị ứng chuẩn
+GET {{HostAddress}}/api/v1/catalog/allergens
+Accept: application/json
+
+### 4.2 Lấy hồ sơ sức khỏe và năng lượng cá nhân
+GET {{HostAddress}}/api/v1/health-profile/me
+Authorization: Bearer {{Token}}
+Accept: application/json
+
+### 4.3 Cập nhật hồ sơ sức khỏe (Mifflin-St Jeor: Nam 25 tuổi, 170cm, 70kg, vận động vừa, giữ cân -> 2550 kcal)
+PUT {{HostAddress}}/api/v1/health-profile/me
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "heightCm": 170.0,
+  "weightKg": 70.0,
+  "goal": "maintain",
+  "gender": "Male",
+  "birthYear": 2001,
+  "activityLevel": "moderate",
+  "mealPattern": ["breakfast", "lunch", "snack_pm", "dinner"],
+  "allergies": [
+    { "allergenId": "peanut", "name": "Đậu phộng (Lạc)" },
+    { "allergenId": null, "name": "nấm rơm" }
+  ],
+  "dietaryRestrictions": ["low_sodium"]
+}
+
+### 4.4 Lấy lịch sử biến thiên cân nặng
+GET {{HostAddress}}/api/v1/health-profile/me/metrics?limit=30
+Authorization: Bearer {{Token}}
+Accept: application/json
+
+
+### ==============================================================================
+### 5. PANTRY & INGREDIENTS TEST CASES
+### ==============================================================================
+
+### 5.1 Tìm kiếm danh mục nguyên liệu chuẩn
+GET {{HostAddress}}/api/v1/ingredients?q=dau hu&veganOnly=true
+Accept: application/json
+
+### 5.2 Lấy danh sách nguyên liệu trong tủ lạnh
+GET {{HostAddress}}/api/v1/pantry
+Authorization: Bearer {{Token}}
+Accept: application/json
+
+### 5.3 Thêm 1 nguyên liệu vào tủ lạnh
+POST {{HostAddress}}/api/v1/pantry
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "ingredient": "Đậu hũ",
+  "quantity": 2.0,
+  "unit": "miếng",
+  "expiryDate": "2026-11-05T00:00:00Z"
+}
+
+### 5.4 Thêm hàng loạt nguyên liệu (Khớp hợp đồng scan tủ lạnh của Flutter)
+POST {{HostAddress}}/api/v1/users/me/ingredients
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "items": [
+    { "ingredient": "Nấm rơm", "scannedAt": "2026-10-29T08:00:00Z" },
+    { "ingredient": "Bông cải xanh", "scannedAt": "2026-10-29T08:00:00Z" },
+    { "ingredient": "Cà rốt", "scannedAt": "2026-10-29T08:00:00Z" }
+  ]
+}
+
+### 5.5 Cập nhật nguyên liệu trong tủ
+@pantryId = 672000000000000000000088
+PUT {{HostAddress}}/api/v1/pantry/{{pantryId}}
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "quantity": 3.5,
+  "unit": "bó",
+  "expiryDate": "2026-11-10T00:00:00Z"
+}
+
+### 5.6 Xóa 1 nguyên liệu khỏi tủ lạnh
+DELETE {{HostAddress}}/api/v1/pantry/{{pantryId}}
+Authorization: Bearer {{Token}}
+
+
+### ==============================================================================
+### 6. MEAL PLAN & RECIPES TEST CASES
+### ==============================================================================
+
+### 6.1 Tạo thực đơn tuần mới (empty: true)
+POST {{HostAddress}}/api/v1/meal-plans
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "startDate": "2026-10-26",
+  "empty": true
+}
+
+### 6.2 Lấy thực đơn tuần hiện tại
+GET {{HostAddress}}/api/v1/meal-plans/current
+Authorization: Bearer {{Token}}
+Accept: application/json
+
+### 6.3 Tự động sinh thực đơn 7 ngày (AI/Thuật toán lọc sạch dị ứng, cân bằng calo)
+POST {{HostAddress}}/api/v1/meal-plans/generate
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "startDate": "2026-10-26",
+  "usePantry": false
+}
+
+### 6.4 Tự động xếp thực đơn ưu tiên nguyên liệu đang có trong tủ lạnh
+POST {{HostAddress}}/api/v1/meal-plans/from-ingredients
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "startDate": "2026-10-26"
+}
+
+### 6.5 Gợi ý đổi món thay thế cho ô bữa (không dính dị ứng, lệch calo <= 15%)
+@planId = 672000000000000000000099
+GET {{HostAddress}}/api/v1/meal-plans/{{planId}}/swap-suggestions?date=2026-10-26&slot=lunch&limit=3
+Authorization: Bearer {{Token}}
+Accept: application/json
+
+### 6.6 Đổi món trong thực đơn
+PATCH {{HostAddress}}/api/v1/meal-plans/{{planId}}/meals
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "date": "2026-10-26",
+  "slot": "lunch",
+  "recipeId": "672000000000000000000033"
+}
+
+### 6.7 Gán món vào thực đơn tuần hiện tại
+POST {{HostAddress}}/api/v1/meal-plans/current/meals
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "date": "2026-10-26",
+  "slot": "lunch",
+  "source": "fridge_scan",
+  "name": "Đậu hũ sốt cà chua & cơm lứt",
+  "calories": 450,
+  "prepMinutes": 20,
+  "ingredients": ["Đậu hũ", "Cà chua", "Gạo lứt"]
+}
+
+### 6.8 Lấy danh sách công thức cá nhân ("Món của tôi")
+GET {{HostAddress}}/api/v1/users/me/recipes
+Authorization: Bearer {{Token}}
+Accept: application/json
+
+### 6.9 Tạo mới công thức món ăn của riêng tôi
+POST {{HostAddress}}/api/v1/recipes
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "name": "Nấm mối xào gừng ấm bụng",
+  "calories": 280,
+  "proteinG": 12.0,
+  "carbsG": 20.0,
+  "fatG": 8.0,
+  "fiberG": 6.0,
+  "prepMinutes": 15,
+  "ingredients": ["Nấm mối đen", "Gừng tươi", "Nước tương", "Hành boa-rô"],
+  "instructions": [
+    "Nấm mối rửa sạch, chẻ đôi vừa ăn.",
+    "Gừng thái sợi phi thơm cùng hành boa-rô.",
+    "Cho nấm vào xào lửa lớn trong 5 phút, nêm nước tương vừa miệng."
+  ]
+}

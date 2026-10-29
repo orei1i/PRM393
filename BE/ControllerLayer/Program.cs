@@ -1,15 +1,23 @@
 using ApplicationLayer.Interfaces;
 using ApplicationLayer.Services;
+using CloudinaryDotNet;
 using ControllerLayer.Filters;
 using ControllerLayer.Middlewares;
 using DomainLayer.Interfaces;
+using InfrastructureLayer.Configuration;
 using InfrastructureLayer.Database;
 using InfrastructureLayer.Repository;
+using InfrastructureLayer.Seed;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = 104_857_600; // 100 MB
+});
 
 // ─── Controllers + Filters ────────────────────────────────────────────────────
 builder.Services.AddControllers(options =>
@@ -91,28 +99,54 @@ builder.Services.AddAuthorization();
 builder.Services.AddSingleton<MongoDbContext>();
 builder.Services.AddScoped(typeof(IGenericRepository<>), typeof(GenericRepository<>));
 
+// ─── Cloudinary ───────────────────────────────────────────────────────────────
+var cloudinarySettings = builder.Configuration.GetSection(CloudinarySettings.SectionName).Get<CloudinarySettings>() 
+    ?? new CloudinarySettings();
+var cloudinaryAccount = new Account(
+    cloudinarySettings.CloudName,
+    cloudinarySettings.ApiKey,
+    cloudinarySettings.ApiSecret
+);
+var cloudinary = new Cloudinary(cloudinaryAccount);
+cloudinary.Api.Secure = true;
+builder.Services.AddSingleton(cloudinary);
+
 // ─── Application Services ─────────────────────────────────────────────────────
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IMediaService, MediaService>();
+builder.Services.AddScoped<IPostService, PostService>();
+builder.Services.AddScoped<ICommentService, CommentService>();
+builder.Services.AddScoped<IHealthProfileService, HealthProfileService>();
+builder.Services.AddScoped<IPantryService, PantryService>();
+builder.Services.AddScoped<IMealPlanService, MealPlanService>();
 
 // ─────────────────────────────────────────────────────────────────────────────
 var app = builder.Build();
 
 // ─── Exception Handling (phải là middleware đầu tiên) ─────────────────────────
+
+app.UseCors("MobilePolicy");
 app.UseMiddleware<ExceptionHandlingMiddleware>();
+app.UseStaticFiles();
 
 // ─── Swagger ──────────────────────────────────────────────────────────────────
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+    app.MapGet("/", () => Results.Redirect("/swagger"));
 }
 
 // ─── Pipeline ─────────────────────────────────────────────────────────────────
-app.UseHttpsRedirection();
-app.UseCors("MobilePolicy");
+
+
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+
+// ─── Khởi tạo chỉ mục MongoDB & Dữ liệu Seed ban đầu ──────────────────────────
+await app.Services.EnsureIndexesAsync();
+await app.Services.SeedAsync();
 
 app.Run();
