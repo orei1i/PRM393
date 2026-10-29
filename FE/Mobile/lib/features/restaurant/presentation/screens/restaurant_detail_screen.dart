@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/navigation/app_routes.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/session/session_controller.dart';
 import '../../../../core/theme/vl_colors.dart';
@@ -36,6 +37,7 @@ class RestaurantDetailScreen extends ConsumerWidget {
 
   static Route<void> route(String restaurantId, {String? name}) =>
       MaterialPageRoute<void>(
+        settings: RouteSettings(name: AppRoutes.restaurant(restaurantId)),
         builder: (_) =>
             RestaurantDetailScreen(restaurantId: restaurantId, name: name),
       );

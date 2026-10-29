@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/navigation/app_nav.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/text_search.dart';
@@ -40,6 +41,7 @@ class SearchScreen extends ConsumerStatefulWidget {
   final String? initialQuery;
 
   static Route<void> route({String? initialQuery}) => MaterialPageRoute<void>(
+        settings: const RouteSettings(name: AppRoutes.search),
         builder: (_) => SearchScreen(initialQuery: initialQuery),
       );
 
@@ -133,7 +135,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
       subtitle: '${post.hasVideo ? 'Video' : post.type.label} · '
           '${post.author.name}',
     ));
-    Navigator.of(context).push(PostDetailScreen.route(post));
+    AppNav.open(Navigator.of(context), PostDetailScreen.route(post));
   }
 
   Future<void> _openPostById(String id) async {
@@ -154,11 +156,15 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     }
   }
 
+  /// Results open with [AppNav.open]: an item already open under the search
+  /// (e.g. the recipe whose "Tìm video & quán liên quan" opened it) comes
+  /// back instead of a copy.
   void _openRecipe(String id, String name) {
     _rememberQuery();
     _viewed(RecentView(
         kind: SuggestKind.recipe, id: id, title: name, subtitle: 'Công thức'));
-    Navigator.of(context).push(RecipeDetailScreen.route(id, name: name));
+    AppNav.open(
+        Navigator.of(context), RecipeDetailScreen.route(id, name: name));
   }
 
   void _openRestaurantById(String id, String name, {String? subtitle}) {
@@ -168,7 +174,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         id: id,
         title: name,
         subtitle: subtitle ?? 'Quán'));
-    Navigator.of(context).push(RestaurantDetailScreen.route(id, name: name));
+    AppNav.open(
+        Navigator.of(context), RestaurantDetailScreen.route(id, name: name));
   }
 
   void _openRestaurant(Restaurant r) =>

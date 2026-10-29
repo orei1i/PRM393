@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/navigation/app_routes.dart';
 import '../../../../core/session/session_controller.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/labels.dart';
@@ -64,6 +65,7 @@ class PostDetailScreen extends ConsumerStatefulWidget {
     String? highlightParentId,
   }) =>
       MaterialPageRoute<void>(
+        settings: RouteSettings(name: AppRoutes.post(post.id)),
         builder: (_) => PostDetailScreen(
           post: post,
           entry: entry,

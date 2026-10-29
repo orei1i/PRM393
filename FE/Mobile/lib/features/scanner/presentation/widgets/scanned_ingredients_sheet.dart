@@ -32,7 +32,9 @@ import 'dashed_border.dart';
 /// the swap as a vegan item). The primary CTA "Lưu vào tủ lạnh" keeps only
 /// the confirmed vegan items in "Nguyên liệu trong tủ", then offers "Tạo
 /// thực đơn từ tủ lạnh" / "Xem tủ lạnh" (the fridge list with nutrition).
-/// AI dish ideas from the same vegan items stay available below.
+/// AI dish ideas from the same vegan items stay available below; once one
+/// is added to today's plan its button reads "Xem thực đơn" (leaves the
+/// scanner for the Thực đơn tab).
 class ScannedIngredientsSheet extends ConsumerStatefulWidget {
   const ScannedIngredientsSheet({
     super.key,
@@ -78,6 +80,9 @@ class _ScannedIngredientsSheetState
 
   /// Suggestion being added to the meal plan (its button shows progress).
   String? _addingId;
+
+  /// Suggestions already added: their button becomes "Xem thực đơn".
+  final _addedIds = <String>{};
 
   bool _savingPantry = false;
   bool _generatingPlan = false;
@@ -147,6 +152,7 @@ class _ScannedIngredientsSheetState
         sourceId: m.id,
       );
       HapticFeedback.lightImpact();
+      if (mounted) setState(() => _addedIds.add(m.id));
       final warning = added.allergenConflicts.isEmpty
           ? ''
           : ' Lưu ý: món có thể chứa '
@@ -163,7 +169,9 @@ class _ScannedIngredientsSheetState
               : SnackBarAction(
                   label: 'Hoàn tác',
                   onPressed: () {
-                    planner.undoAddMeal(added).catchError((Object e) {
+                    planner.undoAddMeal(added).then((_) {
+                      if (mounted) setState(() => _addedIds.remove(m.id));
+                    }).catchError((Object e) {
                       messenger.showSnackBar(
                           SnackBar(content: Text(describeError(e))));
                     });
@@ -529,7 +537,9 @@ class _ScannedIngredientsSheetState
                         child: _MenuTile(
                           suggestion: m,
                           adding: _addingId == m.id,
+                          added: _addedIds.contains(m.id),
                           onAdd: _addingId == null ? () => _addToPlan(m) : null,
+                          onOpenPlanner: _openPlanner,
                           onView: () => Navigator.of(context).push(
                               RecipeDetailScreen.route(m.id, name: m.name)),
                         ),
@@ -927,12 +937,19 @@ class _MenuTile extends StatelessWidget {
   const _MenuTile(
       {required this.suggestion,
       required this.adding,
+      required this.added,
       required this.onAdd,
+      required this.onOpenPlanner,
       required this.onView});
 
   final MenuSuggestion suggestion;
   final bool adding;
+
+  /// Already in today's plan: "Xem thực đơn" ([onOpenPlanner]) instead of
+  /// "Thêm vào thực đơn" ([onAdd]).
+  final bool added;
   final VoidCallback? onAdd;
+  final VoidCallback onOpenPlanner;
 
   /// "Xem công thức": ingredients and steps.
   final VoidCallback onView;
@@ -975,15 +992,22 @@ class _MenuTile extends StatelessWidget {
                   icon: const Icon(Icons.menu_book_outlined, size: 18),
                   label: const Text('Xem công thức'),
                 ),
-                TextButton.icon(
-                  onPressed: onAdd,
-                  icon: adding
-                      ? const SizedBox.square(
-                          dimension: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.playlist_add_rounded, size: 18),
-                  label: Text(adding ? 'Đang thêm…' : 'Thêm vào thực đơn'),
-                ),
+                if (added && !adding)
+                  TextButton.icon(
+                    onPressed: onOpenPlanner,
+                    icon: const Icon(Icons.calendar_month_outlined, size: 18),
+                    label: const Text('Xem thực đơn'),
+                  )
+                else
+                  TextButton.icon(
+                    onPressed: onAdd,
+                    icon: adding
+                        ? const SizedBox.square(
+                            dimension: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.playlist_add_rounded, size: 18),
+                    label: Text(adding ? 'Đang thêm…' : 'Thêm vào thực đơn'),
+                  ),
               ],
             ),
           ),

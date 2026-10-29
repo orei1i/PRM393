@@ -32,7 +32,8 @@ class _Draft {
 /// "Soạn kế hoạch" (chef): day chips with their state, meals per slot of
 /// the booking's pattern ("Thêm món": a quick form or "Chọn từ công thức của
 /// tôi"), "Sao chép từ ngày trước", a day note and "Lưu nháp". OneShot:
-/// "Gửi toàn bộ kế hoạch" once every day is complete; DailyFeedback: "Gửi
+/// "Gửi toàn bộ kế hoạch" once every day is complete (then back to the
+/// booking); DailyFeedback: "Gửi
 /// ngày này" with yesterday's feedback on top. Sent days reach the member's
 /// Thực đơn › "Từ chuyên gia".
 class PlanEditorScreen extends ConsumerStatefulWidget {
@@ -40,7 +41,9 @@ class PlanEditorScreen extends ConsumerStatefulWidget {
 
   final String bookingId;
 
-  static Route<void> route(String bookingId) => MaterialPageRoute<void>(
+  /// Completes with `true` when the whole plan was sent ("Gửi toàn bộ kế
+  /// hoạch" closes the editor).
+  static Route<bool> route(String bookingId) => MaterialPageRoute<bool>(
       builder: (_) => PlanEditorScreen(bookingId: bookingId));
 
   @override
@@ -206,11 +209,22 @@ class _PlanEditorScreenState extends ConsumerState<PlanEditorScreen> {
         ],
       ),
     );
-    if (ok != true || !mounted) return;
-    await _run(() async {
+    if (ok != true || !mounted || _busy) return;
+    setState(() => _busy = true);
+    try {
       await _saveDirty();
       await _api.sendWholePlan(widget.bookingId);
-    }, 'Đã gửi toàn bộ kế hoạch.');
+      if (!mounted) return;
+      ref.bookingChanged();
+      // Nothing left to edit: back to the booking, which confirms it. Every
+      // draft was saved above, so no unsaved change is skipped.
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(describeError(e))));
+    }
   }
 
   Future<void> _addMeal(MealSlot slot, PlanMealDto? current) async {

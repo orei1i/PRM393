@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/config/env.dart';
+import '../../../../core/navigation/app_nav.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
@@ -200,8 +201,11 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     if (leave == true && mounted) Navigator.of(context).pop();
   }
 
+  /// "Lịch sử tư vấn": the booking pages under this one are done with
+  /// (paid, cancelled or refunded), so back to the history already open,
+  /// else a single one right above the shell.
   void _openHistory() =>
-      Navigator.of(context).pushReplacement(BookingHistoryScreen.route());
+      AppNav.popToOrReset(Navigator.of(context), BookingHistoryScreen.route());
 
   /// Back to the booking that opened this screen.
   void _back() => Navigator.of(context).pop();

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../app.dart' show AskAiBubbleFree;
+import '../../../../core/navigation/app_nav.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/session/session_controller.dart';
 import '../../../../core/theme/vl_colors.dart';
@@ -42,6 +43,7 @@ class BookingDetailScreen extends ConsumerStatefulWidget {
 
   static Route<void> route(String bookingId, {int initialTab = 0}) =>
       MaterialPageRoute<void>(
+        settings: RouteSettings(name: AppRoutes.booking(bookingId)),
         builder: (_) =>
             BookingDetailScreen(bookingId: bookingId, initialTab: initialTab),
       );
@@ -204,9 +206,13 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     }
   }
 
+  /// "Soạn kế hoạch"; the editor closes itself once the whole plan is sent.
   Future<void> _compose(BookingDto b) async {
-    await Navigator.of(context).push(PlanEditorScreen.route(b.id));
-    if (mounted) ref.bookingChanged();
+    final sentAll =
+        await Navigator.of(context).push(PlanEditorScreen.route(b.id));
+    if (!mounted) return;
+    ref.bookingChanged();
+    if (sentAll == true) _snack('Đã gửi toàn bộ kế hoạch');
   }
 
   Future<void> _respondComplaint(BookingDto b) async {
@@ -224,7 +230,8 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   }
 
   /// "Áp dụng kế hoạch vào Thực đơn": every sent meal into its date and
-  /// slot of the current week (the planner skips days outside it).
+  /// slot of the current week (the planner skips days outside it), then
+  /// "Xem Thực đơn" in the snackbar.
   Future<void> _applyToPlanner(BookingDto b, List<PlanDayDto> days) async {
     final requests = [
       for (final d in days)
@@ -245,6 +252,9 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
             ),
     ];
     if (requests.isEmpty) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final tabs = ref.read(shellTabProvider.notifier);
     var placed = 0;
     final ok = await _run(() async {
       placed = await ref
@@ -252,12 +262,33 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
           .addMeals(requests);
     });
     if (!ok || !mounted) return;
-    _snack(placed == requests.length
-        ? 'Đã thêm $placed món vào Thực đơn.'
-        : placed == 0
-            ? 'Các ngày của kế hoạch nằm ngoài tuần hiện tại của Thực đơn.'
-            : 'Đã thêm $placed/${requests.length} món vào Thực đơn tuần này; '
-                'các ngày ngoài tuần chưa thêm được.');
+    if (placed == 0) {
+      _snack('Các ngày của kế hoạch nằm ngoài tuần hiện tại của Thực đơn.');
+      return;
+    }
+
+    // "Xem Thực đơn": the Thực đơn tab, from here or wherever the member
+    // went since (the snackbar outlives this page).
+    void openPlanner() {
+      if (mounted) {
+        AppNav.toShellTab(navigator, ref, ShellTab.planner);
+      } else {
+        navigator.popUntil((r) => r.isFirst);
+        tabs.select(ShellTab.planner);
+      }
+    }
+
+    // The action names the destination, so the message doesn't repeat it.
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        persist: MediaQuery.accessibleNavigationOf(context),
+        content: Text(placed == requests.length
+            ? 'Đã thêm $placed món của kế hoạch vào tuần này.'
+            : 'Đã thêm $placed/${requests.length} món vào tuần này; các '
+                'ngày ngoài tuần chưa thêm được.'),
+        action: SnackBarAction(label: 'Xem Thực đơn', onPressed: openPlanner),
+      ));
   }
 
   // ---- build ----------------------------------------------------------------

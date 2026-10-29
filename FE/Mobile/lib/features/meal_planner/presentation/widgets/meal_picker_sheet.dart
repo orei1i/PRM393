@@ -58,6 +58,7 @@ class MealPickerSheet extends ConsumerWidget {
     required this.slot,
     required this.allergies,
     this.current,
+    this.date,
   });
 
   final MealSlot slot;
@@ -66,11 +67,16 @@ class MealPickerSheet extends ConsumerWidget {
   /// The dish in the slot now; `null` for an empty slot.
   final Recipe? current;
 
+  /// The plan day of [slot]. With [slot], a dish's page ("Xem") compares
+  /// with this meal and "Thêm vào Thực đơn" defaults to it.
+  final DateTime? date;
+
   static Future<MealPick?> show(
     BuildContext context, {
     required MealSlot slot,
     required List<String> allergies,
     Recipe? current,
+    DateTime? date,
   }) {
     return showModalBottomSheet<MealPick>(
       context: context,
@@ -78,8 +84,8 @@ class MealPickerSheet extends ConsumerWidget {
       useSafeArea: true,
       builder: (_) => FractionallySizedBox(
         heightFactor: 0.92,
-        child:
-            MealPickerSheet(slot: slot, allergies: allergies, current: current),
+        child: MealPickerSheet(
+            slot: slot, allergies: allergies, current: current, date: date),
       ),
     );
   }
@@ -183,8 +189,12 @@ Future<void> _choose(
   if (context.mounted) Navigator.of(context).pop(RecipePick(recipe));
 }
 
-void _openRecipe(BuildContext context, Recipe recipe) => Navigator.of(context)
-    .push(RecipeDetailScreen.route(recipe.id, name: recipe.name));
+/// "Xem": the dish's page, in the context of the sheet's day and meal.
+void _openRecipe(BuildContext context, Recipe recipe) {
+  final sheet = context.findAncestorWidgetOfExactType<MealPickerSheet>();
+  Navigator.of(context).push(RecipeDetailScreen.route(recipe.id,
+      name: recipe.name, contextDate: sheet?.date, contextSlot: sheet?.slot));
+}
 
 // ----------------------------------------------------------------- AI --
 

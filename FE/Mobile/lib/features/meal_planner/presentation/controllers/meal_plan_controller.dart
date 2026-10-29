@@ -11,6 +11,7 @@ import '../../data/models/meal_plan_model.dart';
 import '../../domain/entities/health_profile.dart';
 import '../../domain/entities/meal_plan.dart';
 import '../../domain/entities/plan_adjustment.dart';
+import 'body_metrics_controller.dart';
 
 class MealPlannerState {
   const MealPlannerState({
@@ -181,7 +182,10 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     } else {
       ref.invalidateSelf();
     }
-    ref.invalidate(userAllergiesProvider);
+    ref
+      ..invalidate(userAllergiesProvider)
+      // A weight change logs a weigh-in ("Từ Hồ sơ sức khoẻ").
+      ..invalidate(bodyMeasurementsProvider);
     final patternChanged = before != null &&
         (before.length != saved.mealPattern.length ||
             !before.toSet().containsAll(saved.mealPattern));
@@ -191,6 +195,20 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
       unawaited(_reloadTargets());
     }
     return saved;
+  }
+
+  /// A profile the server recomputed elsewhere ("Cập nhật cân nặng"): the
+  /// header shows it at once and, when there is a week, its day cards follow
+  /// the new daily target (completes once they did; keeps the old week if
+  /// that reload fails).
+  Future<void> applySavedProfile(HealthProfile profile) async {
+    final current = state.valueOrNull;
+    if (current == null) {
+      ref.invalidateSelf();
+      return;
+    }
+    state = AsyncData(current.copyWith(healthProfile: profile));
+    if (current.plan != null) await _reloadTargets();
   }
 
   /// After a profile save the server re-aims the week at the new daily

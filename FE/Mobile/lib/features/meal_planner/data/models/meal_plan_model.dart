@@ -24,9 +24,10 @@
 // (meal_plan_recipes.meal_type). A slot may be missing (a plan the member
 // builds by hand starts empty; the member's pattern decides which show).
 // Each meal may carry "source": "ai" | "manual" | "user_recipe" | "chef" |
-// "fridge_scan" (meal_plan_recipes.source), "sourceName" (the chef) and
-// "portion" (servings in the slot, default 1; kcal/macros are already for
-// that portion).
+// "fridge_scan" | "recipe" (added from a catalogue recipe's page)
+// (meal_plan_recipes.source), "sourceName" (the chef) and "portion"
+// (servings in the slot, default 1; kcal/macros are already for that
+// portion).
 //
 // POST /meal-plans/current/meals   → 200 MealPlanDayDto (the updated day)
 // { "date": "2026-10-15", "slot": "lunch", "source": "fridge_scan", "sourceId": "menu_1",
@@ -167,7 +168,7 @@ class RecipeDto {
   final int? prepMinutes;
   final SeasonalSwapDto? seasonalSwap;
 
-  /// `ai` | `manual` | `user_recipe` | `chef` | `fridge_scan`.
+  /// `ai` | `manual` | `user_recipe` | `chef` | `fridge_scan` | `recipe`.
   final String? source;
   final String? sourceName;
   final String? createdBy;

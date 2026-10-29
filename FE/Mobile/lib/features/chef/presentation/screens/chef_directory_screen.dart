@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/navigation/app_nav.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/widgets/floating_bar_clearance.dart';
 import '../../../../core/widgets/shimmer.dart';
@@ -60,7 +61,7 @@ class _ChefDirectoryScreenState extends ConsumerState<ChefDirectoryScreen> {
       return;
     }
     if (mounted) {
-      await Navigator.of(context).push(BookingHistoryScreen.route());
+      await AppNav.open(Navigator.of(context), BookingHistoryScreen.route());
     }
   }
 

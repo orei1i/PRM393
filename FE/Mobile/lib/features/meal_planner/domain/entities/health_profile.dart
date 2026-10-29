@@ -18,9 +18,14 @@ enum HealthGoal {
   /// Applied to the TDEE for the daily kcal target (−15 % / 0 / +5 % / +10 %).
   final double energyAdjustment;
 
-  static HealthGoal fromApi(String? value) =>
-      values.firstWhere((g) => g.apiValue == value,
-          orElse: () => HealthGoal.maintain);
+  /// Also reads the server's short values (`lose`, `gain`) so both sides
+  /// aim at the same calorie target; anything unknown → [maintain].
+  static HealthGoal fromApi(String? value) => switch (value?.trim()) {
+        'lose' => HealthGoal.loseWeight,
+        'gain' => HealthGoal.gainWeight,
+        final v => values.firstWhere((g) => g.apiValue == v,
+            orElse: () => HealthGoal.maintain),
+      };
 }
 
 enum HealthSyncProvider {

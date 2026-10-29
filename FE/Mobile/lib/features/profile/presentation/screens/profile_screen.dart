@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/navigation/app_nav.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/session/session_controller.dart';
 import '../../../../core/settings/theme_mode_controller.dart';
@@ -21,7 +22,9 @@ import '../../../chef_studio/presentation/screens/chef_knowledge_docs_screen.dar
 import '../../../chef_studio/presentation/screens/chef_profile_edit_screen.dart';
 import '../../../chef_studio/presentation/screens/chef_wallet_screen.dart';
 import '../../../commerce/presentation/widgets/commerce_ui.dart';
+import '../../../meal_planner/presentation/screens/body_metrics_screen.dart';
 import '../../../meal_planner/presentation/screens/health_profile_edit_screen.dart';
+import '../../../meal_planner/presentation/widgets/health_header_card.dart';
 import '../../domain/entities/user_profile.dart';
 import '../controllers/profile_controller.dart';
 import 'chef_application_screen.dart';
@@ -305,6 +308,10 @@ class _StatTile extends StatelessWidget {
 class _HealthCard extends ConsumerWidget {
   const _HealthCard();
 
+  /// 66 → "66", 65.4 → "65,4" (a check-in's decimal shows).
+  static String _kg(double kg) =>
+      kg == kg.roundToDouble() ? '${kg.round()}' : formatDecimal(kg);
+
   Future<void> _edit(BuildContext context, WidgetRef ref) async {
     final saved =
         await Navigator.of(context).push(HealthProfileEditScreen.route());
@@ -367,7 +374,7 @@ class _HealthCard extends ConsumerWidget {
               ),
               const SizedBox(height: 10),
               Text(
-                '${formatDecimal(value.heightCm, digits: 0)} cm · ${formatDecimal(value.weightKg, digits: 0)} kg · '
+                '${formatDecimal(value.heightCm, digits: 0)} cm · ${_kg(value.weightKg)} kg · '
                 'BMI ${formatDecimal(value.bmi)} (${value.bmiCategory().label}) · ${value.goal.label}',
                 style: context.textStyles.bodyMedium,
               ),
@@ -393,6 +400,12 @@ class _HealthCard extends ConsumerWidget {
                 'Dùng cho thực đơn AI và chỉ chia sẻ với chuyên gia khi bạn đặt chuyên gia.',
                 style: context.textStyles.bodySmall
                     ?.copyWith(color: context.vl.muted),
+              ),
+              const SizedBox(height: 4),
+              const Divider(height: 1),
+              MetricsLinkRow(
+                onTap: () => AppNav.open(
+                    Navigator.of(context), BodyMetricsScreen.route()),
               ),
             ],
           ),

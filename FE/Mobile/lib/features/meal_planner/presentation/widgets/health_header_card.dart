@@ -11,12 +11,16 @@ import '../../domain/entities/health_profile.dart';
 import 'bmi_gauge.dart';
 
 /// Health Hub: BMI gauge, body stats, goal, restrictions and wearable sync.
-/// With [onEdit] the whole card opens the editor and shows a "Sửa" hint.
+/// With [onEdit] the whole card opens the editor and shows a "Sửa" hint;
+/// with [onOpenMetrics] a bottom row "Theo dõi cân nặng ›" (its own tap
+/// target) opens the weight history.
 class HealthHeaderCard extends StatelessWidget {
-  const HealthHeaderCard({super.key, required this.profile, this.onEdit});
+  const HealthHeaderCard(
+      {super.key, required this.profile, this.onEdit, this.onOpenMetrics});
 
   final HealthProfile profile;
   final VoidCallback? onEdit;
+  final VoidCallback? onOpenMetrics;
 
   @override
   Widget build(BuildContext context) {
@@ -84,7 +88,42 @@ class HealthHeaderCard extends StatelessWidget {
               HealthSyncBadge(sync: profile.healthSync),
             ],
           ),
+          if (onOpenMetrics case final open?) ...[
+            const SizedBox(height: 2),
+            MetricsLinkRow(onTap: open),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+/// "Theo dõi cân nặng ›" at the bottom of a health card (Thực đơn, Tôi).
+class MetricsLinkRow extends StatelessWidget {
+  const MetricsLinkRow({super.key, required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = context.colors.primary;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 40),
+        child: Row(
+          children: [
+            Icon(Icons.monitor_weight_outlined, size: 20, color: primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text('Theo dõi cân nặng',
+                  style:
+                      context.textStyles.labelLarge?.copyWith(color: primary)),
+            ),
+            Icon(Icons.chevron_right_rounded, color: primary),
+          ],
+        ),
       ),
     );
   }

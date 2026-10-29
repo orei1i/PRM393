@@ -36,6 +36,11 @@ abstract final class ApiEndpoints {
   // Health profile & meal planner
   static const String healthProfile = '/health-profile/me';
 
+  /// Body measurements ("Theo dõi cân nặng"): GET `?limit=` (≤ 100, newest
+  /// first); POST `{ weightKg, waistCm?, bodyFatPct? }` → `{ measurement,
+  /// profile }` (BE: POST is new).
+  static const String healthMetrics = '/health-profile/me/metrics';
+
   /// POST `{ startDate, empty: true }` → a week with every slot empty
   /// ("Tự lên thực đơn").
   static const String mealPlans = '/meal-plans';
@@ -243,6 +248,21 @@ abstract final class ApiEndpoints {
 
   /// Declared, not called yet (optional; the mock computes it in [search]).
   static String recipeRelatedPosts(String id) => '/recipes/$id/related-posts';
+
+  /// POST `{ name, swaps: [{ ingredientKey, substituteKey }], removed }` →
+  /// the saved private recipe ("Lưu thành công thức của tôi"). BE: new.
+  static String recipeVariants(String id) => '/recipes/$id/variants';
+
+  /// GET `?cursor=&limit=10`: rating summary, `myReview` and reviews,
+  /// newest first. BE: new.
+  static String recipeReviews(String id) => '/recipes/$id/reviews';
+
+  /// PUT `{ rating, content? }` (one per member, upsert) / DELETE the
+  /// signed-in member's review. BE: new.
+  static String recipeMyReview(String id) => '/recipes/$id/reviews/me';
+
+  /// GET / PUT `{ content }` / DELETE the member's private note. BE: new.
+  static String recipeMyNote(String id) => '/recipes/$id/notes/me';
 
   // Current user (BE: UsersController) + chef application
   static const String me = '/users/me';

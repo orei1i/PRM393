@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../app.dart' show AskAiBubbleFree;
+import '../../../../core/navigation/app_nav.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
@@ -24,7 +25,9 @@ import 'booking_detail_screen.dart';
 /// "Đặt chuyên gia lên thực đơn": number of days, start date, type, needs
 /// (goal, allergies and meals of the day prefilled from the health profile),
 /// budget, notes and whether to share the health profile. Sends a request
-/// (`Requested`) and opens its booking; the price is agreed in the chat.
+/// (`Requested`) and opens its booking right above the shell (the
+/// directory, profile and form are closed); the price is agreed in the
+/// chat.
 class BookChefPlanScreen extends ConsumerStatefulWidget {
   const BookChefPlanScreen({super.key, required this.chef});
 
@@ -157,8 +160,10 @@ class _BookChefPlanScreenState extends ConsumerState<BookChefPlanScreen> {
       ref.bookingChanged();
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Đã gửi yêu cầu. Chuyên gia sẽ báo giá trong chat.')));
-      Navigator.of(context)
-          .pushReplacement(BookingDetailScreen.route(booking.id));
+      // The directory / profile / form are done with: Back from the
+      // request returns to the tab it was started from.
+      AppNav.resetTo(
+          Navigator.of(context), BookingDetailScreen.route(booking.id));
     } catch (e) {
       if (!mounted) return;
       setState(() => _sending = false);

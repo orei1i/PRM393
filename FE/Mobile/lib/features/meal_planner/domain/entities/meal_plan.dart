@@ -105,7 +105,10 @@ enum MealSource {
   manual('manual', 'Tự nhập'),
   userRecipe('user_recipe', 'Công thức của tôi'),
   chef('chef', 'Chuyên gia'),
-  fridgeScan('fridge_scan', 'Từ tủ lạnh');
+  fridgeScan('fridge_scan', 'Từ tủ lạnh'),
+
+  /// Added from a catalogue recipe's page ("Thêm vào Thực đơn").
+  recipe('recipe', 'Từ công thức');
 
   const MealSource(this.apiValue, this.label);
   final String apiValue;

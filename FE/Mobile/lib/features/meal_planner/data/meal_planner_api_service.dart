@@ -10,6 +10,7 @@ import '../../../core/session/session_controller.dart';
 import '../../../core/utils/formatters.dart';
 import '../domain/entities/meal_plan.dart';
 import 'mock_meal_planner_repository.dart';
+import 'models/body_measurement_model.dart';
 import 'models/health_profile_model.dart';
 import 'models/meal_plan_model.dart';
 
@@ -24,6 +25,16 @@ abstract interface class MealPlannerApiService {
   /// `bmi`.
   Future<HealthProfileDto> updateHealthProfile(
       UpdateHealthProfileRequestDto request);
+
+  /// Weigh-ins (`health_metric_logs`), newest first, at most [limit]
+  /// (≤ 100). Profile saves that change the weight log one too.
+  Future<List<BodyMeasurementDto>> getBodyMeasurements({int limit = 100});
+
+  /// "Cập nhật cân nặng": logs a weigh-in at the saved height and returns
+  /// it with the recomputed profile (BMI, BMR, TDEE; the current week's
+  /// targets follow). 404 without a health profile.
+  Future<LogMeasurementResultDto> logBodyMeasurement(
+      LogMeasurementRequestDto request);
 
   /// `null` when the user has no plan for the current week (HTTP 404).
   Future<MealPlanDto?> getCurrentMealPlan();
@@ -119,6 +130,30 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
             ApiEndpoints.healthProfile,
             data: request.toJson());
         return HealthProfileDto.fromJson(res.data!);
+      });
+
+  @override
+  Future<List<BodyMeasurementDto>> getBodyMeasurements({int limit = 100}) =>
+      guardApi(() async {
+        try {
+          final res = await _dio.get<List<dynamic>>(ApiEndpoints.healthMetrics,
+              queryParameters: {'limit': limit});
+          return _list(res.data, BodyMeasurementDto.fromJson);
+        } on DioException catch (e) {
+          // No health profile yet: no history either.
+          if (e.response?.statusCode == 404) return const [];
+          rethrow;
+        }
+      });
+
+  @override
+  Future<LogMeasurementResultDto> logBodyMeasurement(
+          LogMeasurementRequestDto request) =>
+      guardApi(() async {
+        final res = await _dio.post<Map<String, dynamic>>(
+            ApiEndpoints.healthMetrics,
+            data: request.toJson());
+        return LogMeasurementResultDto.fromJson(res.data!);
       });
 
   @override

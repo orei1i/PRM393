@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/navigation/app_nav.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/session/session_controller.dart';
 import '../../../../core/theme/app_typography.dart';
@@ -35,6 +36,7 @@ class IngredientDetailScreen extends ConsumerWidget {
 
   static Route<void> route({String? id, required String name}) =>
       MaterialPageRoute<void>(
+        settings: RouteSettings(name: AppRoutes.ingredient(id: id, name: name)),
         builder: (_) => IngredientDetailScreen(ingredientId: id, name: name),
       );
 
@@ -371,8 +373,10 @@ class _DetailBody extends ConsumerWidget {
                         ? null
                         : Text('${formatInt(r.calories!)} kcal / phần'),
                     trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: () => Navigator.of(context)
-                        .push(RecipeDetailScreen.route(r.id, name: r.name)),
+                    // Back to the recipe when it is the one this page was
+                    // opened from, instead of a copy on top.
+                    onTap: () => AppNav.open(Navigator.of(context),
+                        RecipeDetailScreen.route(r.id, name: r.name)),
                   ),
                 ],
               ],
