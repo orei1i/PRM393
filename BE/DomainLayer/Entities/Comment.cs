@@ -12,6 +12,7 @@ namespace DomainLayer.Entities
         public string UserId { get; set; } = string.Empty;
 
         [BsonRepresentation(BsonType.ObjectId)]
+        [BsonIgnoreIfNull]
         public string? ParentId { get; set; }
 
         public string Content { get; set; } = string.Empty;

@@ -28,5 +28,6 @@ namespace InfrastructureLayer.Database
         public IMongoCollection<PantryItem> PantryItems => _database.GetCollection<PantryItem>("PantryItems");
         public IMongoCollection<Recipe> Recipes => _database.GetCollection<Recipe>("Recipes");
         public IMongoCollection<MealPlan> MealPlans => _database.GetCollection<MealPlan>("MealPlans");
+        public IMongoCollection<AiLog> AiLogs => _database.GetCollection<AiLog>("AiLogs");
     }
 }

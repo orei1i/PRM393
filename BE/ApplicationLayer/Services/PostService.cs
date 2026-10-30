@@ -156,13 +156,28 @@ namespace ApplicationLayer.Services
         public async Task<PostResponse> CreatePostAsync(CreatePostRequest request, string currentUserId)
         {
             // Kiểm tra URL media có do chính user này upload lên không
-            if (!string.IsNullOrWhiteSpace(request.MediaUrl))
+            var rawMediaUrl = request.MediaUrl?.Trim();
+            var mediaUrl = string.IsNullOrWhiteSpace(rawMediaUrl) || rawMediaUrl.Equals("string", StringComparison.OrdinalIgnoreCase)
+                ? null
+                : rawMediaUrl;
+
+            if (!string.IsNullOrWhiteSpace(mediaUrl))
             {
-                var isOwner = await _mediaService.ValidateOwnerAsync(request.MediaUrl, currentUserId);
+                var isOwner = await _mediaService.ValidateOwnerAsync(mediaUrl, currentUserId);
                 if (!isOwner)
                 {
                     throw new BadRequestException("Tài nguyên media không tồn tại hoặc không thuộc quyền sở hữu của bạn.");
                 }
+            }
+
+            // Lọc an toàn RestaurantId: Chỉ nhận mã MongoDB ObjectId 24 ký tự hex hợp lệ
+            string? validRestaurantId = null;
+            var rawRestaurantId = request.RestaurantId?.Trim();
+            if (!string.IsNullOrWhiteSpace(rawRestaurantId)
+                && !rawRestaurantId.Equals("string", StringComparison.OrdinalIgnoreCase)
+                && MongoDB.Bson.ObjectId.TryParse(rawRestaurantId, out _))
+            {
+                validRestaurantId = rawRestaurantId;
             }
 
             var post = new Post
@@ -174,9 +189,9 @@ namespace ApplicationLayer.Services
                 Tags = request.Tags ?? new List<string>(),
                 MediaType = !string.IsNullOrWhiteSpace(request.MediaType)
                     ? request.MediaType
-                    : (!string.IsNullOrWhiteSpace(request.MediaUrl) ? "Image" : "Text"),
-                MediaUrl = request.MediaUrl,
-                RestaurantId = request.RestaurantId,
+                    : (!string.IsNullOrWhiteSpace(mediaUrl) ? "Image" : "Text"),
+                MediaUrl = mediaUrl,
+                RestaurantId = validRestaurantId,
                 Status = "Published",
                 LikeCount = 0,
                 CommentCount = 0,

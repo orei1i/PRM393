@@ -24,6 +24,7 @@ namespace DomainLayer.Entities
         public string? MediaUrl { get; set; }
 
         [BsonRepresentation(BsonType.ObjectId)]
+        [BsonIgnoreIfNull]
         public string? RestaurantId { get; set; }
 
         public string Status { get; set; } = "Published"; // "Published" | "Pending" | "Rejected"

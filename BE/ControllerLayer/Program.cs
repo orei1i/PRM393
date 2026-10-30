@@ -6,6 +6,7 @@ using ControllerLayer.Middlewares;
 using DomainLayer.Interfaces;
 using InfrastructureLayer.Configuration;
 using InfrastructureLayer.Database;
+using InfrastructureLayer.ExternalServices.Gemini;
 using InfrastructureLayer.Repository;
 using InfrastructureLayer.Seed;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -120,6 +121,14 @@ builder.Services.AddScoped<ICommentService, CommentService>();
 builder.Services.AddScoped<IHealthProfileService, HealthProfileService>();
 builder.Services.AddScoped<IPantryService, PantryService>();
 builder.Services.AddScoped<IMealPlanService, MealPlanService>();
+builder.Services.AddScoped<IVisionService, VisionService>();
+
+// ─── Gemini AI Client ────────────────────────────────────────────────────────
+builder.Services.Configure<GeminiSettings>(builder.Configuration.GetSection(GeminiSettings.SectionName));
+builder.Services.AddHttpClient<IGeminiClient, GeminiClient>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(25);
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 var app = builder.Build();
