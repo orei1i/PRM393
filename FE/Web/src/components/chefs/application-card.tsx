@@ -3,14 +3,12 @@
 
 import * as React from "react";
 import { BadgeCheck, CalendarDays, FileCheck2, FileWarning, MapPin, ThumbsDown, ThumbsUp } from "lucide-react";
-import { toast } from "sonner";
 
 import { InitialsAvatar } from "@/components/admin/initials-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label, Textarea } from "@/components/ui/form-controls";
-import { describeError } from "@/lib/api_error";
 import { useReviewChefApplication } from "@/lib/hooks/use-admin";
 import { formatAge } from "@/lib/utils";
 import { CHEF_APPLICATION_STATUS_LABEL, type ChefApplication } from "@/types/admin";
@@ -29,16 +27,7 @@ export function ApplicationCard({ application }: { application: ChefApplication 
 
   function submit() {
     if (!decision) return;
-    review.mutate(
-      { applicationId: application.id, decision, note: note.trim() },
-      {
-        onSuccess: (app) =>
-          toast.success(
-            decision === "approved" ? `Đã duyệt ${app.fullName} thành chuyên gia` : `Đã từ chối hồ sơ của ${app.fullName}`,
-          ),
-        onError: (e) => toast.error("Chưa lưu được quyết định", { description: describeError(e) }),
-      },
-    );
+    review.mutate({ applicationId: application.id, decision, note: note.trim() });
   }
 
   return (

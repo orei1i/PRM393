@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/widgets/guest_gate.dart';
 import '../../data/scan_image_source.dart';
@@ -181,13 +182,16 @@ class _ScannerViewState extends ConsumerState<_ScannerView>
     }
   }
 
+  /// The bundled sample fridge has no image to send to a real scanner.
+  static bool get _hasSample => BackendModules.isMock(BackendModule.scanner);
+
   void _setIssue(_CameraIssue issue) {
     if (!mounted) return;
     setState(() {
       _issue = issue;
       // Fall back to the simulated fridge automatically when there is no camera.
       if (issue == _CameraIssue.unavailable && _feed == _Feed.camera) {
-        _feed = _Feed.sample;
+        _feed = _hasSample ? _Feed.sample : _Feed.none;
       }
     });
   }
@@ -298,7 +302,8 @@ class _ScannerViewState extends ConsumerState<_ScannerView>
     // Closed the picker from the live view: just stay there.
     if (!initial && problem == null) return;
 
-    final choice = await _NoPhotoSheet.show(context, problem: problem);
+    final choice = await _NoPhotoSheet.show(context,
+        problem: problem, hasSample: _hasSample);
     if (!mounted) return;
     switch (choice) {
       case _Fallback.sample:
@@ -347,7 +352,9 @@ class _ScannerViewState extends ConsumerState<_ScannerView>
             _Feed.photo => 'Ảnh từ thư viện',
             _Feed.none => _manualEntry
                 ? 'Nhập nguyên liệu bằng tay'
-                : 'Đang mở thư viện ảnh…',
+                : _issue == _CameraIssue.unavailable
+                    ? 'Máy này chưa có camera'
+                    : 'Đang mở thư viện ảnh…',
           },
       };
 
@@ -359,12 +366,13 @@ class _ScannerViewState extends ConsumerState<_ScannerView>
     if (_feed == _Feed.camera && _issue == _CameraIssue.permissionDenied) {
       return _PermissionDeniedView(
         onRetry: _initCamera,
-        onUseMock: () => setState(() => _feed = _Feed.sample),
+        onUseMock:
+            _hasSample ? () => setState(() => _feed = _Feed.sample) : null,
         onGallery: () => _pickPhoto(initial: true),
         onManual: () {
           _remember(ScanMode.manual);
           setState(() {
-            _feed = _Feed.sample;
+            _feed = _hasSample ? _Feed.sample : _Feed.none;
             _manualEntry = true;
           });
         },
@@ -768,16 +776,18 @@ class _ShutterRow extends StatelessWidget {
 /// No gallery photo: offer the bundled sample fridge (emulators usually have
 /// an empty gallery), the camera, or typing ingredients in.
 class _NoPhotoSheet extends StatelessWidget {
-  const _NoPhotoSheet({this.problem});
+  const _NoPhotoSheet({this.problem, required this.hasSample});
 
   final String? problem;
+  final bool hasSample;
 
-  static Future<_Fallback?> show(BuildContext context, {String? problem}) =>
+  static Future<_Fallback?> show(BuildContext context,
+          {String? problem, required bool hasSample}) =>
       showModalBottomSheet<_Fallback>(
         context: context,
         isScrollControlled: true,
         useSafeArea: true,
-        builder: (_) => _NoPhotoSheet(problem: problem),
+        builder: (_) => _NoPhotoSheet(problem: problem, hasSample: hasSample),
       );
 
   @override
@@ -794,19 +804,22 @@ class _NoPhotoSheet extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               problem ??
-                  'Máy ảo thường chưa có ảnh trong thư viện. Bạn có thể thử với ảnh tủ lạnh mẫu.',
+                  (hasSample
+                      ? 'Máy ảo thường chưa có ảnh trong thư viện. Bạn có thể thử với ảnh tủ lạnh mẫu.'
+                      : 'Bạn có thể chụp bằng camera hoặc nhập tay.'),
               style: context.textStyles.bodyMedium
                   ?.copyWith(color: context.vl.muted),
             ),
             const SizedBox(height: 8),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.kitchen_outlined),
-              title: const Text('Dùng ảnh tủ lạnh mẫu'),
-              subtitle: const Text(
-                  'Bông cải, đậu hũ, cà chua, trứng, sữa, cà rốt, rau'),
-              onTap: () => Navigator.of(context).pop(_Fallback.sample),
-            ),
+            if (hasSample)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.kitchen_outlined),
+                title: const Text('Dùng ảnh tủ lạnh mẫu'),
+                subtitle: const Text(
+                    'Bông cải, đậu hũ, cà chua, trứng, sữa, cà rốt, rau'),
+                onTap: () => Navigator.of(context).pop(_Fallback.sample),
+              ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.photo_camera_outlined),
@@ -943,7 +956,9 @@ class _PermissionDeniedView extends StatelessWidget {
   });
 
   final VoidCallback onRetry;
-  final VoidCallback onUseMock;
+
+  /// `null` hides "Dùng ảnh mô phỏng".
+  final VoidCallback? onUseMock;
   final VoidCallback onGallery;
   final VoidCallback onManual;
 
@@ -994,9 +1009,10 @@ class _PermissionDeniedView extends StatelessWidget {
                     OutlinedButton(
                         onPressed: onManual,
                         child: const Text('Nhập nguyên liệu bằng tay')),
-                    TextButton(
-                        onPressed: onUseMock,
-                        child: const Text('Dùng ảnh mô phỏng')),
+                    if (onUseMock case final useMock?)
+                      TextButton(
+                          onPressed: useMock,
+                          child: const Text('Dùng ảnh mô phỏng')),
                   ],
                 ),
               ),

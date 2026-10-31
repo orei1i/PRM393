@@ -2,7 +2,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/config/env.dart';
+import '../../../core/config/backend_modules.dart';
 import '../../../core/network/api_endpoints.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
@@ -68,6 +68,6 @@ class RemoteAdsApiService implements AdsApiService {
 }
 
 final adsApiProvider = Provider<AdsApiService>((ref) {
-  if (Env.useMockData) return MockAdsRepository();
+  if (BackendModules.isMock(BackendModule.ads)) return MockAdsRepository();
   return RemoteAdsApiService(ref.watch(dioProvider));
 });

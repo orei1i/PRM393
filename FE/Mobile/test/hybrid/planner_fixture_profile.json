@@ -1,0 +1,39 @@
+{
+ "success": true,
+ "message": null,
+ "data": {
+  "id": "6ae5966f96695f5c139fa9c0",
+  "userId": "6ae5966f96695f5c139fa9bf",
+  "heightCm": 172,
+  "weightKg": 66,
+  "bmi": 22.3,
+  "bmiCategory": "normal",
+  "goal": "lean_muscle",
+  "gender": "Female",
+  "birthYear": 1997,
+  "activityLevel": "light",
+  "mealPattern": [
+   "breakfast",
+   "lunch",
+   "snack_pm",
+   "dinner"
+  ],
+  "allergies": [
+   {
+    "allergenId": "peanut",
+    "name": "Đậu phộng (Lạc)"
+   },
+   {
+    "allergenId": null,
+    "name": "lá lốt"
+   }
+  ],
+  "dietaryRestrictions": [
+   "low_sodium"
+  ],
+  "bmr": 1429,
+  "tdee": 1964.9,
+  "targetCalories": 2060
+ },
+ "statusCode": 200
+}

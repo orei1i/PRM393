@@ -183,15 +183,22 @@ class VeganLifeLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        ExcludeSemantics(
-          child: badge ? VeganLifeBadge(size: size) : VeganLifeMark(size: size),
-        ),
-        SizedBox(width: gap),
-        Text('VeganLife', style: textStyle),
-      ],
+    // Shrinks rather than overflows in a tight app bar (large text, narrow
+    // phone); at its natural size otherwise.
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ExcludeSemantics(
+            child:
+                badge ? VeganLifeBadge(size: size) : VeganLifeMark(size: size),
+          ),
+          SizedBox(width: gap),
+          Text('VeganLife', style: textStyle),
+        ],
+      ),
     );
   }
 }

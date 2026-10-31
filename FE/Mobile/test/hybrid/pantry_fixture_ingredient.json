@@ -1,0 +1,26 @@
+{
+ "success": true,
+ "message": null,
+ "data": {
+  "id": "6ae595c796695f5c139fa95d",
+  "name": "Đậu hũ",
+  "category": "plant_protein",
+  "caloriesPer100g": 76,
+  "proteinG": 8.1,
+  "carbsG": 1.9,
+  "fatG": 4.8,
+  "fiberG": 0.3,
+  "allergens": [
+   "soy"
+  ],
+  "isVegan": true,
+  "aliases": [
+   "đậu phụ",
+   "tàu hũ",
+   "tofu"
+  ],
+  "goodFor": [],
+  "cautionFor": []
+ },
+ "statusCode": 200
+}

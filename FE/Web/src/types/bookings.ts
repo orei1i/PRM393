@@ -239,6 +239,19 @@ export type EvidenceKind = (typeof EVIDENCE_KINDS)[number];
 export const MEAL_SLOTS = ["breakfast", "snack_am", "lunch", "snack_pm", "dinner", "snack_late"] as const;
 export type MealSlot = (typeof MEAL_SLOTS)[number];
 
+const ALLERGEN_LABEL: Record<string, string> = {
+  peanut: "Đậu phộng",
+  tree_nut: "Hạt cây (điều, hạnh nhân…)",
+  soy: "Đậu nành",
+  gluten: "Gluten",
+  sesame: "Mè",
+  mustard: "Mù tạt",
+  celery: "Cần tây",
+};
+
+/** Catalog allergen code → display name. Free text and unknown codes stay as they are. */
+export const allergenLabel = (code: string) => ALLERGEN_LABEL[code] ?? code;
+
 export const MEAL_SLOT_LABEL: Record<MealSlot, string> = {
   breakfast: "Bữa sáng",
   snack_am: "Phụ sáng",

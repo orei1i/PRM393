@@ -1,0 +1,42 @@
+{
+ "success": true,
+ "message": null,
+ "data": [
+  {
+   "allergenId": "peanut",
+   "name": "Đậu phộng (Lạc)",
+   "description": "Dị ứng liên quan đến peanut"
+  },
+  {
+   "allergenId": "tree_nut",
+   "name": "Hạt cây (Hạt điều, óc chó, hạnh nhân...)",
+   "description": "Dị ứng liên quan đến tree_nut"
+  },
+  {
+   "allergenId": "soy",
+   "name": "Đậu nành (Đậu tương)",
+   "description": "Dị ứng liên quan đến soy"
+  },
+  {
+   "allergenId": "gluten",
+   "name": "Gluten (Lúa mì, yến mạch không nhãn gluten-free)",
+   "description": "Dị ứng liên quan đến gluten"
+  },
+  {
+   "allergenId": "sesame",
+   "name": "Mè (Vừng)",
+   "description": "Dị ứng liên quan đến sesame"
+  },
+  {
+   "allergenId": "mustard",
+   "name": "Mù tạt",
+   "description": "Dị ứng liên quan đến mustard"
+  },
+  {
+   "allergenId": "celery",
+   "name": "Cần tây",
+   "description": "Dị ứng liên quan đến celery"
+  }
+ ],
+ "statusCode": 200
+}

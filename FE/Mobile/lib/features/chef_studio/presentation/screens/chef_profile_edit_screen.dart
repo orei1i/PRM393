@@ -196,7 +196,11 @@ class _FormState extends ConsumerState<_Form> {
             _PriceField(controller: _price, label: 'Giá mỗi ngày'),
             const SizedBox(height: 12),
             _PriceField(
-                controller: _feedbackPrice, label: 'Giá có phản hồi mỗi ngày'),
+              controller: _feedbackPrice,
+              label: 'Giá có phản hồi mỗi ngày',
+              validator: (v) => ChefProfileRules.feedbackDayPrice(
+                  int.tryParse(v ?? ''), _int(_price)),
+            ),
             const SizedBox(height: 12),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -259,10 +263,14 @@ class _FormState extends ConsumerState<_Form> {
 }
 
 class _PriceField extends StatelessWidget {
-  const _PriceField({required this.controller, required this.label});
+  const _PriceField(
+      {required this.controller, required this.label, this.validator});
 
   final TextEditingController controller;
   final String label;
+
+  /// Instead of the plain price range check.
+  final FormFieldValidator<String>? validator;
 
   @override
   Widget build(BuildContext context) {
@@ -277,7 +285,8 @@ class _PriceField extends StatelessWidget {
             'Từ ${formatVnd(ChefProfileRules.minDayPrice)} đến ${formatVnd(ChefProfileRules.maxDayPrice)}',
         border: const OutlineInputBorder(),
       ),
-      validator: (v) => ChefProfileRules.dayPrice(int.tryParse(v ?? '')),
+      validator:
+          validator ?? (v) => ChefProfileRules.dayPrice(int.tryParse(v ?? '')),
     );
   }
 }

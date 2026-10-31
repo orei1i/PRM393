@@ -5,11 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../core/config/env.dart';
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/navigation/app_nav.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
+import '../../../../core/widgets/demo_data_banner.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/vl_card.dart';
 import '../../../booking/domain/booking_rules.dart';
@@ -32,12 +33,17 @@ class PaymentScreen extends ConsumerStatefulWidget {
     required this.orderId,
     bool? showMockControls,
     this.autoRenew = false,
-  }) : showMockControls = showMockControls ?? Env.useMockData;
+  }) : _showMockControls = showMockControls;
 
   final String orderId;
 
-  /// "Mô phỏng đã thanh toán" / "Mô phỏng thất bại": mock builds only.
-  final bool showMockControls;
+  final bool? _showMockControls;
+
+  /// "Mô phỏng đã thanh toán" / "Mô phỏng thất bại": only while the commerce
+  /// module is mock, hybrid builds included (a booking could not be paid
+  /// otherwise).
+  bool get showMockControls =>
+      _showMockControls ?? BackendModules.isMock(BackendModule.commerce);
 
   /// "Thanh toán tiếp": an expired or failed QR is replaced right away.
   final bool autoRenew;
@@ -220,25 +226,26 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       },
       child: Scaffold(
         appBar: AppBar(title: const Text('Thanh toán')),
-        body: order == null
-            ? Center(
-                child: _error == null
-                    ? const CircularProgressIndicator()
-                    : ErrorStateView(error: _error!, onRetry: _retry),
-              )
-            : SafeArea(
-                top: false,
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 480),
-                      child: _content(order),
+        body: DemoDataBanner.wrap(BackendModule.commerce,
+            child: order == null
+                ? Center(
+                    child: _error == null
+                        ? const CircularProgressIndicator()
+                        : ErrorStateView(error: _error!, onRetry: _retry),
+                  )
+                : SafeArea(
+                    top: false,
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 480),
+                          child: _content(order),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              ),
+                  )),
       ),
     );
   }

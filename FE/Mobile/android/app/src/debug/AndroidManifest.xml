@@ -4,4 +4,8 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- The dev BE is plain http. Dart's HttpClient ignores Android's cleartext
+         policy but the video player (ExoPlayer) honours it. Debug builds only.
+    -->
+    <application android:usesCleartextTraffic="true"/>
 </manifest>

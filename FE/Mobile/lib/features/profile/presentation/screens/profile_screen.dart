@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/navigation/app_nav.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/session/session_controller.dart';
@@ -25,6 +26,7 @@ import '../../../commerce/presentation/widgets/commerce_ui.dart';
 import '../../../meal_planner/presentation/screens/body_metrics_screen.dart';
 import '../../../meal_planner/presentation/screens/health_profile_edit_screen.dart';
 import '../../../meal_planner/presentation/widgets/health_header_card.dart';
+import '../../data/profile_api_service.dart';
 import '../../domain/entities/user_profile.dart';
 import '../controllers/profile_controller.dart';
 import 'chef_application_screen.dart';
@@ -75,13 +77,54 @@ class _ProfileBody extends ConsumerWidget {
           },
           child: _Loaded(profile: value),
         ),
+      // The account stays reachable when the profile can't load (offline).
       AsyncError(:final error) => Center(
-          child: ErrorStateView(
-              error: error,
-              onRetry: () => ref.invalidate(profileControllerProvider)),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ErrorStateView(
+                    error: error,
+                    onRetry: () => ref.invalidate(profileControllerProvider)),
+                TextButton.icon(
+                  onPressed: () => _confirmSignOut(context, ref),
+                  icon: const Icon(Icons.logout_rounded),
+                  label: const Text('Đăng xuất'),
+                ),
+              ],
+            ),
+          ),
         ),
       _ => const _ProfileSkeleton(),
     };
+  }
+}
+
+Future<void> _confirmSignOut(BuildContext context, WidgetRef ref) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Đăng xuất?'),
+      content:
+          const Text('Bạn vẫn xem được bảng tin và công thức ở chế độ khách.'),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Ở lại')),
+        FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Đăng xuất')),
+      ],
+    ),
+  );
+  if (ok != true) return;
+  try {
+    await ref.read(sessionControllerProvider.notifier).signOut();
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(describeError(e))));
+    }
   }
 }
 
@@ -89,34 +132,6 @@ class _Loaded extends ConsumerWidget {
   const _Loaded({required this.profile});
 
   final UserProfile profile;
-
-  Future<void> _signOut(BuildContext context, WidgetRef ref) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Đăng xuất?'),
-        content: const Text(
-            'Bạn vẫn xem được bảng tin và công thức ở chế độ khách.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Ở lại')),
-          FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Đăng xuất')),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    try {
-      await ref.read(sessionControllerProvider.notifier).signOut();
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(describeError(e))));
-      }
-    }
-  }
 
   void _pickTheme(BuildContext context, WidgetRef ref) {
     showModalBottomSheet<void>(
@@ -226,7 +241,7 @@ class _Loaded extends ConsumerWidget {
               icon: Icons.logout_rounded,
               title: 'Đăng xuất',
               destructive: true,
-              onTap: () => _signOut(context, ref),
+              onTap: () => _confirmSignOut(context, ref),
             ),
           ],
         ),
@@ -457,7 +472,9 @@ class _ChefApplicationCard extends StatelessWidget {
           vl.cautionContainer,
           vl.onCautionContainer,
           'Hồ sơ chuyên gia đang chờ duyệt',
-          'Ban quản trị sẽ phản hồi trong 1–3 ngày làm việc.',
+          BackendModules.isReal(BackendModule.profile)
+              ? chefApplicationLocalNote
+              : 'Ban quản trị sẽ phản hồi trong 1–3 ngày làm việc.',
           null,
         ),
       ChefApplicationStatus.approved => (

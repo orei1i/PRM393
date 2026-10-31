@@ -1,0 +1,170 @@
+{
+ "success": true,
+ "message": null,
+ "data": {
+  "items": [
+   {
+    "id": "6ae5a8876c01fc07a925777f",
+    "type": "recipe",
+    "author": {
+     "id": "6ae5a8876c01fc07a9257776",
+     "fullName": "FE M1",
+     "isVerifiedChef": false
+    },
+    "title": "Bài thử phân trang số 3",
+    "body": "Nội dung dùng để thử phân trang bảng tin.",
+    "tags": [],
+    "coverSeed": "6ae5a8876c01fc07a925777f",
+    "likeCount": 0,
+    "commentCount": 0,
+    "likedByMe": false,
+    "savedByMe": false,
+    "isPinned": false,
+    "createdAt": "2026-10-31T08:36:23.449Z",
+    "status": "Published",
+    "mediaType": "Text",
+    "mediaUrl": null,
+    "video": null,
+    "restaurant": null,
+    "updatedAt": "2026-10-31T08:36:23.449Z"
+   },
+   {
+    "id": "6ae5a8876c01fc07a925777e",
+    "type": "recipe",
+    "author": {
+     "id": "6ae5a8876c01fc07a9257776",
+     "fullName": "FE M1",
+     "isVerifiedChef": false
+    },
+    "title": "Bài thử phân trang số 2",
+    "body": "Nội dung dùng để thử phân trang bảng tin.",
+    "tags": [],
+    "coverSeed": "6ae5a8876c01fc07a925777e",
+    "likeCount": 0,
+    "commentCount": 0,
+    "likedByMe": false,
+    "savedByMe": false,
+    "isPinned": false,
+    "createdAt": "2026-10-31T08:36:23.446Z",
+    "status": "Published",
+    "mediaType": "Text",
+    "mediaUrl": null,
+    "video": null,
+    "restaurant": null,
+    "updatedAt": "2026-10-31T08:36:23.446Z"
+   },
+   {
+    "id": "6ae5a8876c01fc07a925777d",
+    "type": "recipe",
+    "author": {
+     "id": "6ae5a8876c01fc07a9257776",
+     "fullName": "FE M1",
+     "isVerifiedChef": false
+    },
+    "title": "Bài thử phân trang số 1",
+    "body": "Nội dung dùng để thử phân trang bảng tin.",
+    "tags": [],
+    "coverSeed": "6ae5a8876c01fc07a925777d",
+    "likeCount": 0,
+    "commentCount": 0,
+    "likedByMe": false,
+    "savedByMe": false,
+    "isPinned": false,
+    "createdAt": "2026-10-31T08:36:23.443Z",
+    "status": "Published",
+    "mediaType": "Text",
+    "mediaUrl": null,
+    "video": null,
+    "restaurant": null,
+    "updatedAt": "2026-10-31T08:36:23.443Z"
+   },
+   {
+    "id": "6ae5a8876c01fc07a925777c",
+    "type": "discussion",
+    "author": {
+     "id": "6ae5a8876c01fc07a9257777",
+     "fullName": "FE M1 Hai",
+     "isVerifiedChef": false
+    },
+    "title": "Mới ăn chay nên bổ sung B12 thế nào?",
+    "body": "Mọi người bổ sung B12 từ đâu, có cần uống viên không?",
+    "tags": [],
+    "coverSeed": "6ae5a8876c01fc07a925777c",
+    "likeCount": 0,
+    "commentCount": 0,
+    "likedByMe": false,
+    "savedByMe": false,
+    "isPinned": false,
+    "createdAt": "2026-10-31T08:36:23.44Z",
+    "status": "Published",
+    "mediaType": "Text",
+    "mediaUrl": null,
+    "video": null,
+    "restaurant": null,
+    "updatedAt": "2026-10-31T08:36:23.44Z"
+   },
+   {
+    "id": "6ae5a8876c01fc07a925777b",
+    "type": "recipe",
+    "author": {
+     "id": "6ae5a8876c01fc07a9257776",
+     "fullName": "FE M1",
+     "isVerifiedChef": false
+    },
+    "title": "Bánh xèo chay giòn rụm",
+    "body": "Xem video để biết cách đổ bánh.",
+    "tags": [],
+    "coverSeed": "6ae5a8876c01fc07a925777b",
+    "likeCount": 0,
+    "commentCount": 0,
+    "likedByMe": false,
+    "savedByMe": false,
+    "isPinned": false,
+    "createdAt": "2026-10-31T08:36:23.431Z",
+    "status": "Published",
+    "mediaType": "Video",
+    "mediaUrl": "/uploads/videos/347a57688ff142538c6ce2546b6220a1.mp4",
+    "video": {
+     "id": "6ae5a8876c01fc07a925777b",
+     "durationSeconds": 0,
+     "aiStatus": "ready"
+    },
+    "restaurant": null,
+    "updatedAt": "2026-10-31T08:36:23.431Z"
+   },
+   {
+    "id": "6ae5a8876c01fc07a925777a",
+    "type": "recipe",
+    "author": {
+     "id": "6ae5a8876c01fc07a9257776",
+     "fullName": "FE M1",
+     "isVerifiedChef": false
+    },
+    "title": "Đậu hũ sốt cà tại nhà",
+    "body": "Nguyên liệu đơn giản, nấu trong 15 phút là xong.",
+    "tags": [
+     "quick"
+    ],
+    "coverSeed": "6ae5a8876c01fc07a925777a",
+    "likeCount": 0,
+    "commentCount": 0,
+    "likedByMe": false,
+    "savedByMe": false,
+    "isPinned": false,
+    "createdAt": "2026-10-31T08:36:23.403Z",
+    "status": "Published",
+    "mediaType": "Image",
+    "mediaUrl": "/uploads/images/f3cded949a7e4f49a9767329d615763e.png",
+    "video": null,
+    "restaurant": null,
+    "updatedAt": "2026-10-31T08:36:23.403Z"
+   }
+  ],
+  "nextCursor": "6ae5a8876c01fc07a925777a",
+  "page": 2,
+  "pageSize": 6,
+  "totalItems": 18,
+  "totalPages": 3
+ },
+ "statusCode": 200
+}

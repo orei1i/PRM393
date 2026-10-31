@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/navigation/app_nav.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/session/session_controller.dart';
@@ -10,6 +11,7 @@ import '../../../../core/theme/app_typography.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/labels.dart';
+import '../../../../core/widgets/demo_data_banner.dart';
 import '../../../../core/widgets/food_cover.dart';
 import '../../../../core/widgets/shimmer.dart';
 import '../../../../core/widgets/sign_in_sheet.dart';
@@ -51,7 +53,19 @@ import '../widgets/substitute_sheet.dart';
 ///
 /// Opened from a meal card ([contextDate] / [contextSlot]), the swap sheet,
 /// a scanner suggestion, an ingredient and search results.
+///
+/// A recipe from the real BE ([RecipeDetail.isReadOnly]) has no quantities, so
+/// its page only reads: no scaling, swaps, rating or note. A mock recipe in a
+/// hybrid build keeps everything, under the "Dữ liệu mẫu" banner.
 class RecipeDetailScreen extends ConsumerWidget {
+  /// Under "Nguyên liệu" of a recipe from the real BE.
+  static const readOnlyNote =
+      'Công thức này chưa có định lượng chi tiết nên chưa chỉnh được số người '
+      'hay đổi nguyên liệu.';
+
+  /// Instead of the ingredients when only the meal plan knows the dish.
+  static const snapshotNote = 'Món này chưa có chi tiết công thức.';
+
   const RecipeDetailScreen({
     super.key,
     required this.recipeId,
@@ -94,10 +108,13 @@ class RecipeDetailScreen extends ConsumerWidget {
         title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
       body: recipe != null
-          ? _RecipeBody(
-              recipe: recipe,
-              contextDate: contextDate,
-              contextSlot: contextSlot,
+          ? _withDemoBanner(
+              recipe,
+              _RecipeBody(
+                recipe: recipe,
+                contextDate: contextDate,
+                contextSlot: contextSlot,
+              ),
             )
           : error != null
               ? Center(
@@ -121,6 +138,10 @@ class RecipeDetailScreen extends ConsumerWidget {
     );
   }
 }
+
+Widget _withDemoBanner(RecipeDetail recipe, Widget body) => recipe.isReadOnly
+    ? body
+    : DemoDataBanner.wrap(BackendModule.recipeSocial, child: body);
 
 class _RecipeBody extends ConsumerWidget {
   const _RecipeBody({required this.recipe, this.contextDate, this.contextSlot});
@@ -167,7 +188,7 @@ class _RecipeBody extends ConsumerWidget {
         const SizedBox(height: 4),
         _VariantOrigin(recipe: recipe),
       ],
-      if (recipe.isPublic) _RatingLine(recipe: recipe),
+      if (recipe.isPublic && !recipe.isReadOnly) _RatingLine(recipe: recipe),
       const SizedBox(height: 10),
       Wrap(
         spacing: 6,
@@ -272,7 +293,7 @@ class _RecipeBody extends ConsumerWidget {
 
     // Reviews only on public catalogue recipes; member / chef recipes and
     // variants are private.
-    final reviews = recipe.isPublic;
+    final reviews = recipe.isPublic && !recipe.isReadOnly;
     return DefaultTabController(
       length: reviews ? 3 : 2,
       child: NestedScrollView(
@@ -617,18 +638,26 @@ class _IngredientsTabState extends ConsumerState<_IngredientsTab> {
       padding: EdgeInsets.fromLTRB(
           16, 12, 16, 24 + MediaQuery.paddingOf(context).bottom),
       children: [
-        ServingsStepper(
-          servings: custom.servings,
-          baseServings: custom.baseServings,
-          onChanged: (n) =>
-              controller.setServings(n, base: custom.baseServings),
-        ),
-        const SizedBox(height: 8),
-        Text('cho ${custom.servings} phần',
-            style: context.textStyles.bodyMedium?.copyWith(color: vl.muted)),
-        if (recipe.servings == null)
-          Text('Công thức chưa ghi số phần — tính theo 1 phần',
-              style: context.textStyles.bodySmall?.copyWith(color: vl.muted)),
+        if (recipe.isReadOnly)
+          Text(
+              recipe.isSnapshot
+                  ? RecipeDetailScreen.snapshotNote
+                  : RecipeDetailScreen.readOnlyNote,
+              style: context.textStyles.bodyMedium?.copyWith(color: vl.muted))
+        else ...[
+          ServingsStepper(
+            servings: custom.servings,
+            baseServings: custom.baseServings,
+            onChanged: (n) =>
+                controller.setServings(n, base: custom.baseServings),
+          ),
+          const SizedBox(height: 8),
+          Text('cho ${custom.servings} phần',
+              style: context.textStyles.bodyMedium?.copyWith(color: vl.muted)),
+          if (recipe.servings == null)
+            Text('Công thức chưa ghi số phần — tính theo 1 phần',
+                style: context.textStyles.bodySmall?.copyWith(color: vl.muted)),
+        ],
         if (custom.isModified)
           Row(
             children: [
@@ -645,7 +674,9 @@ class _IngredientsTabState extends ConsumerState<_IngredientsTab> {
             ],
           ),
         const SizedBox(height: 8),
-        if (recipe.ingredients.isEmpty)
+        if (recipe.isSnapshot)
+          const SizedBox.shrink()
+        else if (recipe.ingredients.isEmpty)
           Text('Chưa có danh sách nguyên liệu.',
               style: context.textStyles.bodyMedium?.copyWith(color: vl.muted))
         else
@@ -663,14 +694,15 @@ class _IngredientsTabState extends ConsumerState<_IngredientsTab> {
         const SizedBox(height: 16),
         RecipeEnergyCard(custom: custom, contextSlot: widget.contextSlot),
         const SizedBox(height: 16),
-        OutlinedButton.icon(
-          onPressed: _copyShoppingList,
-          style:
-              OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(44)),
-          icon: const Icon(Icons.content_copy_rounded),
-          label: const Text('Sao chép danh sách đi chợ'),
-        ),
-        if (recipe.isCustomizable) ...[
+        if (!recipe.isSnapshot)
+          OutlinedButton.icon(
+            onPressed: _copyShoppingList,
+            style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(44)),
+            icon: const Icon(Icons.content_copy_rounded),
+            label: const Text('Sao chép danh sách đi chợ'),
+          ),
+        if (recipe.isCustomizable && !recipe.isReadOnly) ...[
           const SizedBox(height: 8),
           OutlinedButton.icon(
             onPressed: custom.isModified ? _save : null,
@@ -735,8 +767,10 @@ class _StepsTab extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(
           16, 14, 16, 24 + MediaQuery.paddingOf(context).bottom),
       children: [
-        RecipeNoteCard(recipeId: recipe.id),
-        const SizedBox(height: 16),
+        if (!recipe.isReadOnly) ...[
+          RecipeNoteCard(recipeId: recipe.id),
+          const SizedBox(height: 16),
+        ],
         if (steps.isEmpty)
           Text('Chưa có hướng dẫn chi tiết.',
               style: context.textStyles.bodyMedium?.copyWith(color: vl.muted))

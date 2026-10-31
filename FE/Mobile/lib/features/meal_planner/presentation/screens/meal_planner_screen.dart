@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/navigation/app_nav.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
@@ -125,7 +126,7 @@ class _Loaded extends ConsumerWidget {
                   _PlanAction.adjust => _adjust(context),
                 },
                 itemBuilder: (_) => [
-                  if (plan != null)
+                  if (plan != null && BackendModules.planAdjust)
                     const PopupMenuItem(
                       value: _PlanAction.adjust,
                       child: ListTile(
@@ -150,14 +151,15 @@ class _Loaded extends ConsumerWidget {
                       title: Text('Tạo thực đơn từ tủ lạnh'),
                     ),
                   ),
-                  const PopupMenuItem(
-                    value: _PlanAction.manual,
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.edit_calendar_outlined),
-                      title: Text('Tự lên thực đơn'),
+                  if (plan == null || BackendModules.planClear)
+                    const PopupMenuItem(
+                      value: _PlanAction.manual,
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.edit_calendar_outlined),
+                        title: Text('Tự lên thực đơn'),
+                      ),
                     ),
-                  ),
                 ],
               ),
               const AccountButton(),
@@ -213,8 +215,10 @@ class _Loaded extends ConsumerWidget {
                     userAllergies: allergies,
                     onSelected: controller.selectDate,
                   ),
-                  const SizedBox(height: 10),
-                  _AdjustWithAiPill(onTap: () => _adjust(context)),
+                  if (BackendModules.planAdjust) ...[
+                    const SizedBox(height: 10),
+                    _AdjustWithAiPill(onTap: () => _adjust(context)),
+                  ],
                   const SizedBox(height: 12),
                   DailyMacroCard(
                     date: day.date,
@@ -226,10 +230,15 @@ class _Loaded extends ConsumerWidget {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  AllergyGuardBanner(
+                  if (AllergyGuardBanner.shownFor(day, allergies)) ...[
+                    AllergyGuardBanner(
                       allergies: allergies,
-                      conflictCount: day.conflictCount(allergies)),
-                  const SizedBox(height: 12),
+                      conflictCount: day.conflictCount(allergies),
+                      allAi: day.meals.values
+                          .every((r) => r.source == MealSource.ai),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   for (final slot in state.slotsFor(day))
                     Padding(
                       padding: const EdgeInsets.only(bottom: 12),

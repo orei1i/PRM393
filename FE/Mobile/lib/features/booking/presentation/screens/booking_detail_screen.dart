@@ -3,17 +3,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../app.dart' show AskAiBubbleFree;
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/navigation/app_nav.dart';
 import '../../../../core/network/api_exception.dart';
+import '../../../../core/session/mock_persona.dart';
 import '../../../../core/session/session_controller.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
+import '../../../../core/widgets/demo_data_banner.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/user_avatar.dart';
 import '../../../../core/widgets/vl_card.dart';
 import '../../../chef_studio/data/chef_studio_api_service.dart';
 import '../../../commerce/presentation/screens/payment_screen.dart';
 import '../../../meal_planner/data/models/meal_plan_model.dart';
+import '../../../meal_planner/domain/entities/meal_plan.dart';
 import '../../../meal_planner/presentation/controllers/meal_plan_controller.dart';
 import '../../data/booking_api_service.dart';
 import '../../data/models/booking_models.dart';
@@ -179,7 +183,8 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
         content: Text(
           '${offer.planDays} ngày · ${offer.bookingType.label} · bắt đầu '
           '${formatDayMonth(offer.startDate)}.\nHồ sơ hợp đồng sẽ được tạo; '
-          'thành viên có 48 giờ để thanh toán, tiền được VeganLife giữ đến '
+          'thành viên có 48 giờ để thanh toán (chậm nhất trước ngày bắt đầu), '
+          'tiền được VeganLife giữ đến '
           '3 ngày sau khi kế hoạch kết thúc.',
         ),
         actions: [
@@ -229,9 +234,47 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
         done: 'Đã gửi phản hồi. Chuyên gia sẽ chỉnh ngày tiếp theo.');
   }
 
+  /// How many of [requests] would replace another dish in the current week.
+  /// 0 when the planner can't load: applying then fails with its own message.
+  Future<int> _mealsOverwrittenBy(List<AddMealRequestDto> requests) async {
+    final MealPlan? plan;
+    try {
+      plan = (await ref.read(mealPlanControllerProvider.future)).plan;
+    } catch (_) {
+      return 0;
+    }
+    return requests.where((r) {
+      final held = plan?.dayFor(r.date)?.meals[r.slot];
+      return held != null && held.name != r.name;
+    }).length;
+  }
+
+  /// The week may hold meals the member chose: says how many go before they do.
+  Future<bool> _confirmOverwrite(int overwritten, int total) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Thay $overwritten món đang có?'),
+        content: Text('Kế hoạch có $total món. $overwritten bữa trong Thực đơn '
+            'tuần này đang có món khác và sẽ được thay thế; thao tác này không '
+            'hoàn tác được.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Huỷ')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Thay và áp dụng')),
+        ],
+      ),
+    );
+    return ok ?? false;
+  }
+
   /// "Áp dụng kế hoạch vào Thực đơn": every sent meal into its date and
-  /// slot of the current week (the planner skips days outside it), then
-  /// "Xem Thực đơn" in the snackbar.
+  /// slot of the current week (the planner skips days outside it), after a
+  /// confirmation if that replaces other dishes, then "Xem Thực đơn" in the
+  /// snackbar.
   Future<void> _applyToPlanner(BookingDto b, List<PlanDayDto> days) async {
     final requests = [
       for (final d in days)
@@ -249,9 +292,21 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
               source: 'chef',
               sourceId: m.recipe.id.isEmpty ? null : m.recipe.id,
               sourceName: b.chef.fullName,
+              instructions: m.recipe.instructions,
             ),
     ];
     if (requests.isEmpty) return;
+    var overwritten = 0;
+    if (!await _run(() async {
+      overwritten = await _mealsOverwrittenBy(requests);
+    })) {
+      return;
+    }
+    if (!mounted) return;
+    if (overwritten > 0 &&
+        (!await _confirmOverwrite(overwritten, requests.length) || !mounted)) {
+      return;
+    }
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     final tabs = ref.read(shellTabProvider.notifier);
@@ -296,7 +351,7 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(bookingProvider(widget.bookingId));
-    final me = ref.watch(sessionControllerProvider.select((s) => s.userId));
+    final me = ref.watch(sessionControllerProvider.select(mockPersonaId));
     final booking = async.valueOrNull;
     final party = booking?.partyOf(me);
     return AskAiBubbleFree(
@@ -320,26 +375,29 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
                     ],
                   ),
           ),
-          body: switch (async) {
-            AsyncValue(:final value?) when party != null => _body(value, party),
-            AsyncValue(:final value?) when party == null => Center(
-                child: EmptyStateView(
-                  icon: Icons.lock_outline_rounded,
-                  title: 'Không xem được yêu cầu này',
-                  message:
-                      'Yêu cầu thuộc về ${value.member.fullName} và ${value.chef.fullName}.',
-                ),
-              ),
-            AsyncError(:final error) => Center(
-                child: SingleChildScrollView(
-                  child: ErrorStateView(
-                      error: error,
-                      onRetry: () =>
-                          ref.invalidate(bookingProvider(widget.bookingId))),
-                ),
-              ),
-            _ => const Center(child: CircularProgressIndicator()),
-          },
+          body: DemoDataBanner.wrap(BackendModule.bookings,
+              child: switch (async) {
+                AsyncValue(valueOrNull: final value?) when party != null =>
+                  _body(value, party),
+                AsyncValue(valueOrNull: final value?) when party == null =>
+                  Center(
+                    child: EmptyStateView(
+                      icon: Icons.lock_outline_rounded,
+                      title: 'Không xem được yêu cầu này',
+                      message:
+                          'Yêu cầu thuộc về ${value.member.fullName} và ${value.chef.fullName}.',
+                    ),
+                  ),
+                AsyncError(:final error) => Center(
+                    child: SingleChildScrollView(
+                      child: ErrorStateView(
+                          error: error,
+                          onRetry: () => ref
+                              .invalidate(bookingProvider(widget.bookingId))),
+                    ),
+                  ),
+                _ => const Center(child: CircularProgressIndicator()),
+              }),
         ),
       ),
     );
@@ -482,7 +540,7 @@ class _Header extends StatelessWidget {
       BookingStatus.declined =>
         'Chuyên gia từ chối: ${b.declineReason ?? ''}'.trim(),
       BookingStatus.cancelled => 'Đã huỷ: ${b.cancelReason ?? ''}'.trim(),
-      BookingStatus.expired => 'Quá hạn thanh toán 48 giờ.',
+      BookingStatus.expired => 'Quá hạn thanh toán.',
       BookingStatus.completed || BookingStatus.resolved => null,
     };
   }

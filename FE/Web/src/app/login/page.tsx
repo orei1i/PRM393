@@ -9,9 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/form-controls";
 import { authApi } from "@/lib/admin_api";
-import { USE_MOCK_DATA } from "@/lib/api_client";
 import { describeError } from "@/lib/api_error";
 import { safeNextPath, writeSession } from "@/lib/auth";
+import { isMock } from "@/lib/backend_modules";
 
 export default function LoginPage() {
   return (
@@ -128,7 +128,7 @@ function LoginScreen() {
             </form>
           </Card>
 
-          {USE_MOCK_DATA && (
+          {isMock("auth") && (
             <p className="rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
               Dữ liệu mô phỏng: <span className="font-mono">admin@veganlife.vn</span> /{" "}
               <span className="font-mono">admin123</span>. Thử <span className="font-mono">minhanh.nguyen@gmail.com</span> để xem

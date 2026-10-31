@@ -2,13 +2,15 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/config/env.dart';
+import '../../../core/config/backend_modules.dart';
 import '../../../core/network/api_endpoints.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/utils/backend_ids.dart';
 import '../../../core/utils/mock_delay.dart';
 import '../../../core/utils/text_search.dart';
 import '../../recipe/data/mock/recipe_mock_data.dart';
+import '../../recipe/data/recipe_catalog.dart';
 import '../domain/entities/ingredient.dart';
 import 'mock/ingredient_nutrition_data.dart';
 import 'models/ingredient_model.dart';
@@ -24,9 +26,11 @@ abstract interface class IngredientApiService {
 }
 
 class RemoteIngredientApiService implements IngredientApiService {
-  RemoteIngredientApiService(this._dio);
+  RemoteIngredientApiService(this._dio, {RecipeCatalog Function()? catalog})
+      : _catalog = catalog;
 
   final Dio _dio;
+  final RecipeCatalog Function()? _catalog;
 
   @override
   Future<List<IngredientSummaryDto>> search(String query) => guardApi(() async {
@@ -42,12 +46,36 @@ class RemoteIngredientApiService implements IngredientApiService {
             .toList();
       });
 
+  /// A mock recipe's row (`ing_bun`) stays with the mock; the BE has no such
+  /// id. The BE lists no recipes, so they come from the catalogue, when it can
+  /// be read (a guest can't).
   @override
-  Future<IngredientDetailDto> detail(String id) => guardApi(() async {
-        final res =
-            await _dio.get<Map<String, dynamic>>(ApiEndpoints.ingredient(id));
-        return IngredientDetailDto.fromJson(res.data!);
+  Future<IngredientDetailDto> detail(String id) async {
+    if (!isBackendId(id)) return MockIngredientRepository().detail(id);
+    return guardApi(() async {
+      final res =
+          await _dio.get<Map<String, dynamic>>(ApiEndpoints.ingredient(id));
+      final json = res.data!;
+      return IngredientDetailDto.fromJson({
+        ...json,
+        if (json['recipes'] == null)
+          'recipes': await _recipesUsing(json['name'] as String? ?? ''),
       });
+    });
+  }
+
+  Future<List<Map<String, Object?>>> _recipesUsing(String name) async {
+    final catalog = _catalog;
+    if (catalog == null || name.isEmpty) return const [];
+    try {
+      return [
+        for (final r in await catalog().usingIngredient(name))
+          {'id': r.id, 'name': r.name, 'calories': r.caloriesCache},
+      ];
+    } on ApiException {
+      return const [];
+    }
+  }
 }
 
 /// [mockIngredientRows] plus the catalogue recipes that use each ingredient.
@@ -136,8 +164,11 @@ class MockIngredientRepository implements IngredientApiService {
 }
 
 final ingredientApiProvider = Provider<IngredientApiService>((ref) {
-  if (Env.useMockData) return MockIngredientRepository();
-  return RemoteIngredientApiService(ref.watch(dioProvider));
+  if (BackendModules.isMock(BackendModule.ingredients)) {
+    return MockIngredientRepository();
+  }
+  return RemoteIngredientApiService(ref.watch(dioProvider),
+      catalog: () => ref.read(recipeCatalogProvider));
 });
 
 /// The whole (vegan) nutrition DB, to match free-text names (fridge items,

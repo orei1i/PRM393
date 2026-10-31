@@ -2,13 +2,17 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/config/env.dart';
+import '../../../core/config/backend_modules.dart';
 import '../../../core/network/api_endpoints.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/session/mock_persona.dart';
 import '../../../core/session/session_controller.dart';
 import '../../../core/utils/formatters.dart';
+import '../../recipe/data/recipe_catalog.dart';
+import '../domain/entities/health_profile.dart';
 import '../domain/entities/meal_plan.dart';
+import 'mock/mock_recipe_book.dart';
 import 'mock_meal_planner_repository.dart';
 import 'models/body_measurement_model.dart';
 import 'models/health_profile_model.dart';
@@ -100,10 +104,39 @@ abstract interface class MealPlannerApiService {
   });
 }
 
+/// The real BE, with the app working around what it lacks: see the plan's §7.
 class RemoteMealPlannerApiService implements MealPlannerApiService {
-  RemoteMealPlannerApiService(this._dio);
+  RemoteMealPlannerApiService(
+    this._dio, {
+    this.userId,
+    this.personaId,
+    DateTime Function() clock = DateTime.now,
+    PlanItemSnapshots? snapshots,
+    RecipeCatalog Function()? catalog,
+  })  : _clock = clock,
+        _snapshots = snapshots ?? PlanItemSnapshots(),
+        _catalog = catalog;
 
   final Dio _dio;
+
+  /// The signed-in member: the BE doesn't return `createdBy` on their recipes.
+  final String? userId;
+
+  /// Who the member is in the mock stores still used in a hybrid build.
+  final String? personaId;
+  final DateTime Function() _clock;
+  final PlanItemSnapshots _snapshots;
+  final RecipeCatalog Function()? _catalog;
+
+  MealPlanDto _plan(Map<String, dynamic> json) {
+    _snapshots.registerPlan(json);
+    return MealPlanDto.fromJson(json);
+  }
+
+  MealPlanDayDto _day(Map<String, dynamic> json) {
+    _snapshots.registerDay(json);
+    return MealPlanDayDto.fromJson(json);
+  }
 
   List<T> _list<T>(Object? data, T Function(Map<String, dynamic> json) parse) =>
       data is List<Object?>
@@ -126,9 +159,17 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
   Future<HealthProfileDto> updateHealthProfile(
           UpdateHealthProfileRequestDto request) =>
       guardApi(() async {
+        // A PUT resets what it doesn't get, so missing fields keep their
+        // saved value. `null` for a first profile.
+        final saved = request.gender == null ||
+                request.birthYear == null ||
+                request.activityLevel == null ||
+                request.mealPattern == null
+            ? await getHealthProfile()
+            : null;
         final res = await _dio.put<Map<String, dynamic>>(
             ApiEndpoints.healthProfile,
-            data: request.toJson());
+            data: request.toBackendJson(saved: saved));
         return HealthProfileDto.fromJson(res.data!);
       });
 
@@ -146,14 +187,48 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
         }
       });
 
+  /// The BE has no POST here: saving the profile with the new weight logs the
+  /// row, but only when the weight really changed. A row it didn't add comes
+  /// back as a `local_` one that isn't part of the history.
   @override
   Future<LogMeasurementResultDto> logBodyMeasurement(
           LogMeasurementRequestDto request) =>
       guardApi(() async {
-        final res = await _dio.post<Map<String, dynamic>>(
-            ApiEndpoints.healthMetrics,
-            data: request.toJson());
-        return LogMeasurementResultDto.fromJson(res.data!);
+        final saved = await getHealthProfile();
+        if (saved == null) {
+          throw const ApiException(
+              message: 'Bạn chưa tạo hồ sơ sức khỏe.', statusCode: 404);
+        }
+        final before = (await getBodyMeasurements(limit: 1)).firstOrNull;
+        final res = await _dio.put<Map<String, dynamic>>(
+          ApiEndpoints.healthProfile,
+          data: UpdateHealthProfileRequestDto(
+            heightCm: saved.heightCm,
+            weightKg: request.weightKg,
+            goal: HealthGoal.fromApi(saved.goal),
+            allergies: saved.allergies,
+            dietaryRestrictions: saved.dietaryRestrictions,
+          ).toBackendJson(saved: saved),
+        );
+        final profile = HealthProfileDto.fromJson(res.data!);
+        final latest = (await getBodyMeasurements(limit: 1)).firstOrNull;
+        final isNew = latest != null &&
+            (latest.weightKg - request.weightKg).abs() < 0.01 &&
+            (before == null || latest.loggedAt.isAfter(before.loggedAt));
+        final now = _clock();
+        return LogMeasurementResultDto(
+          measurement: isNew
+              ? latest
+              : BodyMeasurementDto(
+                  id: 'local_${now.millisecondsSinceEpoch}',
+                  weightKg: request.weightKg,
+                  heightCm: profile.heightCm,
+                  bmi: profile.bmi,
+                  loggedAt: now,
+                  source: 'check_in',
+                ),
+          profile: profile,
+        );
       });
 
   @override
@@ -161,7 +236,9 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
         try {
           final res = await _dio
               .get<Map<String, dynamic>>(ApiEndpoints.currentMealPlan);
-          return MealPlanDto.fromJson(res.data!);
+          // The BE falls back to the latest old plan, and its week is in UTC.
+          final plan = _plan(res.data!);
+          return isSameDay(plan.startDate, startOfWeek(_clock())) ? plan : null;
         } on DioException catch (e) {
           if (e.response?.statusCode == 404) return null;
           rethrow;
@@ -181,7 +258,7 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
           // Generation can take 10–20 s on the server.
           options: Options(receiveTimeout: const Duration(seconds: 60)),
         );
-        return MealPlanDto.fromJson(res.data!);
+        return _plan(res.data!);
       });
 
   @override
@@ -191,7 +268,7 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
           ApiEndpoints.mealPlans,
           data: {'startDate': toApiDate(startDate), 'empty': true},
         );
-        return MealPlanDto.fromJson(res.data!);
+        return _plan(res.data!);
       });
 
   @override
@@ -206,7 +283,8 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
           queryParameters: {
             'date': toApiDate(date),
             'slot': slot.apiValue,
-            'limit': 3
+            // One more than the sheet shows: the BE includes the current dish.
+            'limit': 4
           },
         );
         return _list(res.data, RecipeDto.fromJson);
@@ -222,7 +300,7 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
           ApiEndpoints.swapMeal(planId),
           data: request.toJson(),
         );
-        return MealPlanDayDto.fromJson(res.data!);
+        return _day(res.data!);
       });
 
   @override
@@ -232,7 +310,7 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
           ApiEndpoints.currentMealPlanMeals,
           data: request.toJson(),
         );
-        return MealPlanDayDto.fromJson(res.data!);
+        return _day(res.data!);
       });
 
   @override
@@ -243,6 +321,12 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
           ApiEndpoints.currentMealPlanMealsBatch,
           data: {'meals': requests.map((r) => r.toJson()).toList()},
         );
+        final days = res.data!['days'];
+        if (days is List<Object?>) {
+          days
+              .whereType<Map<String, dynamic>>()
+              .forEach(_snapshots.registerDay);
+        }
         return AddMealsResultDto.fromJson(res.data!);
       });
 
@@ -257,28 +341,54 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
           ApiEndpoints.swapMeal(planId),
           queryParameters: {'date': toApiDate(date), 'slot': slot.apiValue},
         );
-        return MealPlanDayDto.fromJson(res.data!);
+        return _day(res.data!);
       });
 
+  RecipeDto _myRecipe(Map<String, dynamic> json) => RecipeDto.fromJson({
+        ...json,
+        if (userId != null) 'createdBy': userId,
+      }).withSource(MealSource.userRecipe.apiValue);
+
+  /// The member's real recipes, plus the variants they saved from a mock
+  /// recipe (those stay in the mock store).
   @override
   Future<List<RecipeDto>> getMyRecipes() => guardApi(() async {
         final res = await _dio.get<List<dynamic>>(ApiEndpoints.myRecipes);
-        return _list(res.data, RecipeDto.fromJson);
+        final persona = personaId;
+        return [
+          if (persona != null &&
+              BackendModules.isMock(BackendModule.recipeSocial))
+            for (final row in MockRecipeBook.userRecipes(persona))
+              RecipeDto.fromJson(row)
+                  .withSource(MealSource.userRecipe.apiValue),
+          ..._list(res.data, _myRecipe),
+        ];
       });
 
   @override
   Future<RecipeDto> createMyRecipe(CreateRecipeRequestDto request) =>
       guardApi(() async {
         final res = await _dio.post<Map<String, dynamic>>(ApiEndpoints.recipes,
-            data: request.toJson());
-        return RecipeDto.fromJson(res.data!);
+            data: request.toBackendJson());
+        _catalog?.call().invalidate();
+        return _myRecipe(res.data!);
       });
 
+  /// Chefs' plans are still mock while bookings are, and so are their dishes.
   @override
-  Future<List<ChefSuggestionDto>> getChefSuggestions() => guardApi(() async {
-        final res = await _dio.get<List<dynamic>>(ApiEndpoints.chefSuggestions);
-        return _list(res.data, ChefSuggestionDto.fromJson);
-      });
+  Future<List<ChefSuggestionDto>> getChefSuggestions() async {
+    if (BackendModules.isMock(BackendModule.bookings)) {
+      final persona = personaId;
+      if (persona == null) return const [];
+      return MockRecipeBook.chefSuggestions(persona)
+          .map((s) => ChefSuggestionDto.fromJson(Map<String, dynamic>.from(s)))
+          .toList();
+    }
+    return guardApi(() async {
+      final res = await _dio.get<List<dynamic>>(ApiEndpoints.chefSuggestions);
+      return _list(res.data, ChefSuggestionDto.fromJson);
+    });
+  }
 
   @override
   Future<PlanAdjustmentDto> adjustPlan(AdjustPlanRequestDto request) =>
@@ -318,19 +428,41 @@ final plannerUserIdProvider = Provider<String?>((ref) {
   }
 });
 
+/// Who the member is in the mock stores: themselves with mock auth; a real
+/// account acts as a seeded one (`mockPersonaId`) while the module it uses is
+/// still mock. `null` for guests.
+final plannerPersonaIdProvider = Provider<String?>((ref) {
+  final userId = ref.watch(plannerUserIdProvider);
+  if (userId == null || BackendModules.isMock(BackendModule.auth)) {
+    return userId;
+  }
+  try {
+    return ref.watch(sessionControllerProvider.select(mockPersonaId));
+  } catch (_) {
+    return userId;
+  }
+});
+
 /// "Now" for the planner: which week is current and which day is today.
 /// Tests pin it so weekday-dependent screens are deterministic.
 final plannerClockProvider = Provider<DateTime Function()>((_) => DateTime.now);
 
-/// Swaps Mock ↔ Remote with `--dart-define=USE_MOCK_DATA=false`. Rebuilt on
-/// account changes, so the controllers that watch it refetch.
+/// Mock or real by `BackendModule.planner`. Rebuilt on account changes, so the
+/// controllers that watch it refetch.
 final mealPlannerApiProvider = Provider<MealPlannerApiService>((ref) {
-  final userId = ref.watch(plannerUserIdProvider);
-  if (Env.useMockData) {
-    return MockMealPlannerRepository(
-        userId: userId, clock: ref.watch(plannerClockProvider));
+  final persona = ref.watch(plannerPersonaIdProvider);
+  final clock = ref.watch(plannerClockProvider);
+  if (BackendModules.isMock(BackendModule.planner)) {
+    return MockMealPlannerRepository(userId: persona, clock: clock);
   }
-  return RemoteMealPlannerApiService(ref.watch(dioProvider));
+  return RemoteMealPlannerApiService(
+    ref.watch(dioProvider),
+    userId: ref.watch(plannerUserIdProvider),
+    personaId: persona,
+    clock: clock,
+    snapshots: ref.watch(planItemSnapshotsProvider),
+    catalog: () => ref.read(recipeCatalogProvider),
+  );
 });
 
 /// Allergies shared with other features (scanner, chat context, recipes);

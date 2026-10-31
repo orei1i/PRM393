@@ -9,11 +9,13 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 /// flutter run \
 ///   --dart-define=USE_MOCK_DATA=false \
 ///   --dart-define=API_BASE_URL=https://api.veganlife.vn/api/v1 \
+///   --dart-define=BACKEND_MOCK_MODULES=community,scanner \
 ///   --dart-define=MAP_TILES=off \
 ///   --dart-define=OSRM_BASE_URL=http://127.0.0.1:9
 /// ```
 abstract final class Env {
   /// `true` → every feature uses its Mock repository (no backend needed).
+  /// `false` → hybrid, module by module: ask `BackendModules`, not this flag.
   static const bool useMockData =
       bool.fromEnvironment('USE_MOCK_DATA', defaultValue: true);
 
@@ -22,6 +24,13 @@ abstract final class Env {
     'API_BASE_URL',
     defaultValue: 'http://10.0.2.2:5001/api/v1',
   );
+
+  /// The server root, for what the BE serves outside the API prefix (uploads,
+  /// the vision route): [apiBaseUrl] without a trailing `/api/v1`.
+  static String get apiOrigin => apiOriginOf(apiBaseUrl);
+
+  static String apiOriginOf(String baseUrl) =>
+      baseUrl.replaceFirst(RegExp(r'(/api/v1)?/*$'), '');
 
   /// Free AI questions for guests (the server is the source of truth).
   static const int guestTrialLimit =

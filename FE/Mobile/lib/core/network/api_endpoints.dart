@@ -1,4 +1,5 @@
 // lib/core/network/api_endpoints.dart
+import '../config/env.dart';
 
 /// Relative paths under [Env.apiBaseUrl]. Agreed contract with the backend team;
 /// update here only — features never hard-code URLs. Request / response JSON
@@ -86,8 +87,10 @@ abstract final class ApiEndpoints {
   static const String allergens = '/catalog/allergens';
 
   // Smart kitchen (computer vision)
-  static const String visionScan = '/vision/scan';
-  static const String menuFromIngredients = '/meal-plans/from-ingredients';
+  /// Absolute on purpose: the host-root route, because BE bug B1 makes
+  /// `/api/v1/vision/scan` answer 500. Revert to the relative `/vision/scan`
+  /// once B1 is fixed.
+  static String get visionScan => '${Env.apiOrigin}/vision/scan';
 
   // RAG chatbot
   static const String guestTrial = '/chat/guest-trial';
@@ -105,6 +108,9 @@ abstract final class ApiEndpoints {
   static String postReport(String id) => '/posts/$id/reports';
   static String postComment(String postId, String commentId) =>
       '/posts/$postId/comments/$commentId';
+
+  /// DELETE a comment on the real BE (it has no route under `/posts/{id}`).
+  static String commentDelete(String commentId) => '/comments/$commentId';
 
   /// GET `?cursor=&limit=`: replies of a top-level comment.
   static String commentReplies(String postId, String commentId) =>

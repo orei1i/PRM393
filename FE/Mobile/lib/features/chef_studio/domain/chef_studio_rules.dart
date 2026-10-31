@@ -28,6 +28,14 @@ abstract final class ChefProfileRules {
       ? 'Giá mỗi ngày từ ${formatVnd(minDayPrice)} đến ${formatVnd(maxDayPrice)}.'
       : null;
 
+  /// A plan with daily feedback is the same plan with more work: never
+  /// cheaper than without.
+  static String? feedbackDayPrice(int? value, int? basePrice) =>
+      dayPrice(value) ??
+      (basePrice != null && value! < basePrice
+          ? 'Giá có phản hồi không thấp hơn giá mỗi ngày.'
+          : null);
+
   static String? planDays(int? min, int? max) {
     if (min == null || max == null) return 'Nhập số ngày tối thiểu và tối đa.';
     if (min < minPlanDays || max > maxPlanDays) {

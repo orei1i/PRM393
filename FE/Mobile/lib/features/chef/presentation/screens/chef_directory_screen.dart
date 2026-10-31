@@ -5,8 +5,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/navigation/app_nav.dart';
 import '../../../../core/theme/vl_colors.dart';
+import '../../../../core/widgets/demo_data_banner.dart';
 import '../../../../core/widgets/floating_bar_clearance.dart';
 import '../../../../core/widgets/shimmer.dart';
 import '../../../../core/widgets/sign_in_sheet.dart';
@@ -86,6 +88,9 @@ class _ChefDirectoryScreenState extends ConsumerState<ChefDirectoryScreen> {
                 ),
             ],
           ),
+          if (DemoDataBanner.visibleFor(BackendModule.chefs))
+            const SliverToBoxAdapter(
+                child: DemoDataBanner(module: BackendModule.chefs)),
           SliverToBoxAdapter(child: _IntroBanner(pickMode: widget.pickMode)),
           SliverToBoxAdapter(
             child: Padding(

@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/navigation/app_routes.dart';
 import '../../../../core/session/session_controller.dart';
 import '../../../../core/theme/vl_colors.dart';
@@ -396,7 +397,8 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen>
         if (own && !post.isPublished)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: PostStatusBanner(post: post, onResubmit: _edit),
+            child: PostStatusBanner(
+                post: post, onResubmit: BackendModules.postEdit ? _edit : null),
           ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),

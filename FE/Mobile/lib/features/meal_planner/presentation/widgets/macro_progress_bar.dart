@@ -43,13 +43,12 @@ class MacroProgressBar extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          // Numbers drop under the label rather than overflow in a narrow cell.
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            spacing: 8,
             children: [
-              Expanded(
-                child: Text(label,
-                    overflow: TextOverflow.ellipsis,
-                    style: context.textStyles.labelMedium),
-              ),
+              Text(label, style: context.textStyles.labelMedium),
               Text.rich(
                 TextSpan(
                   children: [

@@ -430,9 +430,14 @@ class _PlanEditorScreenState extends ConsumerState<PlanEditorScreen> {
         const SizedBox(height: 12),
         Text(day.title, style: context.textStyles.titleMedium),
         if (daily && !day.isSent)
-          Text(
-              'Hạn gửi: ${formatVnDeadline(dailySendDeadline(b.startDate, day.dayIndex))}',
-              style: muted),
+          dailySendOverdue(b.startDate, day.dayIndex, DateTime.now())
+              ? Text(
+                  'Hạn gửi: ${formatVnDeadline(dailySendDeadline(b.startDate, day.dayIndex))} · Đã quá hạn, hãy gửi sớm nhất có thể.',
+                  style: context.textStyles.bodySmall?.copyWith(
+                      color: context.colors.error, fontWeight: FontWeight.w600))
+              : Text(
+                  'Hạn gửi: ${formatVnDeadline(dailySendDeadline(b.startDate, day.dayIndex))}',
+                  style: muted),
         const SizedBox(height: 8),
         if (day.isSent) ...[
           PlanDayCard(day: day),

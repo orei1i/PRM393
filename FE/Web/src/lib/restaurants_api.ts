@@ -4,7 +4,8 @@
 // id (+ `createdByName`) or a nested user, nullable coordinates.
 import type { AdminRestaurant, AdminReview, RestaurantMedia, RestaurantPerson, RestaurantQuery } from "@/types/restaurants";
 
-import { qs, request, USE_MOCK_DATA } from "./api_client";
+import { qs, request } from "./api_client";
+import { isMock } from "./backend_modules";
 import { readSession } from "./auth";
 import { readId } from "./ids";
 import * as mock from "./mock_restaurants";
@@ -69,7 +70,7 @@ export function normalizeReview(raw: Raw, restaurantId = ""): AdminReview {
 export const restaurantsApi = {
   /** GET /admin/restaurants?certified=&source=&search= */
   async list(query: RestaurantQuery): Promise<AdminRestaurant[]> {
-    if (USE_MOCK_DATA) return mock.listRestaurants(query);
+    if (isMock("restaurants")) return mock.listRestaurants(query);
     const raw = await request<Raw[]>(
       `/admin/restaurants?${qs({
         certified: query.certified === "all" ? undefined : query.certified,
@@ -82,7 +83,7 @@ export const restaurantsApi = {
 
   /** PATCH /admin/restaurants/{id} { isVeganCertified } */
   async setCertified(id: string, isVeganCertified: boolean): Promise<AdminRestaurant> {
-    if (USE_MOCK_DATA) return mock.setCertified(id, isVeganCertified, readSession());
+    if (isMock("restaurants")) return mock.setCertified(id, isVeganCertified, readSession());
     return normalizeRestaurant(
       await request<Raw>(`/admin/restaurants/${encodeURIComponent(id)}`, {
         method: "PATCH",
@@ -93,20 +94,20 @@ export const restaurantsApi = {
 
   /** DELETE /admin/restaurants/{id} — removes its reviews too. */
   async remove(id: string): Promise<void> {
-    if (USE_MOCK_DATA) return mock.deleteRestaurant(id, readSession());
+    if (isMock("restaurants")) return mock.deleteRestaurant(id, readSession());
     await request<unknown>(`/admin/restaurants/${encodeURIComponent(id)}`, { method: "DELETE" });
   },
 
   /** GET /admin/restaurants/{id}/reviews — newest first. */
   async reviews(restaurantId: string): Promise<AdminReview[]> {
-    if (USE_MOCK_DATA) return mock.listReviews(restaurantId);
+    if (isMock("restaurants")) return mock.listReviews(restaurantId);
     const raw = await request<Raw[]>(`/admin/restaurants/${encodeURIComponent(restaurantId)}/reviews`);
     return raw.map((r) => normalizeReview(r, restaurantId)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   },
 
   /** DELETE /admin/reviews/{id} */
   async removeReview(id: string): Promise<void> {
-    if (USE_MOCK_DATA) return mock.deleteReview(id, readSession());
+    if (isMock("restaurants")) return mock.deleteReview(id, readSession());
     await request<unknown>(`/admin/reviews/${encodeURIComponent(id)}`, { method: "DELETE" });
   },
 };

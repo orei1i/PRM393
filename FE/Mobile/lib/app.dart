@@ -45,6 +45,8 @@ class VeganLifeApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp(
       title: 'VeganLife',
+      scaffoldMessengerKey: rootScaffoldMessengerKey,
+      navigatorKey: rootNavigatorKey,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
@@ -591,13 +593,19 @@ class _NavItem extends StatelessWidget {
                       Icon(selected ? selectedIcon : icon,
                           size: 24, color: color),
                       const SizedBox(height: 2),
-                      Text(
-                        label,
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: labelStyle(context, selected: selected)
-                            ?.copyWith(color: color),
+                      // Large text sizes shrink the label to its slot rather
+                      // than cut it ("Trang c…").
+                      Flexible(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            label,
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            style: labelStyle(context, selected: selected)
+                                ?.copyWith(color: color),
+                          ),
+                        ),
                       ),
                     ],
                   );

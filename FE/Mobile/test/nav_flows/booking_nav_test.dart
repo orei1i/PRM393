@@ -302,6 +302,13 @@ void main() {
     await push(
         tester, BookingDetailScreen.route('b_ma_thuha_active', initialTab: 1));
     await tapVisible(tester, find.text('Áp dụng kế hoạch vào Thực đơn'));
+    // The seeded week holds other dishes: replacing them is confirmed first.
+    for (var i = 0;
+        i < 16 && find.byType(AlertDialog).evaluate().isEmpty;
+        i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+    await tester.tap(find.text('Thay và áp dụng'));
     for (var i = 0; i < 40 && find.byType(SnackBar).evaluate().isEmpty; i++) {
       await tester.pump(const Duration(milliseconds: 250));
     }

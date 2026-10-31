@@ -2,10 +2,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/navigation/app_nav.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/text_search.dart';
+import '../../../../core/widgets/demo_data_banner.dart';
 import '../../../../core/widgets/food_cover.dart';
 import '../../../../core/widgets/shimmer.dart';
 import '../../../../core/widgets/state_views.dart';
@@ -274,21 +276,24 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
           ),
         ),
       ),
-      body: switch (state.phase) {
-        SearchPhase.idle => _DiscoverView(
-            onPick: _pick,
-            onRecipe: _openRecipe,
-            onRestaurant: _openRestaurant,
-            onRecentView: _openRecentView,
-            onAllNearby: () => _openNearby(),
-          ),
-        SearchPhase.typing => _SuggestionsView(
-            state: state,
-            onSearch: _pick,
-            onSuggestion: _onSuggestion,
-          ),
-        SearchPhase.results => _results(state),
-      },
+      body: DemoDataBanner.wrap(
+        BackendModule.search,
+        child: switch (state.phase) {
+          SearchPhase.idle => _DiscoverView(
+              onPick: _pick,
+              onRecipe: _openRecipe,
+              onRestaurant: _openRestaurant,
+              onRecentView: _openRecentView,
+              onAllNearby: () => _openNearby(),
+            ),
+          SearchPhase.typing => _SuggestionsView(
+              state: state,
+              onSearch: _pick,
+              onSuggestion: _onSuggestion,
+            ),
+          SearchPhase.results => _results(state),
+        },
+      ),
     );
   }
 

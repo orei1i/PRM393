@@ -6,6 +6,14 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** For search: lower case, no Vietnamese accents ("Đậu" → "dau"). */
+export const foldText = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[Đđ]/g, "d")
+    .toLowerCase();
+
 const numberVi = new Intl.NumberFormat("vi-VN");
 const percentVi = new Intl.NumberFormat("vi-VN", { style: "percent", maximumFractionDigits: 1 });
 

@@ -140,6 +140,7 @@ class Recipe {
     this.sourceName,
     this.createdBy,
     this.portion = 1,
+    this.serverConflicts = const [],
   });
 
   final String id;
@@ -167,6 +168,10 @@ class Recipe {
   /// portions so the day meets its kcal target. 1 = one serving.
   final double portion;
 
+  /// The member's allergy keys the server found in this dish, including in
+  /// ingredients the app can't see.
+  final List<String> serverConflicts;
+
   /// "1,5 phần" when the slot holds more or less than one serving.
   String? get portionLabel {
     if (portion == 1) return null;
@@ -184,10 +189,23 @@ class Recipe {
   bool get hasDetail => source != MealSource.manual;
 
   /// The member's allergy keys this dish conflicts with: tagged allergen ids,
-  /// plus free-text allergies ("lá lốt") found in its name.
-  List<String> allergenConflicts(Iterable<String> userAllergies) =>
-      allergyConflicts(
-          tags: allergens, texts: [name], userAllergies: userAllergies);
+  /// plus free-text allergies ("lá lốt") found in its name. Nobody tagged a
+  /// typed-in dish, so its name is read for allergens too, whatever the server
+  /// kept of them.
+  List<String> allergenConflicts(Iterable<String> userAllergies) {
+    final local = allergyConflicts(
+        tags: source == MealSource.manual
+            ? {...allergens, ...detectDishAllergens(name)}
+            : allergens,
+        texts: [name],
+        userAllergies: userAllergies);
+    if (serverConflicts.isEmpty) return local;
+    return [
+      ...local,
+      for (final key in serverConflicts)
+        if (!local.contains(key)) key,
+    ];
+  }
 
   Recipe withSource(MealSource source, {String? sourceName}) => Recipe(
         id: id,
@@ -202,6 +220,7 @@ class Recipe {
         sourceName: sourceName ?? this.sourceName,
         createdBy: createdBy,
         portion: portion,
+        serverConflicts: serverConflicts,
       );
 }
 
@@ -263,6 +282,10 @@ class PantryItem {
     this.ingredientId,
     this.category,
     this.caloriesPer100g,
+    this.quantity,
+    this.unit,
+    this.expiryDate,
+    this.allergyWarning,
   });
 
   final String id;
@@ -279,6 +302,25 @@ class PantryItem {
 
   /// kcal per 100 g, if the ingredient is in the nutrition DB.
   final int? caloriesPer100g;
+
+  /// What the real BE keeps (default 1 "phần"); `null` from the mock.
+  final double? quantity;
+  final String? unit;
+  final DateTime? expiryDate;
+
+  /// Set by the real BE when the item conflicts with the member's allergies.
+  final String? allergyWarning;
+
+  /// Expired, or expires within 3 days of [now] ("Sắp hết hạn").
+  bool expiresSoon(DateTime now) {
+    final expiry = expiryDate;
+    if (expiry == null) return false;
+    final local = expiry.toLocal();
+    final days = DateTime(local.year, local.month, local.day)
+        .difference(dateOnly(now))
+        .inDays;
+    return days <= 3;
+  }
 
   /// "Quét" when saved from a fridge scan, "Tự thêm" when typed in.
   PantrySource get source =>

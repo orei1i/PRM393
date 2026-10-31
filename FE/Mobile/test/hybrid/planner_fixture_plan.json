@@ -1,0 +1,710 @@
+{
+ "success": true,
+ "message": null,
+ "data": {
+  "id": "6ae5966f96695f5c139fa9c5",
+  "startDate": "2026-10-26",
+  "goal": "lean_muscle",
+  "dailyTargets": {
+   "calories": 2060,
+   "proteinG": 77.2,
+   "carbsG": 283.2,
+   "fatG": 68.7,
+   "fiberG": 30
+  },
+  "days": [
+   {
+    "date": "2026-10-26",
+    "meals": {
+     "breakfast": {
+      "id": "535c7d125f3f45abbcba510504e52371",
+      "recipeId": "6ae595c796695f5c139fa995",
+      "name": "Xôi đậu xanh mè đen",
+      "calories": 440,
+      "proteinG": 14,
+      "carbsG": 78,
+      "fatG": 8,
+      "fiberG": 7,
+      "allergens": [
+       "sesame"
+      ],
+      "dietTags": [
+       "traditional"
+      ],
+      "prepMinutes": 20,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     },
+     "lunch": {
+      "id": "8da78bfdfb3147f0a9d8930ec2354bdc",
+      "recipeId": "6ae595c796695f5c139fa99b",
+      "name": "Cơm gạo lứt đậu hũ kho nấm đông cô",
+      "calories": 520,
+      "proteinG": 26,
+      "carbsG": 75,
+      "fatG": 14,
+      "fiberG": 10,
+      "allergens": [
+       "soy"
+      ],
+      "dietTags": [
+       "balanced",
+       "whole_food"
+      ],
+      "prepMinutes": 25,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     },
+     "dinner": {
+      "id": "99e434c183944eb296137adca99f973a",
+      "recipeId": "6ae595c796695f5c139fa9a1",
+      "name": "Tempeh áp chảo sốt tương tỏi",
+      "calories": 530,
+      "proteinG": 32,
+      "carbsG": 54,
+      "fatG": 20,
+      "fiberG": 11,
+      "allergens": [
+       "soy"
+      ],
+      "dietTags": [
+       "high_protein"
+      ],
+      "prepMinutes": 20,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     },
+     "snack_pm": {
+      "id": "60c674b8d5664b05afe6da47f4d7f70a",
+      "recipeId": "6ae595c796695f5c139fa9ab",
+      "name": "Sữa hạt điều mè đen ấm",
+      "calories": 180,
+      "proteinG": 6,
+      "carbsG": 12,
+      "fatG": 12,
+      "fiberG": 3,
+      "allergens": [
+       "tree_nut",
+       "sesame"
+      ],
+      "dietTags": [
+       "calm",
+       "drink"
+      ],
+      "prepMinutes": 10,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     }
+    },
+    "totalCalories": 1670
+   },
+   {
+    "date": "2026-10-27",
+    "meals": {
+     "breakfast": {
+      "id": "a1ca63e3b05447598da12b82de52e547",
+      "recipeId": "6ae595c796695f5c139fa997",
+      "name": "Phở nấm hương chay",
+      "calories": 390,
+      "proteinG": 15,
+      "carbsG": 68,
+      "fatG": 6,
+      "fiberG": 5,
+      "allergens": [
+       "soy"
+      ],
+      "dietTags": [
+       "warm",
+       "comfort"
+      ],
+      "prepMinutes": 25,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     },
+     "lunch": {
+      "id": "e367713c797346a9ba193a3a025caabb",
+      "recipeId": "6ae595c796695f5c139fa99d",
+      "name": "Bún chả giò chay rau sống",
+      "calories": 490,
+      "proteinG": 18,
+      "carbsG": 72,
+      "fatG": 15,
+      "fiberG": 8,
+      "allergens": [
+       "soy"
+      ],
+      "dietTags": [
+       "crispy",
+       "traditional"
+      ],
+      "prepMinutes": 30,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     },
+     "dinner": {
+      "id": "eea0659e84d1414c9ce89a4db09637c3",
+      "recipeId": "6ae595c796695f5c139fa99e",
+      "name": "Đậu hũ sốt cà chua & cơm lứt",
+      "calories": 450,
+      "proteinG": 22,
+      "carbsG": 65,
+      "fatG": 12,
+      "fiberG": 7,
+      "allergens": [
+       "soy"
+      ],
+      "dietTags": [
+       "classic",
+       "comfort"
+      ],
+      "prepMinutes": 20,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     },
+     "snack_pm": {
+      "id": "06ba3ae7b2824129a5d44bf338c5f6c8",
+      "recipeId": "6ae595c796695f5c139fa9af",
+      "name": "Bơ dầm sữa đậu nành hạt chia",
+      "calories": 230,
+      "proteinG": 7,
+      "carbsG": 18,
+      "fatG": 15,
+      "fiberG": 6,
+      "allergens": [
+       "soy"
+      ],
+      "dietTags": [
+       "creamy",
+       "quick"
+      ],
+      "prepMinutes": 5,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     }
+    },
+    "totalCalories": 1560
+   },
+   {
+    "date": "2026-10-28",
+    "meals": {
+     "breakfast": {
+      "id": "ee4b622ce5b34f89a6bb7df3ab180512",
+      "recipeId": "6ae595c796695f5c139fa993",
+      "name": "Yến mạch ngâm hạt chia & việt quất",
+      "calories": 420,
+      "proteinG": 18,
+      "carbsG": 62,
+      "fatG": 12,
+      "fiberG": 11,
+      "allergens": [
+       "gluten"
+      ],
+      "dietTags": [
+       "whole_food",
+       "high_fiber"
+      ],
+      "prepMinutes": 5,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     },
+     "lunch": {
+      "id": "6255744c8a33432994effb060f01f187",
+      "recipeId": "6ae595c796695f5c139fa99c",
+      "name": "Cơm chiên hạt sen bông cải xanh",
+      "calories": 480,
+      "proteinG": 16,
+      "carbsG": 76,
+      "fatG": 12,
+      "fiberG": 8,
+      "allergens": [],
+      "dietTags": [
+       "quick",
+       "colorful"
+      ],
+      "prepMinutes": 20,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     },
+     "dinner": {
+      "id": "434172d039ed4ffaae3526b4d7291c7b",
+      "recipeId": "6ae595c796695f5c139fa99f",
+      "name": "Nấm đùi gà kho tiêu xanh & rau luộc",
+      "calories": 430,
+      "proteinG": 18,
+      "carbsG": 62,
+      "fatG": 11,
+      "fiberG": 9,
+      "allergens": [
+       "soy"
+      ],
+      "dietTags": [
+       "spicy",
+       "comfort"
+      ],
+      "prepMinutes": 20,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     },
+     "snack_pm": {
+      "id": "173e1fde3df746cd842bcc2660f29f36",
+      "recipeId": "6ae595c796695f5c139fa9ad",
+      "name": "Chè hạt sen đậu đỏ ngọt thanh",
+      "calories": 220,
+      "proteinG": 8,
+      "carbsG": 42,
+      "fatG": 2,
+      "fiberG": 6,
+      "allergens": [],
+      "dietTags": [
+       "sweet",
+       "traditional"
+      ],
+      "prepMinutes": 30,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     }
+    },
+    "totalCalories": 1550
+   },
+   {
+    "date": "2026-10-29",
+    "meals": {
+     "breakfast": {
+      "id": "08625e59f41340618adc7e70effdcf6d",
+      "recipeId": "6ae595c796695f5c139fa99a",
+      "name": "Khoai lang mật nướng hạt chia",
+      "calories": 320,
+      "proteinG": 6,
+      "carbsG": 65,
+      "fatG": 5,
+      "fiberG": 9,
+      "allergens": [],
+      "dietTags": [
+       "quick",
+       "whole_food"
+      ],
+      "prepMinutes": 15,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     },
+     "lunch": {
+      "id": "81331f29e6c4459587bc9beaf47c874b",
+      "recipeId": "6ae595c796695f5c139fa998",
+      "name": "Bún riêu chay đậu hũ cà chua",
+      "calories": 430,
+      "proteinG": 19,
+      "carbsG": 64,
+      "fatG": 11,
+      "fiberG": 7,
+      "allergens": [
+       "soy"
+      ],
+      "dietTags": [
+       "comfort"
+      ],
+      "prepMinutes": 25,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     },
+     "dinner": {
+      "id": "feb30f3698834d3ebae2921b44c9ced0",
+      "recipeId": "6ae595c796695f5c139fa9a6",
+      "name": "Mướp hương xào nấm rơm & cơm lứt",
+      "calories": 390,
+      "proteinG": 15,
+      "carbsG": 62,
+      "fatG": 9,
+      "fiberG": 7,
+      "allergens": [],
+      "dietTags": [
+       "quick",
+       "light"
+      ],
+      "prepMinutes": 15,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     },
+     "snack_pm": {
+      "id": "3961dfe182e84b92a13b0429c285f0ff",
+      "recipeId": "6ae595c796695f5c139fa9af",
+      "name": "Bơ dầm sữa đậu nành hạt chia",
+      "calories": 230,
+      "proteinG": 7,
+      "carbsG": 18,
+      "fatG": 15,
+      "fiberG": 6,
+      "allergens": [
+       "soy"
+      ],
+      "dietTags": [
+       "creamy",
+       "quick"
+      ],
+      "prepMinutes": 5,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     }
+    },
+    "totalCalories": 1370
+   },
+   {
+    "date": "2026-10-30",
+    "meals": {
+     "breakfast": {
+      "id": "963ad8af7fe14b90a39a50f2af9a8a06",
+      "recipeId": "6ae595c796695f5c139fa997",
+      "name": "Phở nấm hương chay",
+      "calories": 390,
+      "proteinG": 15,
+      "carbsG": 68,
+      "fatG": 6,
+      "fiberG": 5,
+      "allergens": [
+       "soy"
+      ],
+      "dietTags": [
+       "warm",
+       "comfort"
+      ],
+      "prepMinutes": 25,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     },
+     "lunch": {
+      "id": "e1e7123581a54247b05737a102d796b8",
+      "recipeId": "6ae595c796695f5c139fa9a3",
+      "name": "Cà ri đậu gà khoai lang cốt dừa",
+      "calories": 540,
+      "proteinG": 21,
+      "carbsG": 72,
+      "fatG": 19,
+      "fiberG": 14,
+      "allergens": [],
+      "dietTags": [
+       "comfort",
+       "rich"
+      ],
+      "prepMinutes": 30,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     },
+     "dinner": {
+      "id": "7c00ad5672f3491ca30f58d0ba6847f1",
+      "recipeId": "6ae595c796695f5c139fa9a4",
+      "name": "Canh rong biển đậu hũ non & cơm gạo lứt",
+      "calories": 380,
+      "proteinG": 20,
+      "carbsG": 56,
+      "fatG": 8,
+      "fiberG": 6,
+      "allergens": [
+       "soy",
+       "sesame"
+      ],
+      "dietTags": [
+       "light",
+       "detox"
+      ],
+      "prepMinutes": 20,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     },
+     "snack_pm": {
+      "id": "0b4aa041db824285a313a6948b1dbeee",
+      "recipeId": "6ae595c796695f5c139fa9ad",
+      "name": "Chè hạt sen đậu đỏ ngọt thanh",
+      "calories": 220,
+      "proteinG": 8,
+      "carbsG": 42,
+      "fatG": 2,
+      "fiberG": 6,
+      "allergens": [],
+      "dietTags": [
+       "sweet",
+       "traditional"
+      ],
+      "prepMinutes": 30,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     }
+    },
+    "totalCalories": 1530
+   },
+   {
+    "date": "2026-10-31",
+    "meals": {
+     "breakfast": {
+      "id": "f5c54d7bd21d4d4882be7dfb9b3a6ff7",
+      "recipeId": "6ae595c796695f5c139fa994",
+      "name": "Bánh mì đậu hũ sả ớt",
+      "calories": 460,
+      "proteinG": 22,
+      "carbsG": 58,
+      "fatG": 15,
+      "fiberG": 6,
+      "allergens": [
+       "gluten",
+       "soy"
+      ],
+      "dietTags": [
+       "quick"
+      ],
+      "prepMinutes": 15,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     },
+     "lunch": {
+      "id": "995a2ebd51dc42919cc41d1e49e21728",
+      "recipeId": "6ae595c796695f5c139fa99b",
+      "name": "Cơm gạo lứt đậu hũ kho nấm đông cô",
+      "calories": 520,
+      "proteinG": 26,
+      "carbsG": 75,
+      "fatG": 14,
+      "fiberG": 10,
+      "allergens": [
+       "soy"
+      ],
+      "dietTags": [
+       "balanced",
+       "whole_food"
+      ],
+      "prepMinutes": 25,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     },
+     "dinner": {
+      "id": "581fe03dbaa04591b55487477c595045",
+      "recipeId": "6ae595c796695f5c139fa9a8",
+      "name": "Súp bí đỏ đậu lăng đỏ sánh mịn",
+      "calories": 360,
+      "proteinG": 18,
+      "carbsG": 52,
+      "fatG": 9,
+      "fiberG": 12,
+      "allergens": [],
+      "dietTags": [
+       "warm",
+       "high_fiber"
+      ],
+      "prepMinutes": 25,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     },
+     "snack_pm": {
+      "id": "b2447aca9e064c3dac9ef3229fe4e6d0",
+      "recipeId": "6ae595c796695f5c139fa9ac",
+      "name": "Bánh chuối yến mạch nướng",
+      "calories": 210,
+      "proteinG": 6,
+      "carbsG": 38,
+      "fatG": 4,
+      "fiberG": 5,
+      "allergens": [
+       "gluten"
+      ],
+      "dietTags": [
+       "sweet",
+       "baked"
+      ],
+      "prepMinutes": 20,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     }
+    },
+    "totalCalories": 1550
+   },
+   {
+    "date": "2026-11-01",
+    "meals": {
+     "breakfast": {
+      "id": "0a317ae8d452473b8eadb84f5b34b723",
+      "recipeId": "6ae595c796695f5c139fa998",
+      "name": "Bún riêu chay đậu hũ cà chua",
+      "calories": 430,
+      "proteinG": 19,
+      "carbsG": 64,
+      "fatG": 11,
+      "fiberG": 7,
+      "allergens": [
+       "soy"
+      ],
+      "dietTags": [
+       "comfort"
+      ],
+      "prepMinutes": 25,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     },
+     "lunch": {
+      "id": "0919ca2572ab4b97ac4b5a05b7240f7f",
+      "recipeId": "6ae5962596695f5c139fa9b6",
+      "name": "Cơm BE shape",
+      "calories": 500,
+      "proteinG": 10,
+      "carbsG": 50,
+      "fatG": 8,
+      "fiberG": null,
+      "allergens": [],
+      "dietTags": [],
+      "prepMinutes": 15,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     },
+     "dinner": {
+      "id": "9e37d80d674e41c4a1ee0e037c068b74",
+      "recipeId": "6ae595c796695f5c139fa9a0",
+      "name": "Canh chua nấm đậu bắp & cơm lứt",
+      "calories": 410,
+      "proteinG": 17,
+      "carbsG": 68,
+      "fatG": 8,
+      "fiberG": 8,
+      "allergens": [
+       "soy"
+      ],
+      "dietTags": [
+       "refreshing",
+       "traditional"
+      ],
+      "prepMinutes": 25,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     },
+     "snack_pm": {
+      "id": "050e498c973c430e88f47fda213c7877",
+      "recipeId": "6ae595c796695f5c139fa9ad",
+      "name": "Chè hạt sen đậu đỏ ngọt thanh",
+      "calories": 220,
+      "proteinG": 8,
+      "carbsG": 42,
+      "fatG": 2,
+      "fiberG": 6,
+      "allergens": [],
+      "dietTags": [
+       "sweet",
+       "traditional"
+      ],
+      "prepMinutes": 30,
+      "imageUrl": null,
+      "source": "ai",
+      "sourceName": null,
+      "portion": 1,
+      "seasonalSwap": null,
+      "allergyConflicts": []
+     }
+    },
+    "totalCalories": 1560
+   }
+  ]
+ },
+ "statusCode": 200
+}

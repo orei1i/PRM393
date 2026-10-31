@@ -14,7 +14,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/config/env.dart';
+import '../../../core/config/backend_modules.dart';
 import '../../../core/network/api_endpoints.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
@@ -285,6 +285,8 @@ class MockGeocodingService implements GeocodingService {
 }
 
 final geocodingServiceProvider = Provider<GeocodingService>((ref) {
-  if (Env.useMockData) return const MockGeocodingService();
+  if (BackendModules.isMock(BackendModule.geocoding)) {
+    return const MockGeocodingService();
+  }
   return RemoteGeocodingService(ref.watch(dioProvider));
 });

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/session/session_controller.dart';
 import '../../../../core/theme/vl_colors.dart';
@@ -68,6 +69,10 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
   TaggedRestaurant? _restaurant;
   bool _submitting = false;
 
+  /// After a refused submit, every edit re-checks the form, so a message
+  /// clears as soon as its value is valid.
+  bool _attempted = false;
+
   PickedMedia? _media;
   _UploadPhase _phase = _UploadPhase.idle;
   double _progress = 0;
@@ -111,6 +116,11 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
   }
 
   bool get _hasVideo => _media?.isVideo ?? (widget.editing?.hasVideo ?? false);
+
+  /// A real post only gets the AI recipe when the video module is real too.
+  bool get _aiRecipeAvailable =>
+      BackendModules.isMock(BackendModule.community) ||
+      BackendModules.isReal(BackendModule.video);
 
   bool get _dirty =>
       !_isEditing &&
@@ -217,7 +227,10 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
 
   Future<void> _submit() async {
     if (!_canSubmit) return;
-    if (!(_form.currentState?.validate() ?? false)) return;
+    if (!(_form.currentState?.validate() ?? false)) {
+      setState(() => _attempted = true);
+      return;
+    }
     setState(() => _submitting = true);
     final api = ref.read(communityApiProvider);
     final editing = widget.editing;
@@ -330,8 +343,12 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
 
   String? _validateBody(String? v) {
     final text = v?.trim() ?? '';
-    // A video speaks for itself.
-    if (_hasVideo) return null;
+    if (_hasVideo) {
+      // A video speaks for itself, but the real BE requires a body.
+      return text.isEmpty && BackendModules.isReal(BackendModule.community)
+          ? 'Viết vài dòng giới thiệu cho video nhé.'
+          : null;
+    }
     if (text.length < 20) {
       return 'Nội dung cần ít nhất 20 ký tự để cộng đồng dễ hiểu.';
     }
@@ -379,6 +396,9 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
             Expanded(
               child: Form(
                 key: _form,
+                autovalidateMode: _attempted
+                    ? AutovalidateMode.onUserInteraction
+                    : AutovalidateMode.disabled,
                 child: ListView(
                   keyboardDismissBehavior:
                       ScrollViewKeyboardDismissBehavior.onDrag,
@@ -485,7 +505,8 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
                     ],
                     if (_type == PostType.recipe &&
                         _hasVideo &&
-                        !_isEditing) ...[
+                        !_isEditing &&
+                        _aiRecipeAvailable) ...[
                       const SizedBox(height: 12),
                       VLCard(
                         color: context.vl.aiContainer,
@@ -548,7 +569,8 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
               mediaTooltip: _isEditing
                   ? 'Không đổi được ảnh/video khi sửa bài'
                   : 'Thêm ảnh hoặc video',
-              onRestaurant: _pickRestaurant,
+              onRestaurant:
+                  BackendModules.restaurantTag ? _pickRestaurant : null,
               onTags: _pickTags,
               hasMedia: media != null,
               hasRestaurant: restaurant != null,
@@ -576,7 +598,9 @@ class _AddToPostBar extends StatelessWidget {
 
   final VoidCallback? onMedia;
   final String mediaTooltip;
-  final VoidCallback onRestaurant;
+
+  /// `null` hides "Gắn quán".
+  final VoidCallback? onRestaurant;
   final VoidCallback onTags;
   final bool hasMedia;
   final bool hasRestaurant;
@@ -597,7 +621,7 @@ class _AddToPostBar extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text('Thêm vào bài viết',
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: context.textStyles.titleSmall),
                 ),
@@ -609,14 +633,15 @@ class _AddToPostBar extends StatelessWidget {
                   active: hasMedia,
                   onTap: onMedia,
                 ),
-                _BarButton(
-                  icon: Icons.storefront_outlined,
-                  label: 'Gắn quán',
-                  tooltip: 'Gắn quán',
-                  color: const Color(0xFFDC2626),
-                  active: hasRestaurant,
-                  onTap: onRestaurant,
-                ),
+                if (onRestaurant != null)
+                  _BarButton(
+                    icon: Icons.storefront_outlined,
+                    label: 'Gắn quán',
+                    tooltip: 'Gắn quán',
+                    color: const Color(0xFFDC2626),
+                    active: hasRestaurant,
+                    onTap: onRestaurant,
+                  ),
                 _BarButton(
                   icon: Icons.sell_outlined,
                   label: tagCount > 0 ? 'Gắn thẻ ($tagCount)' : 'Gắn thẻ',
@@ -808,6 +833,13 @@ class _AttachmentCard extends StatelessWidget {
                         Text(error ?? 'Chưa tải lên được tệp.',
                             style: context.textStyles.bodyMedium
                                 ?.copyWith(color: context.colors.error)),
+                        // The gallery picker has no room to say the limit.
+                        if (phase == _UploadPhase.invalid &&
+                            media.isVideo &&
+                            BackendModules.isReal(BackendModule.media))
+                          Text(MediaUploadRules.videoHint,
+                              style: context.textStyles.bodySmall
+                                  ?.copyWith(color: vl.muted)),
                         Wrap(
                           spacing: 4,
                           children: [

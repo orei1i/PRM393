@@ -17,6 +17,14 @@
 // POST /users/me/ingredients   → the whole list after the merge
 // { "items": [ { "ingredient": "Cà chua", "scannedAt": "…" } ] }
 // Same ingredient name (case/accents ignored) updates the existing row.
+//
+// The real BE adds to a row (all optional here, the mock has none of them):
+// { …, "quantity": 200, "unit": "g", "expiryDate": null, "isVegan": true,
+//   "allergyWarning": null }
+// Its POST returns only the rows it touched, so the service GETs the list.
+// PUT /users/me/ingredients/{id}
+// { "quantity": 300, "unit": "g", "expiryDate": "2026-11-05" }
+import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/json_helpers.dart';
 import '../../domain/entities/meal_plan.dart';
 
@@ -28,6 +36,11 @@ class PantryItemDto {
     this.ingredientId,
     this.category,
     this.caloriesPer100g,
+    this.quantity,
+    this.unit,
+    this.expiryDate,
+    this.isVegan,
+    this.allergyWarning,
   });
 
   factory PantryItemDto.fromJson(Map<String, dynamic> json) => PantryItemDto(
@@ -41,6 +54,12 @@ class PantryItemDto {
         caloriesPer100g: json['caloriesPer100g'] == null
             ? null
             : readInt(json['caloriesPer100g']),
+        quantity:
+            json['quantity'] == null ? null : readDouble(json['quantity']),
+        unit: json['unit'] as String?,
+        expiryDate: readDateTime(json['expiryDate']),
+        isVegan: json['isVegan'] as bool?,
+        allergyWarning: json['allergyWarning'] as String?,
       );
 
   final String id;
@@ -49,6 +68,11 @@ class PantryItemDto {
   final String? ingredientId;
   final String? category;
   final int? caloriesPer100g;
+  final double? quantity;
+  final String? unit;
+  final DateTime? expiryDate;
+  final bool? isVegan;
+  final String? allergyWarning;
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -57,6 +81,12 @@ class PantryItemDto {
         if (ingredientId != null) 'ingredientId': ingredientId,
         if (category != null) 'category': category,
         if (caloriesPer100g != null) 'caloriesPer100g': caloriesPer100g,
+        if (quantity != null) 'quantity': quantity,
+        if (unit != null) 'unit': unit,
+        if (expiryDate != null)
+          'expiryDate': expiryDate!.toUtc().toIso8601String(),
+        if (isVegan != null) 'isVegan': isVegan,
+        if (allergyWarning != null) 'allergyWarning': allergyWarning,
       };
 
   PantryItem toEntity() => PantryItem(
@@ -66,18 +96,53 @@ class PantryItemDto {
         ingredientId: ingredientId,
         category: category,
         caloriesPer100g: caloriesPer100g,
+        quantity: quantity,
+        unit: unit,
+        expiryDate: expiryDate,
+        allergyWarning: allergyWarning,
       );
 }
 
 class AddPantryItemDto {
-  const AddPantryItemDto({required this.ingredient, this.scannedAt});
+  const AddPantryItemDto({
+    required this.ingredient,
+    this.scannedAt,
+    this.quantity,
+    this.unit,
+    this.expiryDate,
+  });
 
   final String ingredient;
   final DateTime? scannedAt;
+
+  /// Kept by "Hoàn tác" on the real BE.
+  final double? quantity;
+  final String? unit;
+  final DateTime? expiryDate;
 
   Map<String, dynamic> toJson() => {
         'ingredient': ingredient,
         if (scannedAt != null)
           'scannedAt': scannedAt!.toUtc().toIso8601String(),
+        if (quantity != null) 'quantity': quantity,
+        if (unit != null) 'unit': unit,
+        if (expiryDate != null) 'expiryDate': toApiDate(expiryDate!),
+      };
+}
+
+/// "Sửa số lượng & hạn dùng". The BE keeps the old date when none is sent, so
+/// a date can be changed but not removed.
+class UpdatePantryItemDto {
+  const UpdatePantryItemDto(
+      {required this.quantity, required this.unit, this.expiryDate});
+
+  final double quantity;
+  final String unit;
+  final DateTime? expiryDate;
+
+  Map<String, dynamic> toJson() => {
+        'quantity': quantity,
+        'unit': unit,
+        if (expiryDate != null) 'expiryDate': toApiDate(expiryDate!),
       };
 }

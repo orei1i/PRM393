@@ -8,17 +8,22 @@
 //     "sizeBytes": 2202010, "width": 1280, "height": 960 }
 // 413 too large, 415 unsupported format.
 //
+// In dev the BE answers with a host-relative `mediaUrl`
+// ("/uploads/images/x.png"). Keep that raw value for POST `/posts` (the BE
+// matches it against its media assets); display `absoluteUrl`.
+//
 // Public contract shared with the restaurant suggestion form and the
 // complaint form: `mediaApiProvider.uploadVideo / uploadImage` with a
 // [PickedMedia] from `mediaPickerProvider`.
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/config/env.dart';
+import '../../../core/config/backend_modules.dart';
 import '../../../core/network/api_endpoints.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/utils/json_helpers.dart';
+import '../../../core/utils/media_url.dart';
 import 'media_picker.dart';
 
 class UploadedVideoDto {
@@ -38,6 +43,9 @@ class UploadedVideoDto {
   final String mediaUrl;
   final int durationSeconds;
   final int sizeBytes;
+
+  /// To display or play it, or to keep it in a mock module's store.
+  String get absoluteUrl => absoluteMediaUrl(mediaUrl) ?? mediaUrl;
 }
 
 class UploadedImageDto {
@@ -60,6 +68,9 @@ class UploadedImageDto {
   final int sizeBytes;
   final int? width;
   final int? height;
+
+  /// To display it, or to keep it in a mock module's store.
+  String get absoluteUrl => absoluteMediaUrl(mediaUrl) ?? mediaUrl;
 }
 
 abstract interface class MediaApiService {
@@ -206,6 +217,6 @@ class MockMediaRepository implements MediaApiService {
 }
 
 final mediaApiProvider = Provider<MediaApiService>((ref) {
-  if (Env.useMockData) return MockMediaRepository();
+  if (BackendModules.isMock(BackendModule.media)) return MockMediaRepository();
   return RemoteMediaApiService(ref.watch(dioProvider));
 });

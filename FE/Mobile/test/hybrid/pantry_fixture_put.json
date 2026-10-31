@@ -1,0 +1,18 @@
+{
+ "success": true,
+ "message": "Cập nhật nguyên liệu thành công.",
+ "data": {
+  "id": "6ae5962496695f5c139fa9b1",
+  "ingredient": "Đậu hũ",
+  "scannedAt": null,
+  "ingredientId": "6ae595c796695f5c139fa95d",
+  "category": "plant_protein",
+  "caloriesPer100g": 76,
+  "quantity": 300,
+  "unit": "g",
+  "expiryDate": "2026-11-05T00:00:00Z",
+  "isVegan": true,
+  "allergyWarning": null
+ },
+ "statusCode": 200
+}

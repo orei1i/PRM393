@@ -121,7 +121,10 @@ typedef ChefBookingStats = ({
 ChefBookingStats chefBookingStats(List<BookingDto> inbox, DateTime now) => (
       newRequests:
           inbox.where((b) => b.status == BookingStatus.requested).length,
-      inProgress: inbox.where((b) => b.status == BookingStatus.active).length,
+      // The same bookings as the inbox's "Đang thực hiện" tab.
+      inProgress: inbox
+          .where((b) => InboxTab.of(b.status) == InboxTab.inProgress)
+          .length,
       heldNet: inbox.fold(0, (sum, b) {
         final e = b.escrow;
         if (e == null || e.status != EscrowStatus.held) return sum;

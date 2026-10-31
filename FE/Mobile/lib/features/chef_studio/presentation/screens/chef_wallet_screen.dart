@@ -5,8 +5,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
+import '../../../../core/widgets/demo_data_banner.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/vl_card.dart';
 import '../../../booking/domain/booking_rules.dart';
@@ -31,7 +33,10 @@ class ChefWalletScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Ví của tôi')),
-      body: const ChefOnlyGate(child: _WalletBody()),
+      body: DemoDataBanner.wrap(
+        BackendModule.chefWallet,
+        child: const ChefOnlyGate(child: _WalletBody()),
+      ),
     );
   }
 }

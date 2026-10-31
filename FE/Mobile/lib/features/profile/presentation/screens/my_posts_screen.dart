@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
@@ -65,6 +66,21 @@ class MyPostsScreen extends StatelessWidget {
 /// Bottom padding that keeps the last item clear of the home indicator.
 EdgeInsets _listPadding(BuildContext context) =>
     EdgeInsets.fromLTRB(16, 12, 16, 24 + MediaQuery.paddingOf(context).bottom);
+
+/// A plain line above a list, saying where its data comes from.
+class _ListNote extends StatelessWidget {
+  const _ListNote(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Text(text,
+            style: context.textStyles.bodySmall
+                ?.copyWith(color: context.vl.muted)),
+      );
+}
 
 /// Full-width posts (like the feed) need no side padding.
 EdgeInsets _postListPadding(BuildContext context) =>
@@ -170,6 +186,7 @@ class _MyPostsTabState extends ConsumerState<_MyPostsTab> {
         ? posts
         : posts.where((p) => p.status == _filter).toList();
     final (emptyTitle, emptyMessage) = _empty[_filter]!;
+    final truncated = ref.watch(myPostsTruncatedProvider);
 
     return RefreshIndicator(
       onRefresh: () => ref.refresh(myPostsProvider.future),
@@ -183,6 +200,8 @@ class _MyPostsTabState extends ConsumerState<_MyPostsTab> {
             onSelected: (s) => setState(() => _filter = s),
           ),
           const SizedBox(height: 12),
+          if (truncated)
+            const _ListNote('Đang hiện bài của bạn trong 250 bài mới nhất.'),
           if (visible.isEmpty)
             EmptyStateView(
                 icon: Icons.article_outlined,
@@ -202,8 +221,9 @@ class _MyPostsTabState extends ConsumerState<_MyPostsTab> {
                         padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                         child: PostStatusBanner(
                           post: post,
-                          onResubmit: () =>
-                              PostActions.edit(context, ref, post),
+                          onResubmit: BackendModules.postEdit
+                              ? () => PostActions.edit(context, ref, post)
+                              : null,
                         ),
                       ),
                     ),
@@ -277,30 +297,45 @@ class _SavedTab extends ConsumerWidget {
           padding: EdgeInsets.only(top: 16), child: FeedSkeleton());
     }
     final posts = async.requireValue;
+    // The real BE has no saved posts: they stay on this device (D8).
+    final note = BackendModules.isReal(BackendModule.community)
+        ? const _ListNote('Bài đã lưu chỉ nằm trên máy này.')
+        : null;
+    final lead = note == null ? 0 : 1;
+    const empty = EmptyStateView(
+      icon: Icons.bookmark_border_rounded,
+      title: 'Chưa lưu bài nào',
+      message: 'Chạm biểu tượng dấu trang trên bài viết để lưu lại.',
+    );
     return RefreshIndicator(
       onRefresh: () => ref.refresh(savedPostsProvider.future),
       child: posts.isEmpty
-          ? const SingleChildScrollView(
-              physics: AlwaysScrollableScrollPhysics(),
-              child: EmptyStateView(
-                icon: Icons.bookmark_border_rounded,
-                title: 'Chưa lưu bài nào',
-                message: 'Chạm biểu tượng dấu trang trên bài viết để lưu lại.',
-              ),
+          ? SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: note == null
+                  ? empty
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [note, empty],
+                    ),
             )
           : ListView.builder(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: _postListPadding(context),
-              itemCount: posts.length + 1,
-              itemBuilder: (context, i) => i == posts.length
-                  ? const PostListGap()
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const PostListGap(),
-                        _postCard(context, ref, posts[i]),
-                      ],
-                    ),
+              itemCount: lead + posts.length + 1,
+              itemBuilder: (context, index) {
+                if (note != null && index == 0) return note;
+                final i = index - lead;
+                return i == posts.length
+                    ? const PostListGap()
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const PostListGap(),
+                          _postCard(context, ref, posts[i]),
+                        ],
+                      );
+              },
             ),
     );
   }
@@ -348,6 +383,16 @@ class _MyCommentsTabState extends ConsumerState<_MyCommentsTab> {
 
   @override
   Widget build(BuildContext context) {
+    if (!BackendModules.myComments) {
+      return const SingleChildScrollView(
+        child: EmptyStateView(
+          icon: Icons.forum_outlined,
+          title: 'Chưa xem được bình luận của bạn',
+          message:
+              'Máy chủ chưa hỗ trợ danh sách này. Bình luận của bạn vẫn hiện trong từng bài viết.',
+        ),
+      );
+    }
     final async = ref.watch(myCommentsProvider);
     if (!async.hasValue) {
       if (async.hasError) {
@@ -385,8 +430,9 @@ class _MyCommentsTabState extends ConsumerState<_MyCommentsTab> {
                   comment: c,
                   opening: _openingId == c.id,
                   onOpen: () => _open(c),
-                  onEdit: () =>
-                      PostActions.editCommentInDialog(context, ref, c),
+                  onEdit: BackendModules.commentEdit
+                      ? () => PostActions.editCommentInDialog(context, ref, c)
+                      : null,
                   onDelete: () => PostActions.deleteComment(context, ref,
                       postId: c.postId, commentId: c.id),
                 );
@@ -411,7 +457,9 @@ class _MyCommentCard extends StatelessWidget {
   final MyComment comment;
   final bool opening;
   final VoidCallback onOpen;
-  final VoidCallback onEdit;
+
+  /// `null` hides "Sửa".
+  final VoidCallback? onEdit;
   final VoidCallback onDelete;
 
   @override
@@ -441,18 +489,19 @@ class _MyCommentCard extends StatelessWidget {
                 tooltip: 'Tuỳ chọn bình luận',
                 icon: Icon(Icons.more_horiz_rounded, color: context.vl.muted),
                 onSelected: (a) => switch (a) {
-                  _MyCommentAction.edit => onEdit(),
+                  _MyCommentAction.edit => onEdit?.call(),
                   _MyCommentAction.delete => onDelete(),
                 },
                 itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: _MyCommentAction.edit,
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.edit_outlined),
-                      title: Text('Sửa'),
+                  if (onEdit != null)
+                    const PopupMenuItem(
+                      value: _MyCommentAction.edit,
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.edit_outlined),
+                        title: Text('Sửa'),
+                      ),
                     ),
-                  ),
                   PopupMenuItem(
                     value: _MyCommentAction.delete,
                     child: ListTile(

@@ -2,6 +2,7 @@
 "use client";
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 import type {
   AdminComment,
@@ -23,6 +24,7 @@ import type {
 } from "@/types/admin";
 
 import { catalogApi, chefApplicationsApi, commentsApi, contentApi, overviewApi, usersApi } from "../admin_api";
+import { describeError } from "../api_error";
 
 export const adminKeys = {
   overview: ["overview"] as const,
@@ -109,20 +111,23 @@ export function useChefApplicationCounts() {
   return useQuery({ queryKey: adminKeys.chefCounts, queryFn: () => chefApplicationsApi.counts(), refetchInterval: 60_000 });
 }
 
+/**
+ * The card stays until the server answers, so a failed decision keeps the typed note.
+ * Toasts live here, not in mutate(): a success removes the card, and mutate() callbacks
+ * do not run once their component has unmounted.
+ */
 export function useReviewChefApplication() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: ChefReviewInput) => chefApplicationsApi.review(input),
-    onMutate: async (input) => {
-      await qc.cancelQueries({ queryKey: adminKeys.chefApps("pending") });
-      const previous = qc.getQueryData(adminKeys.chefApps("pending"));
+    onSuccess: (app, input) => {
       qc.setQueryData(adminKeys.chefApps("pending"), (old: { id: string }[] | undefined) =>
         old?.filter((a) => a.id !== input.applicationId),
       );
-      return { previous };
+      toast.success(input.decision === "approved" ? `Đã duyệt ${app.fullName} thành chuyên gia` : `Đã từ chối hồ sơ của ${app.fullName}`);
     },
-    onError: (_e, _input, context) => {
-      if (context?.previous) qc.setQueryData(adminKeys.chefApps("pending"), context.previous);
+    onError: (e) => {
+      toast.error("Chưa lưu được quyết định", { description: describeError(e) });
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["chef-apps"] });

@@ -2,7 +2,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../core/network/api_exception.dart';
-import '../../../core/session/mock_accounts.dart';
+import '../../../core/session/mock_auth_db.dart';
 import '../../../core/utils/bmi.dart';
 import '../../../core/utils/energy.dart';
 import '../../../core/utils/formatters.dart';
@@ -86,25 +86,10 @@ class MockMealPlannerRepository implements MealPlannerApiService {
         null => null,
       };
 
-  /// Allergen id → Vietnamese ingredient words that contain it (whole words,
-  /// so "nấm mèo" is not mistaken for "mè").
-  static const _allergenWords = {
-    'peanut': ['đậu phộng', 'lạc rang'],
-    'soy': ['đậu hũ', 'đậu phụ', 'tàu hũ', 'đậu nành', 'nước tương', 'tempeh'],
-    'gluten': ['bánh mì', 'lúa mì', 'mì căn', 'mì ý'],
-    'sesame': ['mè', 'vừng'],
-    'tree_nut': ['hạt điều', 'hạnh nhân', 'óc chó'],
-  };
-
   /// Allergens the server would infer from a dish name and its ingredients.
   static Set<String> detectAllergens(String name,
-      [Iterable<String> ingredients = const []]) {
-    final words = [name, ...ingredients].map((w) => ' ${w.toLowerCase()} ');
-    return {
-      for (final MapEntry(key: id, value: names) in _allergenWords.entries)
-        if (words.any((w) => names.any((n) => w.contains(' $n ')))) id,
-    };
-  }
+          [Iterable<String> ingredients = const []]) =>
+      detectDishAllergens(name, ingredients);
 
   /// `null` until the member saves one ("Hồ sơ sức khoẻ").
   HealthProfileDto? get _healthProfile => _store.profile;
@@ -582,12 +567,7 @@ class MockMealPlannerRepository implements MealPlannerApiService {
 
   // ---------------------------------------------------------------------------
 
-  static String? _accountName(String id) {
-    for (final a in mockAccounts) {
-      if (a.userId == id) return a.displayName;
-    }
-    return null;
-  }
+  static String? _accountName(String id) => MockAuthDb.byId(id)?.fullName;
 
   /// No tagged allergen and no free-text allergy in the name.
   bool _isSafe(RecipeDto r) => allergyConflicts(
@@ -643,7 +623,7 @@ class MockMealPlannerRepository implements MealPlannerApiService {
         }
       }
     }
-    return RecipeDto(
+    final dish = RecipeDto(
       id: manual
           ? 'mn_${DateTime.now().microsecondsSinceEpoch}'
           : chef
@@ -664,6 +644,30 @@ class MockMealPlannerRepository implements MealPlannerApiService {
       source: request.source,
       sourceName: request.sourceName,
     );
+    if (chef) _keepChefDishPage(dish, request);
+    return dish;
+  }
+
+  /// The chef's dish as a recipe page: what the chef wrote, or just its name
+  /// and figures when the plan has no ingredients or steps.
+  static void _keepChefDishPage(RecipeDto dish, AddMealRequestDto request) {
+    final steps = request.instructions?.trim() ?? '';
+    MockRecipeBook.addPlacedDish({
+      'id': dish.id,
+      'name': dish.name,
+      'caloriesCache': request.calories,
+      'proteinG': request.proteinG,
+      'carbsG': request.carbsG,
+      'fatG': request.fatG,
+      'allergens': dish.allergens,
+      'prepMinutes': request.prepMinutes,
+      'servings': 1,
+      'isVegan': true,
+      'createdByName': request.sourceName,
+      'ingredients': request.ingredients,
+      'instructions': steps,
+      'isSnapshot': request.ingredients.isEmpty && steps.isEmpty,
+    });
   }
 
   MealPlanDto _requirePlan(String planId) {
@@ -747,9 +751,15 @@ class MockMealPlannerRepository implements MealPlannerApiService {
     return null;
   }
 
-  /// The seeded current week: the member's slots, one serving each.
+  /// The seeded current week: the member's slots, one serving each. A dish
+  /// with the member's allergen stays, to show the warning, but isn't labelled
+  /// as chosen by AI: AI avoids allergens.
   MealPlanDto _buildWeek(DateTime monday) {
     final pattern = _pattern;
+    Map<String, Object?> seeded(Map<String, Object?> dish) =>
+        _isSafe(RecipeDto.fromJson(dish))
+            ? dish
+            : {...dish, 'source': MealSource.recipe.apiValue};
     final days = List.generate(7, (i) {
       final date = monday.add(Duration(days: i));
       return {
@@ -757,7 +767,7 @@ class MockMealPlannerRepository implements MealPlannerApiService {
         'meals': {
           for (final slot in pattern)
             slot.apiValue:
-                slot.isSnack ? _snackFor(slot, i) : _defaults(slot)[i],
+                seeded(slot.isSnack ? _snackFor(slot, i) : _defaults(slot)[i]),
         },
       };
     });

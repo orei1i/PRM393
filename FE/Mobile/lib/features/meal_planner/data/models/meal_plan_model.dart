@@ -29,6 +29,10 @@
 // (servings in the slot, default 1; kcal/macros are already for that
 // portion).
 //
+// A real BE slot item also has "recipeId" ("id" is then the slot's own 32-hex
+// uuid, not a recipe) and "allergyConflicts". PATCH always stores
+// "source": "manual", even for a recipe, so that reads as "recipe" here.
+//
 // POST /meal-plans/current/meals   → 200 MealPlanDayDto (the updated day)
 // { "date": "2026-10-15", "slot": "lunch", "source": "fridge_scan", "sourceId": "menu_1",
 //   "name": "Đậu hũ xào bông cải cà rốt", "calories": 420, "prepMinutes": 20,
@@ -132,10 +136,11 @@ class RecipeDto {
     this.sourceName,
     this.createdBy,
     this.portion = 1,
+    this.allergyConflicts = const [],
   });
 
   factory RecipeDto.fromJson(Map<String, dynamic> json) => RecipeDto(
-        id: json['id']?.toString() ?? '',
+        id: effectiveMealId(json),
         name: json['name'] as String? ?? '',
         imageUrl: json['imageUrl'] as String?,
         nutrition: NutritionDto.fromJson({
@@ -151,13 +156,24 @@ class RecipeDto {
             ? SeasonalSwapDto.fromJson(
                 json['seasonalSwap'] as Map<String, dynamic>)
             : null,
-        source: json['source'] as String?,
+        source: _hasRecipeId(json) && json['source'] == 'manual'
+            ? MealSource.recipe.apiValue
+            : json['source'] as String?,
         sourceName: json['sourceName'] as String?,
         createdBy: json['createdBy']?.toString(),
         portion: json['portion'] == null || readDouble(json['portion']) <= 0
             ? 1
             : readDouble(json['portion']),
+        allergyConflicts: readStringList(json['allergyConflicts']),
       );
+
+  static bool _hasRecipeId(Map<String, dynamic> json) =>
+      json['recipeId']?.toString().isNotEmpty ?? false;
+
+  /// The id that opens the dish: its `recipeId` when it has one, else `id`.
+  static String effectiveMealId(Map<String, dynamic> json) => _hasRecipeId(json)
+      ? json['recipeId'].toString()
+      : json['id']?.toString() ?? '';
 
   final String id;
   final String name;
@@ -176,6 +192,9 @@ class RecipeDto {
   /// Servings in the slot; nutrition is for this portion.
   final double portion;
 
+  /// The member's allergies the server found in this dish.
+  final List<String> allergyConflicts;
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
@@ -189,6 +208,7 @@ class RecipeDto {
         if (sourceName != null) 'sourceName': sourceName,
         if (createdBy != null) 'createdBy': createdBy,
         if (portion != 1) 'portion': portion,
+        if (allergyConflicts.isNotEmpty) 'allergyConflicts': allergyConflicts,
       };
 
   RecipeDto withSource(String source, {String? sourceName}) => RecipeDto(
@@ -204,6 +224,7 @@ class RecipeDto {
         sourceName: sourceName ?? this.sourceName,
         createdBy: createdBy,
         portion: portion,
+        allergyConflicts: allergyConflicts,
       );
 
   /// [portion] servings of this dish (kcal and the macros it has scaled;
@@ -231,6 +252,7 @@ class RecipeDto {
       sourceName: sourceName,
       createdBy: createdBy,
       portion: portion,
+      allergyConflicts: allergyConflicts,
     );
   }
 
@@ -247,6 +269,7 @@ class RecipeDto {
         sourceName: sourceName,
         createdBy: createdBy,
         portion: portion,
+        serverConflicts: allergyConflicts,
       );
 }
 
@@ -405,6 +428,7 @@ class AddMealRequestDto {
     this.source = 'fridge_scan',
     this.sourceId,
     this.sourceName,
+    this.instructions,
   });
 
   final DateTime date;
@@ -426,6 +450,10 @@ class AddMealRequestDto {
   final String source;
   final String? sourceId;
   final String? sourceName;
+
+  /// A chef's steps, for the dish's page. Not sent: the BE keeps no steps on a
+  /// placed dish, so the mock is the only one that reads this.
+  final String? instructions;
 
   Map<String, dynamic> toJson() => {
         'date': toApiDate(date),
@@ -584,6 +612,30 @@ class CreateRecipeRequestDto {
         if (prepMinutes != null) 'prepMinutes': prepMinutes,
         if (servings != null) 'servings': servings,
       };
+
+  /// What POST /recipes takes on the real BE: plain text rows and steps, no
+  /// structured quantities and no servings.
+  Map<String, dynamic> toBackendJson() => {
+        'name': name,
+        'calories': calories,
+        if (proteinG != null) 'proteinG': proteinG,
+        if (carbsG != null) 'carbsG': carbsG,
+        if (fatG != null) 'fatG': fatG,
+        if (prepMinutes != null) 'prepMinutes': prepMinutes,
+        'ingredients': [
+          for (final i in ingredients)
+            i.quantity > 0
+                ? [i.name, _plainNumber(i.quantity), i.unit]
+                    .where((part) => part.isNotEmpty)
+                    .join(' ')
+                : i.name,
+        ],
+        'instructions': [for (final s in steps) s.trim()],
+      };
+
+  static String _plainNumber(double value) => value == value.roundToDouble()
+      ? value.toStringAsFixed(0)
+      : value.toString();
 }
 
 /// POST /meal-plans/current/adjust ("Chỉnh thực đơn với AI")

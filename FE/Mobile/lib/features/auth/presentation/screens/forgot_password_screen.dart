@@ -1,10 +1,12 @@
 // lib/features/auth/presentation/screens/forgot_password_screen.dart
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/session/auth_api_service.dart';
 import '../../../../core/theme/vl_colors.dart';
@@ -21,6 +23,9 @@ class ForgotPasswordScreen extends ConsumerStatefulWidget {
   final String? initialEmail;
 
   static const resendAfter = Duration(seconds: 60);
+
+  static const devCodeHint =
+      '(Bản thử nghiệm) Máy chủ chưa gửi email: xem mã trong nhật ký máy chủ.';
 
   static Route<String> route({String? email}) => MaterialPageRoute<String>(
       builder: (_) => ForgotPasswordScreen(initialEmail: email));
@@ -193,6 +198,14 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
             AuthInfoBox(
               icon: Icons.science_outlined,
               message: '(Bản thử nghiệm) Mã xác minh: $code',
+            ),
+          ],
+          // The BE only prints the code to its own log (no email yet).
+          if (kDebugMode && BackendModules.isReal(BackendModule.auth)) ...[
+            const SizedBox(height: 12),
+            const AuthInfoBox(
+              icon: Icons.science_outlined,
+              message: ForgotPasswordScreen.devCodeHint,
             ),
           ],
           const SizedBox(height: 20),

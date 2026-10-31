@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/session/session_controller.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
@@ -322,14 +323,15 @@ class PostAuthorRow extends ConsumerWidget {
               icon: Icon(Icons.more_horiz_rounded, color: context.vl.muted),
               onSelected: (action) => _onOwnAction(context, ref, action),
               itemBuilder: (context) => [
-                const PopupMenuItem(
-                  value: _OwnPostAction.edit,
-                  child: ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.edit_outlined),
-                    title: Text('Sửa bài'),
+                if (BackendModules.postEdit)
+                  const PopupMenuItem(
+                    value: _OwnPostAction.edit,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.edit_outlined),
+                      title: Text('Sửa bài'),
+                    ),
                   ),
-                ),
                 PopupMenuItem(
                   value: _OwnPostAction.delete,
                   child: ListTile(

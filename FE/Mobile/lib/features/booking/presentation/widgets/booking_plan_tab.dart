@@ -54,7 +54,7 @@ class BookingPlanTab extends ConsumerWidget {
     }
     final async = ref.watch(bookingPlanProvider(b.id));
     return switch (async) {
-      AsyncValue(:final value?) => ListView(
+      AsyncValue(valueOrNull: final value?) => ListView(
           padding: padding,
           children: _content(context, value),
         ),
@@ -118,13 +118,20 @@ class BookingPlanTab extends ConsumerWidget {
                     b.bookingType == BookingType.dailyFeedback &&
                     (b.status == BookingStatus.active ||
                         b.status == BookingStatus.ended)
-                ? TextButton.icon(
-                    onPressed: busy ? null : () => onFeedback(d),
-                    icon: const Icon(Icons.rate_review_outlined, size: 18),
-                    label: Text(d.feedback == null
-                        ? 'Phản hồi ngày này'
-                        : 'Sửa phản hồi'),
-                  )
+                ? planDayStarted(d.date, DateTime.now())
+                    ? TextButton.icon(
+                        onPressed: busy ? null : () => onFeedback(d),
+                        icon: const Icon(Icons.rate_review_outlined, size: 18),
+                        label: Text(d.feedback == null
+                            ? 'Phản hồi ngày này'
+                            : 'Sửa phản hồi'),
+                      )
+                    // Sent ahead of time: nothing to give feedback on yet.
+                    : TextButton.icon(
+                        onPressed: null,
+                        icon: const Icon(Icons.schedule_rounded, size: 18),
+                        label: Text('Phản hồi từ ${formatDayMonth(d.date)}'),
+                      )
                 : null,
           ),
         ),

@@ -68,7 +68,8 @@
 // POST /bookings/{id}/messages { body, attachmentUrl? } → MessageDto ; GET ?after= → [MessageDto]
 // POST /bookings/{id}/offers { price, planDays, bookingType, startDate, note } → BookingDto
 // POST /bookings/{id}/offers/{offerId}/accept|reject → BookingDto
-//      accept: contract created, AwaitingPayment, paymentDueAt = now + 48 h
+//      accept: contract created, AwaitingPayment,
+//      paymentDueAt = min(now + 48 h, startDate 00:00 VN)
 // POST /bookings/{id}/cancel { reason } ; POST /chefs/me/bookings/{id}/decline { reason }
 // POST /bookings/{id}/payments → OrderDto (orders.booking_id, PaymentOS QR)
 // GET  /bookings/{id}/plan → [PlanDayDto]

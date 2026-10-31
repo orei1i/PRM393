@@ -1,0 +1,59 @@
+{
+ "success": true,
+ "message": "Thêm nguyên liệu thành công.",
+ "data": [
+  {
+   "id": "6ae5966f96695f5c139fa9c6",
+   "ingredient": "Đậu hũ",
+   "scannedAt": null,
+   "ingredientId": "6ae595c796695f5c139fa95d",
+   "category": "plant_protein",
+   "caloriesPer100g": 76,
+   "quantity": 200,
+   "unit": "g",
+   "expiryDate": null,
+   "isVegan": true,
+   "allergyWarning": null
+  },
+  {
+   "id": "6ae5966f96695f5c139fa9c7",
+   "ingredient": "Cà chua",
+   "scannedAt": null,
+   "ingredientId": "6ae595c796695f5c139fa981",
+   "category": "vegetable",
+   "caloriesPer100g": 18,
+   "quantity": 1,
+   "unit": "phần",
+   "expiryDate": null,
+   "isVegan": true,
+   "allergyWarning": null
+  },
+  {
+   "id": "6ae5966f96695f5c139fa9c8",
+   "ingredient": "Bông cải xanh",
+   "scannedAt": null,
+   "ingredientId": "6ae595c796695f5c139fa979",
+   "category": "vegetable",
+   "caloriesPer100g": 34,
+   "quantity": 1,
+   "unit": "phần",
+   "expiryDate": null,
+   "isVegan": true,
+   "allergyWarning": null
+  },
+  {
+   "id": "6ae5966f96695f5c139fa9c9",
+   "ingredient": "Đậu phộng",
+   "scannedAt": null,
+   "ingredientId": "6ae595c796695f5c139fa987",
+   "category": "nut_seed",
+   "caloriesPer100g": 567,
+   "quantity": 1,
+   "unit": "phần",
+   "expiryDate": null,
+   "isVegan": true,
+   "allergyWarning": null
+  }
+ ],
+ "statusCode": 200
+}

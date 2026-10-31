@@ -3,14 +3,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/labels.dart';
+import '../../../../core/widgets/demo_data_banner.dart';
 import '../../../../core/widgets/shimmer.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/vl_card.dart';
+import '../../../ingredient/presentation/widgets/not_vegan_notice.dart';
 import '../../../recipe/presentation/screens/recipe_detail_screen.dart';
+import '../../../scanner/domain/vegan_check.dart';
 import '../../domain/entities/meal_plan.dart';
 import '../controllers/meal_plan_controller.dart';
 import '../screens/user_recipe_form_screen.dart';
@@ -413,66 +417,71 @@ class _ChefTabState extends ConsumerState<_ChefTab>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return FutureBuilder<List<ChefSuggestion>>(
-      future: _suggestions,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
-          return const Padding(
-              padding: EdgeInsets.fromLTRB(20, 16, 20, 0),
-              child: _PickSkeleton());
-        }
-        if (snapshot.hasError) {
-          return Center(
-            child: SingleChildScrollView(
-              child: ErrorStateView(
-                  error: snapshot.error!, onRetry: () => setState(_load)),
-            ),
-          );
-        }
-        final items = snapshot.data ?? const <ChefSuggestion>[];
-        if (items.isEmpty) {
-          return const Center(
-            child: SingleChildScrollView(
-              child: EmptyStateView(
-                icon: Icons.verified_outlined,
-                title: 'Chưa có đề xuất từ chuyên gia',
-                message:
-                    'Đặt chuyên gia lên thực đơn để nhận món đề xuất theo từng ngày.',
-              ),
-            ),
-          );
-        }
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-          children: [
-            for (final s in items)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _PickTile(
-                  recipe: s.recipe,
-                  allergies: widget.allergies,
-                  byline: [
-                    '${s.chefName} đề xuất',
-                    // With a day, the meal moves to the schedule line.
-                    if (s.slot != null && s.targetDate == null)
-                      'cho ${s.slot!.label.toLowerCase()}',
-                  ].join(' '),
-                  schedule: s.scheduleLabel,
-                  note: s.note,
-                  onTap: () => _choose(context, s.recipe, widget.allergies),
-                  onView: () => _openRecipe(context, s.recipe),
+    return DemoDataBanner.wrap(BackendModule.bookings,
+        child: FutureBuilder<List<ChefSuggestion>>(
+          future: _suggestions,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Padding(
+                  padding: EdgeInsets.fromLTRB(20, 16, 20, 0),
+                  child: _PickSkeleton());
+            }
+            if (snapshot.hasError) {
+              return Center(
+                child: SingleChildScrollView(
+                  child: ErrorStateView(
+                      error: snapshot.error!, onRetry: () => setState(_load)),
                 ),
-              ),
-          ],
-        );
-      },
-    );
+              );
+            }
+            final items = snapshot.data ?? const <ChefSuggestion>[];
+            if (items.isEmpty) {
+              return const Center(
+                child: SingleChildScrollView(
+                  child: EmptyStateView(
+                    icon: Icons.verified_outlined,
+                    title: 'Chưa có đề xuất từ chuyên gia',
+                    message:
+                        'Đặt chuyên gia lên thực đơn để nhận món đề xuất theo từng ngày.',
+                  ),
+                ),
+              );
+            }
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              children: [
+                for (final s in items)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _PickTile(
+                      recipe: s.recipe,
+                      allergies: widget.allergies,
+                      byline: [
+                        '${s.chefName} đề xuất',
+                        // With a day, the meal moves to the schedule line.
+                        if (s.slot != null && s.targetDate == null)
+                          'cho ${s.slot!.label.toLowerCase()}',
+                      ].join(' '),
+                      schedule: s.scheduleLabel,
+                      note: s.note,
+                      onTap: () => _choose(context, s.recipe, widget.allergies),
+                      onView: () => _openRecipe(context, s.recipe),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ));
   }
 }
 
 // -------------------------------------------------------------- manual --
 
 class _ManualTab extends StatefulWidget {
+  /// Instead of the macro inputs when the server would drop them.
+  static const noMacrosNote =
+      'Máy chủ chưa lưu đạm, tinh bột, chất béo của món tự nhập.';
+
   const _ManualTab({required this.slot});
 
   final MealSlot slot;
@@ -493,6 +502,9 @@ class _ManualTabState extends State<_ManualTab>
   /// After a refused submit, every edit re-checks the form, so a message
   /// clears as soon as its value is valid.
   bool _attempted = false;
+
+  /// The dish last refused as not vegan, until the name changes.
+  ({String name, VeganVerdict verdict})? _refused;
 
   @override
   bool get wantKeepAlive => true;
@@ -536,8 +548,15 @@ class _ManualTabState extends State<_ManualTab>
       setState(() => _attempted = true);
       return;
     }
+    // The same rule as "Nguyên liệu trong tủ": a menu of this app is vegan.
+    final name = _name.text.trim();
+    final verdict = classifyVegan(name);
+    if (!verdict.isVegan) {
+      setState(() => _refused = (name: name, verdict: verdict));
+      return;
+    }
     Navigator.of(context).pop(ManualPick(
-      name: _name.text.trim(),
+      name: name,
       calories: int.tryParse(_kcal.text.trim()),
       proteinG: _number(_protein.text),
       carbsG: _number(_carbs.text),
@@ -572,12 +591,27 @@ class _ManualTabState extends State<_ManualTab>
             textInputAction: TextInputAction.next,
             maxLength: 80,
             validator: _validateName,
+            onChanged: (_) {
+              if (_refused != null) setState(() => _refused = null);
+            },
             decoration: const InputDecoration(
               labelText: 'Tên món',
               hintText: 'VD: Cơm tấm chay nhà làm',
               border: OutlineInputBorder(),
             ),
           ),
+          if (_refused case final refused?) ...[
+            NotVeganNotice(
+              name: refused.name,
+              verdict: refused.verdict,
+              destination: 'thực đơn',
+              onPick: (swap) => setState(() {
+                _name.text = swap;
+                _refused = null;
+              }),
+            ),
+            const SizedBox(height: 8),
+          ],
           const SizedBox(height: 8),
           TextFormField(
             controller: _kcal,
@@ -591,24 +625,29 @@ class _ManualTabState extends State<_ManualTab>
             ),
           ),
           const SizedBox(height: 12),
-          Text('Đạm, tinh bột, chất béo (không bắt buộc)',
-              style: context.textStyles.titleSmall),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final (c, label) in [
-                (_protein, 'Đạm (g)'),
-                (_carbs, 'Tinh bột (g)'),
-                (_fat, 'Béo (g)'),
-              ])
-                SizedBox(width: 120, child: _gramsField(c, label)),
-            ],
-          ),
+          if (BackendModules.manualMealMacros) ...[
+            Text('Đạm, tinh bột, chất béo (không bắt buộc)',
+                style: context.textStyles.titleSmall),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final (c, label) in [
+                  (_protein, 'Đạm (g)'),
+                  (_carbs, 'Tinh bột (g)'),
+                  (_fat, 'Béo (g)'),
+                ])
+                  SizedBox(width: 120, child: _gramsField(c, label)),
+              ],
+            ),
+          ] else
+            Text(_ManualTab.noMacrosNote,
+                style: context.textStyles.bodySmall
+                    ?.copyWith(color: context.vl.muted)),
           const SizedBox(height: 12),
           Text(
-            'Món tự nhập vẫn được kiểm tra dị ứng theo tên món.',
+            'Món tự nhập vẫn được kiểm tra thuần chay và dị ứng theo tên món.',
             style:
                 context.textStyles.bodySmall?.copyWith(color: context.vl.muted),
           ),
@@ -695,6 +734,13 @@ class _PickTile extends StatelessWidget {
                           : 'Chưa rõ kcal ',
                       style: AppTypography.mono(
                           size: 12, color: context.colors.onSurface)),
+                  // The kcal are for this size; the recipe page says per
+                  // serving.
+                  if (recipe.portionLabel case final portion?)
+                    TextSpan(
+                        text: 'cho $portion ',
+                        style: context.textStyles.bodySmall
+                            ?.copyWith(color: vl.muted)),
                   if (delta != null)
                     TextSpan(
                         text: delta == 0

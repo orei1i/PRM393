@@ -28,6 +28,35 @@ class ErrorMappingInterceptor extends Interceptor {
   }
 }
 
+/// Reports a 401 on a request that carried a Bearer (the JWT expired or was
+/// revoked; the BE has no refresh). Auth endpoints are skipped: a 401 there is
+/// a wrong password. A guest request is never reported.
+class UnauthorizedInterceptor extends Interceptor {
+  UnauthorizedInterceptor(this._onUnauthorized);
+
+  /// Gets the token that was refused, so a late answer to a request of an
+  /// earlier session cannot end the current one.
+  final void Function(String token) _onUnauthorized;
+
+  static const _bearerPrefix = 'Bearer ';
+
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) {
+    final options = err.requestOptions;
+    final mapped = err.error;
+    final status = err.response?.statusCode ??
+        (mapped is ApiException ? mapped.statusCode : null);
+    final authorization = options.headers['Authorization'];
+    if (status == 401 &&
+        authorization is String &&
+        authorization.startsWith(_bearerPrefix) &&
+        !options.path.startsWith('/auth/')) {
+      _onUnauthorized(authorization.substring(_bearerPrefix.length));
+    }
+    handler.next(err);
+  }
+}
+
 /// Adds a correlation id so a failed request can be found in the admin `ai_logs`.
 class CorrelationIdInterceptor extends Interceptor {
   int _counter = 0;

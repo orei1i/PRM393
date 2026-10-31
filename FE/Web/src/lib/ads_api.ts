@@ -28,7 +28,8 @@
 import type { AdCampaign, AdCtaType, AdFeedItem, AdInput, AdPlacement, AdQuery, AdRestaurant, AdStatus } from "@/types/ads";
 import { AD_CTA_LABEL, AD_CTA_TYPES, AD_NEARBY_LIMIT, AD_PLACEMENTS, AD_STATUSES, deriveAdStatus } from "@/types/ads";
 
-import { qs, request, USE_MOCK_DATA } from "./api_client";
+import { qs, request } from "./api_client";
+import { isMock } from "./backend_modules";
 import { readSession } from "./auth";
 import { apiId, readId } from "./ids";
 import * as mock from "./mock_ads";
@@ -114,7 +115,7 @@ function body(input: Partial<AdInput>) {
 export const adsApi = {
   /** GET /admin/ads?status=&city=&search= */
   async list(query: AdQuery): Promise<AdCampaign[]> {
-    if (USE_MOCK_DATA) return mock.listAds(query);
+    if (isMock("ads")) return mock.listAds(query);
     const raw = await request<Raw[]>(
       `/admin/ads?${qs({
         status: query.status === "all" ? undefined : query.status,
@@ -127,25 +128,25 @@ export const adsApi = {
 
   /** POST /admin/ads */
   async create(input: AdInput): Promise<AdCampaign> {
-    if (USE_MOCK_DATA) return mock.createAd(input, readSession());
+    if (isMock("ads")) return mock.createAd(input, readSession());
     return normalizeAd(await request<Raw>("/admin/ads", { method: "POST", body: body(input) }));
   },
 
   /** PATCH /admin/ads/{id} */
   async update(id: string, patch: Partial<AdInput>): Promise<AdCampaign> {
-    if (USE_MOCK_DATA) return mock.updateAd(id, patch, readSession());
+    if (isMock("ads")) return mock.updateAd(id, patch, readSession());
     return normalizeAd(await request<Raw>(`/admin/ads/${encodeURIComponent(id)}`, { method: "PATCH", body: body(patch) }));
   },
 
   /** POST /admin/ads/{id}/pause | /resume */
   async setPaused(id: string, paused: boolean): Promise<AdCampaign> {
-    if (USE_MOCK_DATA) return mock.setAdPaused(id, paused, readSession());
+    if (isMock("ads")) return mock.setAdPaused(id, paused, readSession());
     return normalizeAd(await request<Raw>(`/admin/ads/${encodeURIComponent(id)}/${paused ? "pause" : "resume"}`, { method: "POST" }));
   },
 
   /** DELETE /admin/ads/{id} */
   async remove(id: string): Promise<void> {
-    if (USE_MOCK_DATA) return mock.deleteAd(id, readSession());
+    if (isMock("ads")) return mock.deleteAd(id, readSession());
     await request<unknown>(`/admin/ads/${encodeURIComponent(id)}`, { method: "DELETE" });
   },
 
@@ -156,7 +157,7 @@ export const adsApi = {
     limit = AD_NEARBY_LIMIT,
     placement: AdPlacement = "nearby",
   ): Promise<AdFeedItem[]> {
-    if (USE_MOCK_DATA) return mock.getFeed(city, coords, limit, placement);
+    if (isMock("ads")) return mock.getFeed(city, coords, limit, placement);
     const raw = await request<Raw[]>(`/ads/feed?${qs({ placement, city: city ?? undefined, lat: coords?.lat, lng: coords?.lng, limit })}`);
     return raw.map(normalizeAdFeedItem);
   },

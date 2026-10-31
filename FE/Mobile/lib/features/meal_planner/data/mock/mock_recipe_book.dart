@@ -12,11 +12,13 @@ abstract final class MockRecipeBook {
   static final Map<String, List<Map<String, Object?>>> _chefSuggestions = {
     'u_me': _seedSuggestionsForMinhAnh(),
   };
+  static final Map<String, Map<String, Object?>> _placedDishes = {};
   static int _seq = 0;
 
   /// Back to the seeds (tests, via `MockMealPlannerRepository.reset`).
   static void reset() {
     _userRecipes.clear();
+    _placedDishes.clear();
     _chefSuggestions
       ..clear()
       ..['u_me'] = _seedSuggestionsForMinhAnh();
@@ -81,8 +83,14 @@ abstract final class MockRecipeBook {
     return row;
   }
 
+  /// A dish placed in a slot that exists nowhere else (a chef's plan dish,
+  /// `ch_…`), so the slot's card can open it.
+  static void addPlacedDish(Map<String, Object?> recipe) =>
+      _placedDishes[recipe['id']! as String] = recipe;
+
   /// Any stored recipe by id, for the recipe screen.
   static Map<String, Object?>? findDetail(String id) {
+    if (_placedDishes[id] case final dish?) return dish;
     for (final list in _userRecipes.values) {
       for (final r in list) {
         if (r['id'] == id) return r;

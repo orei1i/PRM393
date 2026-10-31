@@ -63,7 +63,8 @@ import {
 } from "@/types/bookings";
 import { ESCROW_HOLD_DAYS, PLATFORM_FEE_RATE } from "@/types/payouts";
 
-import { qs, request, USE_MOCK_DATA } from "./api_client";
+import { qs, request } from "./api_client";
+import { isMock } from "./backend_modules";
 import { readSession } from "./auth";
 import { readId } from "./ids";
 import * as mock from "./mock_bookings";
@@ -295,20 +296,20 @@ export function normalizeHold(raw: Raw): AdminEscrowHold {
 export const bookingsApi = {
   /** GET /admin/complaints?status=&search= */
   async listComplaints(query: ComplaintQuery): Promise<AdminComplaint[]> {
-    if (USE_MOCK_DATA) return mock.listComplaints(query);
+    if (isMock("bookings")) return mock.listComplaints(query);
     const raw = await request<Raw[]>(`/admin/complaints?${qs({ status: query.status, search: query.search })}`);
     return raw.map(normalizeAdminComplaint);
   },
 
   /** GET /admin/complaints/{id} */
   async getComplaint(id: string): Promise<AdminComplaint> {
-    if (USE_MOCK_DATA) return mock.getComplaint(id);
+    if (isMock("bookings")) return mock.getComplaint(id);
     return normalizeAdminComplaint(await request<Raw>(`/admin/complaints/${encodeURIComponent(id)}`));
   },
 
   /** POST /admin/complaints/{id}/decision { decision, refundAmount?, note } */
   async decide(input: ComplaintDecisionInput): Promise<AdminComplaint> {
-    if (USE_MOCK_DATA) return mock.decideComplaint(input, readSession());
+    if (isMock("bookings")) return mock.decideComplaint(input, readSession());
     return normalizeAdminComplaint(
       await request<Raw>(`/admin/complaints/${encodeURIComponent(input.complaintId)}/decision`, {
         method: "POST",
@@ -323,7 +324,7 @@ export const bookingsApi = {
 
   /** GET /admin/escrow/summary */
   async summary(): Promise<EscrowSummary> {
-    if (USE_MOCK_DATA) return mock.getEscrowSummary();
+    if (isMock("bookings")) return mock.getEscrowSummary();
     const raw = await request<Raw>("/admin/escrow/summary");
     return {
       totalHeld: num(raw.totalHeld),
@@ -344,7 +345,7 @@ export const bookingsApi = {
 
   /** GET /admin/escrow/holds?status=&search= */
   async listHolds(query: EscrowHoldQuery): Promise<AdminEscrowHold[]> {
-    if (USE_MOCK_DATA) return mock.listEscrowHolds(query);
+    if (isMock("bookings")) return mock.listEscrowHolds(query);
     const raw = await request<Raw[]>(`/admin/escrow/holds?${qs({ status: query.status === "all" ? undefined : query.status, search: query.search })}`);
     return raw.map(normalizeHold);
   },

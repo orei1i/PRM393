@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/theme/vl_colors.dart';
@@ -518,10 +519,16 @@ class _ScannedIngredientsSheetState
                   if (state.menuStatus == MenuStatus.ready) ...[
                     Row(
                       children: [
-                        Text('Gợi ý từ AI',
-                            style: context.textStyles.titleSmall),
-                        const SizedBox(width: 8),
-                        const AiBadge(),
+                        // On the real BE these are picked from its recipes,
+                        // not generated.
+                        if (BackendModules.isMock(BackendModule.scanner)) ...[
+                          Text('Gợi ý từ AI',
+                              style: context.textStyles.titleSmall),
+                          const SizedBox(width: 8),
+                          const AiBadge(),
+                        ] else
+                          Text('Gợi ý từ công thức có sẵn',
+                              style: context.textStyles.titleSmall),
                       ],
                     ),
                     const SizedBox(height: 8),

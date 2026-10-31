@@ -1,0 +1,98 @@
+{
+ "success": true,
+ "message": null,
+ "data": [
+  {
+   "id": "6ae595c796695f5c139fa99b",
+   "name": "Cơm gạo lứt đậu hũ kho nấm đông cô",
+   "imageUrl": null,
+   "calories": 520,
+   "proteinG": 26,
+   "carbsG": 75,
+   "fatG": 14,
+   "fiberG": 10,
+   "allergens": [
+    "soy"
+   ],
+   "dietTags": [
+    "balanced",
+    "whole_food"
+   ],
+   "prepMinutes": 25,
+   "ingredients": [
+    "Gạo lứt",
+    "Đậu hũ",
+    "Nấm đông cô",
+    "Nước tương",
+    "Tiêu đen"
+   ],
+   "instructions": [
+    "Sơ chế nguyên liệu sạch sẽ.",
+    "Nấu theo công thức chuẩn thuần chay.",
+    "Thưởng thức khi còn ấm nóng."
+   ],
+   "seasonalSwap": null
+  },
+  {
+   "id": "6ae595c796695f5c139fa9a1",
+   "name": "Tempeh áp chảo sốt tương tỏi",
+   "imageUrl": null,
+   "calories": 530,
+   "proteinG": 32,
+   "carbsG": 54,
+   "fatG": 20,
+   "fiberG": 11,
+   "allergens": [
+    "soy"
+   ],
+   "dietTags": [
+    "high_protein"
+   ],
+   "prepMinutes": 20,
+   "ingredients": [
+    "Tempeh",
+    "Gạo lứt",
+    "Tỏi",
+    "Nước tương",
+    "Bông cải xanh"
+   ],
+   "instructions": [
+    "Sơ chế nguyên liệu sạch sẽ.",
+    "Nấu theo công thức chuẩn thuần chay.",
+    "Thưởng thức khi còn ấm nóng."
+   ],
+   "seasonalSwap": null
+  },
+  {
+   "id": "6ae595c796695f5c139fa9a3",
+   "name": "Cà ri đậu gà khoai lang cốt dừa",
+   "imageUrl": null,
+   "calories": 540,
+   "proteinG": 21,
+   "carbsG": 72,
+   "fatG": 19,
+   "fiberG": 14,
+   "allergens": [],
+   "dietTags": [
+    "comfort",
+    "rich"
+   ],
+   "prepMinutes": 30,
+   "ingredients": [
+    "Đậu gà",
+    "Khoai lang",
+    "Nước cốt dừa",
+    "Cà rốt",
+    "Bột cà ri",
+    "Gạo lứt"
+   ],
+   "instructions": [
+    "Sơ chế nguyên liệu sạch sẽ.",
+    "Nấu theo công thức chuẩn thuần chay.",
+    "Thưởng thức khi còn ấm nóng."
+   ],
+   "seasonalSwap": null
+  }
+ ],
+ "statusCode": 200
+}

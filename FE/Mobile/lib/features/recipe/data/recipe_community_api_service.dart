@@ -7,7 +7,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/config/env.dart';
+import '../../../core/config/backend_modules.dart';
 import '../../../core/network/api_endpoints.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
@@ -129,9 +129,12 @@ class RemoteRecipeCommunityApiService implements RecipeCommunityApiService {
       });
 }
 
-/// Rebuilt when the account changes (the mock is keyed on the user).
+/// Rebuilt when the account changes (the mock is keyed on the user). The BE has
+/// none of this yet: it stays mock, and only mock recipes show it.
 final recipeCommunityApiProvider = Provider<RecipeCommunityApiService>((ref) {
-  final userId = ref.watch(plannerUserIdProvider);
-  if (Env.useMockData) return MockRecipeCommunityRepository(userId: userId);
+  final userId = ref.watch(plannerPersonaIdProvider);
+  if (BackendModules.isMock(BackendModule.recipeSocial)) {
+    return MockRecipeCommunityRepository(userId: userId);
+  }
   return RemoteRecipeCommunityApiService(ref.watch(dioProvider));
 });

@@ -13,6 +13,7 @@ import { Input, Label, Textarea } from "@/components/ui/form-controls";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { describeError } from "@/lib/api_error";
 import { readSession } from "@/lib/auth";
+import { isMock, UNSUPPORTED_ACTION } from "@/lib/backend_modules";
 import { useDeleteUser, useSetUserRole, useSetUserStatus } from "@/lib/hooks/use-admin";
 import { formatAge, formatNumber } from "@/lib/utils";
 import { USER_ROLE_LABEL, USER_STATUS_LABEL, type AdminUser, type AssignableRole, type UserStatus } from "@/types/admin";
@@ -21,6 +22,9 @@ import { UserRoleBadges, UserStatusBadge } from "./status-badge";
 
 const MIN_REASON = 10;
 const dateVi = new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+
+/** Real mode: the backend only lists and deletes users, and has no activity or post counts. */
+const REAL = !isMock("users");
 
 export function UserDrawer({ user, onOpenChange }: { user: AdminUser | null; onOpenChange: (open: boolean) => void }) {
   return (
@@ -117,9 +121,9 @@ function UserDetail({ user, onClose }: { user: AdminUser; onClose: () => void })
           <Info label="Số điện thoại" value={user.phone || "—"} />
           <Info label="Đăng nhập bằng" value={user.authType === "Google" ? "Google" : "Email & mật khẩu"} />
           <Info label="Tham gia" value={dateVi.format(new Date(user.createdAt))} />
-          <Info label="Hoạt động gần nhất" value={user.lastActiveAt ? `${formatAge(user.lastActiveAt)} trước` : "Chưa đăng nhập"} />
-          <Info label="Bài viết" value={formatNumber(user.postCount)} />
-          <Info label="Bị báo cáo" value={formatNumber(user.reportCount)} highlight={user.reportCount > 0} />
+          <Info label="Hoạt động gần nhất" value={REAL ? "—" : user.lastActiveAt ? `${formatAge(user.lastActiveAt)} trước` : "Chưa đăng nhập"} />
+          <Info label="Bài viết" value={REAL ? "—" : formatNumber(user.postCount)} />
+          <Info label="Bị báo cáo" value={REAL ? "—" : formatNumber(user.reportCount)} highlight={user.reportCount > 0} />
         </dl>
 
         {isSelf && (
@@ -134,7 +138,7 @@ function UserDetail({ user, onClose }: { user: AdminUser; onClose: () => void })
             <Button asChild size="sm" variant="outline">
               <Link href={`/content?author=${encodeURIComponent(user.id)}`}>
                 <FileText aria-hidden />
-                Bài viết & video ({formatNumber(user.postCount)})
+                {REAL ? "Bài viết & video" : `Bài viết & video (${formatNumber(user.postCount)})`}
               </Link>
             </Button>
             <Button asChild size="sm" variant="outline">
@@ -156,7 +160,7 @@ function UserDetail({ user, onClose }: { user: AdminUser; onClose: () => void })
                 aria-checked={user.role === role}
                 variant={user.role === role ? "secondary" : "outline"}
                 size="sm"
-                disabled={isSelf || isChef || setRole.isPending || user.role === role}
+                disabled={REAL || isSelf || isChef || setRole.isPending || user.role === role}
                 onClick={() => setConfirmRole(role)}
               >
                 {role === "Admin" ? <ShieldCheck aria-hidden /> : <UserRound aria-hidden />}
@@ -165,9 +169,11 @@ function UserDetail({ user, onClose }: { user: AdminUser; onClose: () => void })
             ))}
           </div>
           <p id="role-hint" className="text-xs text-muted-foreground">
-            {isChef
-              ? "Vai trò Chuyên gia được cấp khi duyệt hồ sơ chuyên gia."
-              : "Quản trị viên đăng nhập được trang web này; thành viên chỉ dùng ứng dụng di động."}
+            {REAL
+              ? UNSUPPORTED_ACTION
+              : isChef
+                ? "Vai trò Chuyên gia được cấp khi duyệt hồ sơ chuyên gia."
+                : "Quản trị viên đăng nhập được trang web này; thành viên chỉ dùng ứng dụng di động."}
           </p>
         </section>
 
@@ -179,7 +185,7 @@ function UserDetail({ user, onClose }: { user: AdminUser; onClose: () => void })
                 key={a.status}
                 size="sm"
                 variant={pendingStatus === a.status ? "secondary" : a.variant}
-                disabled={isSelf || setStatus.isPending}
+                disabled={REAL || isSelf || setStatus.isPending}
                 onClick={() => {
                   setPendingStatus(a.status);
                   if (a.status === "Active") setReason("");
@@ -190,6 +196,7 @@ function UserDetail({ user, onClose }: { user: AdminUser; onClose: () => void })
               </Button>
             ))}
           </div>
+          {REAL && <p className="text-xs text-muted-foreground">{UNSUPPORTED_ACTION}</p>}
 
           {pendingStatus && (
             <div className="flex flex-col gap-2 rounded-lg border p-3">

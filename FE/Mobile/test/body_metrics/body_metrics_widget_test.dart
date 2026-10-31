@@ -280,7 +280,8 @@ void main() {
       await tester.pump();
       expect(find.byType(WeightChart), findsNothing);
       expect(
-          find.text('Chưa đủ dữ liệu để vẽ biểu đồ — cần ít nhất 2 lần cân '
+          find.text(
+              'Chưa đủ dữ liệu để vẽ biểu đồ — cần số cân của ít nhất 2 ngày '
               'trong khoảng này.'),
           findsOneWidget);
 

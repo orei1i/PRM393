@@ -2,7 +2,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/navigation/app_nav.dart';
+import '../../../../core/widgets/demo_data_banner.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../commerce/presentation/widgets/commerce_ui.dart';
 import '../../data/models/booking_models.dart';
@@ -34,26 +36,29 @@ class BookingHistoryScreen extends ConsumerWidget {
             tabs: [Tab(text: 'Đang diễn ra'), Tab(text: 'Đã kết thúc')],
           ),
         ),
-        body: switch (async) {
-          AsyncValue(:final value?) => TabBarView(
-              children: [
-                _List(
-                    items: value.where((b) => b.status.isOngoing).toList(),
-                    ongoing: true),
-                _List(
-                    items: value.where((b) => !b.status.isOngoing).toList(),
-                    ongoing: false),
-              ],
-            ),
-          AsyncError(:final error) => Center(
-              child: SingleChildScrollView(
-                child: ErrorStateView(
-                    error: error,
-                    onRetry: () => ref.invalidate(myBookingsProvider)),
+        body: DemoDataBanner.wrap(
+          BackendModule.bookings,
+          child: switch (async) {
+            AsyncValue(valueOrNull: final value?) => TabBarView(
+                children: [
+                  _List(
+                      items: value.where((b) => b.status.isOngoing).toList(),
+                      ongoing: true),
+                  _List(
+                      items: value.where((b) => !b.status.isOngoing).toList(),
+                      ongoing: false),
+                ],
               ),
-            ),
-          _ => const ListSkeleton(height: 120),
-        },
+            AsyncError(:final error) => Center(
+                child: SingleChildScrollView(
+                  child: ErrorStateView(
+                      error: error,
+                      onRetry: () => ref.invalidate(myBookingsProvider)),
+                ),
+              ),
+            _ => const ListSkeleton(height: 120),
+          },
+        ),
       ),
     );
   }

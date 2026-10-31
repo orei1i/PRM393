@@ -129,10 +129,11 @@ final userLocationProvider =
         UserLocationController.new);
 
 class UserLocationController extends AsyncNotifier<UserLocation> {
-  static const prefsKey = 'vl.user_location';
+  static const prefsKey = UserDataKeys.userLocation;
 
   @override
   Future<UserLocation> build() async {
+    ref.watch(sessionEndCountProvider);
     final prefs = _prefsOrNull(ref);
     final saved = prefs?.getString(prefsKey);
     if (saved != null) {
@@ -172,11 +173,12 @@ final recentLocationsProvider =
         RecentLocationsController.new);
 
 class RecentLocationsController extends Notifier<List<UserLocation>> {
-  static const prefsKey = 'vl.recent_locations';
+  static const prefsKey = UserDataKeys.recentLocations;
   static const max = 5;
 
   @override
   List<UserLocation> build() {
+    ref.watch(sessionEndCountProvider);
     final raw = _prefsOrNull(ref)?.getStringList(prefsKey) ?? const [];
     final list = <UserLocation>[];
     for (final item in raw) {

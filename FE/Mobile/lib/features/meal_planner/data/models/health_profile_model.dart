@@ -39,6 +39,7 @@ class HealthProfileDto {
     this.mealPattern = const [],
     this.bmr,
     this.tdee,
+    this.targetCalories,
   });
 
   factory HealthProfileDto.fromJson(Map<String, dynamic> json) =>
@@ -60,6 +61,9 @@ class HealthProfileDto {
             MealPattern.toApi(MealPattern.fromApi(json['mealPattern'])),
         bmr: json['bmr'] == null ? null : readDouble(json['bmr']),
         tdee: json['tdee'] == null ? null : readDouble(json['tdee']),
+        targetCalories: json['targetCalories'] == null
+            ? null
+            : readInt(json['targetCalories']),
       );
 
   final double heightCm;
@@ -83,6 +87,9 @@ class HealthProfileDto {
   final List<String> mealPattern;
   final double? bmr;
   final double? tdee;
+
+  /// kcal/day the real BE computed (TDEE adjusted for the goal).
+  final int? targetCalories;
 
   Map<String, dynamic> toJson() => {
         'heightCm': heightCm,
@@ -117,6 +124,7 @@ class HealthProfileDto {
         mealPattern: MealPattern.fromApi(mealPattern),
         bmr: bmr,
         tdee: tdee,
+        targetCalories: targetCalories,
       );
 
   /// `["peanut"]` (legacy) or `[{ "allergenId", "name" }]` → keys: the
@@ -192,6 +200,34 @@ class UpdateHealthProfileRequestDto {
         'allergies': HealthProfileDto.allergiesToJson(allergies),
         'dietaryRestrictions': dietaryRestrictions,
       };
+
+  /// What the real BE needs. Its goal adjustment only knows `lose` and `gain`
+  /// (`lose_weight` silently means 0 %), and a PUT without gender or birth
+  /// year resets them to `Other` / 1998, so fields left `null` here are taken
+  /// from [saved]. They are omitted only for a first profile.
+  Map<String, dynamic> toBackendJson({HealthProfileDto? saved}) {
+    final genderValue = gender?.apiValue ?? saved?.gender;
+    final year = birthYear ?? saved?.birthYear;
+    final activity = activityLevel?.apiValue ?? saved?.activityLevel;
+    final pattern = mealPattern == null
+        ? saved?.mealPattern
+        : MealPattern.toApi(mealPattern!);
+    return {
+      'heightCm': heightCm,
+      'weightKg': weightKg,
+      'goal': switch (goal) {
+        HealthGoal.loseWeight => 'lose',
+        HealthGoal.gainWeight => 'gain',
+        _ => goal.apiValue,
+      },
+      if (genderValue != null) 'gender': genderValue,
+      if (year != null) 'birthYear': year,
+      if (activity != null) 'activityLevel': activity,
+      if (pattern != null) 'mealPattern': pattern,
+      'allergies': HealthProfileDto.allergiesToJson(allergies),
+      'dietaryRestrictions': dietaryRestrictions,
+    };
+  }
 }
 
 class HealthSyncDto {

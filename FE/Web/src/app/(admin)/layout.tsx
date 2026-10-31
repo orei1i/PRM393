@@ -1,7 +1,7 @@
 // src/app/(admin)/layout.tsx
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
 import { UserMenu } from "@/components/admin/user-menu";
-import { USE_MOCK_DATA } from "@/lib/api_client";
+import { ALL_MODULES_REAL, DATA_MODE_LABEL } from "@/lib/backend_modules";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -11,12 +11,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <header className="flex h-14 items-center justify-end gap-3 border-b bg-card px-4 md:px-8">
           <span
             className={
-              USE_MOCK_DATA
-                ? "rounded-full border border-ochre-border bg-ochre-soft px-3 py-1 text-xs font-bold text-ochre-text"
-                : "rounded-full bg-foreground px-3 py-1 text-xs font-bold text-background"
+              ALL_MODULES_REAL
+                ? "rounded-full bg-foreground px-3 py-1 text-xs font-bold text-background"
+                : "rounded-full border border-ochre-border bg-ochre-soft px-3 py-1 text-xs font-bold text-ochre-text"
             }
           >
-            {USE_MOCK_DATA ? "Dữ liệu mô phỏng" : "Production"}
+            {DATA_MODE_LABEL}
           </span>
           <UserMenu />
         </header>

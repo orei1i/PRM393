@@ -253,6 +253,8 @@ void main() {
     expect(dinner.slot, 'dinner');
     expect(dinner.targetDate, DateTime(2026, 10, 20));
 
+    // Day 1 (20/10) has started: feedback on a future day is refused.
+    now = DateTime.utc(2026, 10, 20, 3);
     asMember();
     expect((await bookings.plan(created.id)).map((d) => d.dayIndex), [1],
         reason: 'the member sees sent days only');

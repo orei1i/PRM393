@@ -1,4 +1,5 @@
 // lib/features/recipe/domain/entities/recipe_detail.dart
+import '../../../../core/utils/backend_ids.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../meal_planner/domain/allergy_match.dart';
 
@@ -170,6 +171,7 @@ class RecipeDetail {
     this.basedOnName,
     this.customizations = const [],
     this.nutritionEstimated = false,
+    this.isSnapshot = false,
   });
 
   final String id;
@@ -207,6 +209,16 @@ class RecipeDetail {
 
   /// The server estimated some figures (a change without nutrition data).
   final bool nutritionEstimated;
+
+  /// Only what a meal plan knows about the dish: a typed dish, a chef's dish
+  /// with nothing more written, or a recipe the catalogue doesn't return. No
+  /// ingredients and no steps.
+  final bool isSnapshot;
+
+  /// From the real BE, which has no quantities: the page only reads it, with
+  /// no scaling, swaps, reviews or notes (those stay on mock recipes).
+  bool get isReadOnly =>
+      isSnapshot || isBackendId(id) || isBackendPlanItemId(id);
 
   List<String> get steps => parseRecipeSteps(instructions);
 

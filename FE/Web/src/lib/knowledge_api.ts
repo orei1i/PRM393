@@ -12,7 +12,8 @@ import type {
 } from "@/types/knowledge";
 import { KNOWLEDGE_DOC_STATUSES, KNOWLEDGE_SOURCES } from "@/types/knowledge";
 
-import { qs, request, USE_MOCK_DATA } from "./api_client";
+import { qs, request } from "./api_client";
+import { isMock } from "./backend_modules";
 import { readSession } from "./auth";
 import { readId } from "./ids";
 import * as mock from "./mock_knowledge";
@@ -49,7 +50,7 @@ export function normalizeKnowledgeDoc(raw: RawDoc): KnowledgeDoc {
 export const knowledgeApi = {
   /** GET /admin/knowledge-docs?source=&status=&search= */
   async list(query: KnowledgeQuery): Promise<KnowledgeDoc[]> {
-    if (USE_MOCK_DATA) return mock.listDocs(query);
+    if (isMock("knowledge")) return mock.listDocs(query);
     const raw = await request<RawDoc[]>(
       `/admin/knowledge-docs?${qs({
         status: query.status === "all" ? undefined : query.status,
@@ -62,19 +63,19 @@ export const knowledgeApi = {
 
   /** GET /admin/knowledge-docs/counts */
   counts(): Promise<Record<KnowledgeDocStatus, number>> {
-    if (USE_MOCK_DATA) return mock.getCounts();
+    if (isMock("knowledge")) return mock.getCounts();
     return request<Record<KnowledgeDocStatus, number>>("/admin/knowledge-docs/counts");
   },
 
   /** POST /admin/knowledge-docs { title, fileUrl } → source WHO, status Approved. */
   async createWho(input: WhoDocInput): Promise<KnowledgeDoc> {
-    if (USE_MOCK_DATA) return mock.createWhoDoc(input, readSession());
+    if (isMock("knowledge")) return mock.createWhoDoc(input, readSession());
     return normalizeKnowledgeDoc(await request<RawDoc>("/admin/knowledge-docs", { method: "POST", body: JSON.stringify(input) }));
   },
 
   /** POST /admin/knowledge-docs/{id}/review { decision, note } */
   async review(input: KnowledgeReviewInput): Promise<KnowledgeDoc> {
-    if (USE_MOCK_DATA) return mock.reviewDoc(input, readSession());
+    if (isMock("knowledge")) return mock.reviewDoc(input, readSession());
     return normalizeKnowledgeDoc(
       await request<RawDoc>(`/admin/knowledge-docs/${input.docId}/review`, {
         method: "POST",
@@ -85,13 +86,13 @@ export const knowledgeApi = {
 
   /** DELETE /admin/knowledge-docs/{id} — past answers keep their citations. */
   async remove(id: string): Promise<void> {
-    if (USE_MOCK_DATA) return mock.deleteDoc(id, readSession());
+    if (isMock("knowledge")) return mock.deleteDoc(id, readSession());
     await request<unknown>(`/admin/knowledge-docs/${id}`, { method: "DELETE" });
   },
 
   /** GET /admin/knowledge-docs/{id}/chunks?limit= */
   async chunks(id: string, limit = 5): Promise<KnowledgeChunk[]> {
-    if (USE_MOCK_DATA) return mock.listChunks(id, limit);
+    if (isMock("knowledge")) return mock.listChunks(id, limit);
     const raw = await request<(Omit<KnowledgeChunk, "id" | "docId"> & { id?: unknown; docId?: unknown })[]>(
       `/admin/knowledge-docs/${id}/chunks?${qs({ limit })}`,
     );

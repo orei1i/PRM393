@@ -26,9 +26,13 @@ final dioProvider = Provider<Dio>((ref) {
     EnvelopeInterceptor(),
     AuthInterceptor(() => ref.read(sessionControllerProvider).authHeaders),
     ErrorMappingInterceptor(),
+    UnauthorizedInterceptor((token) =>
+        ref.read(sessionControllerProvider.notifier).expire(token: token)),
     if (kDebugMode)
+      // No request headers or bodies: they carry the bearer and passwords.
       LogInterceptor(
-        requestBody: true,
+        requestHeader: false,
+        requestBody: false,
         responseBody: false,
         logPrint: (line) => debugPrint(line.toString()),
       ),

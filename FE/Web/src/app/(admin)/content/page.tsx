@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, NativeSelect } from "@/components/ui/form-controls";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { isMock } from "@/lib/backend_modules";
 import { useContent } from "@/lib/hooks/use-admin";
 import { CONTENT_FILTER_LABEL, type ContentItem, type ContentKindFilter, type ContentView } from "@/types/admin";
 
@@ -32,6 +33,10 @@ const EMPTY: Partial<Record<ContentView, { title: string; description: string }>
   reported: { title: "Không còn bài bị báo cáo", description: "Báo cáo mới từ ứng dụng sẽ xuất hiện ở đây." },
   rejected: { title: "Chưa có bài bị từ chối", description: "Bài bị từ chối kèm ghi chú gửi tác giả sẽ nằm ở đây." },
 };
+
+/** Real mode: GET /posts lists Published posts only and has no report or hidden data. */
+const NO_SERVER_DATA: readonly ContentView[] = isMock("content") ? [] : ["pending", "reported", "hidden", "rejected"];
+const NO_SERVER_DATA_TEXT = "Máy chủ hiện chỉ trả về bài đã đăng, chưa có dữ liệu cho mục này.";
 
 const isView = (v: string | null): v is ContentView => VIEWS.some((x) => x.value === v);
 /** `?kind=recipe|discussion|video` ("video" = Có video, also the legacy kind name). */
@@ -186,7 +191,7 @@ function ContentScreen() {
         {content.isError && !content.data ? (
           <ErrorState error={content.error} onRetry={() => content.refetch()} />
         ) : content.data?.length === 0 ? (
-          <EmptyState icon={FileText} title={empty.title} description={empty.description} />
+          <EmptyState icon={FileText} title={empty.title} description={NO_SERVER_DATA.includes(view) ? NO_SERVER_DATA_TEXT : empty.description} />
         ) : (
           <div className={content.isFetching && !content.isLoading ? "opacity-60 transition-opacity" : undefined}>
             <ContentTable items={content.data} isLoading={content.isLoading} selectedId={selectedId} onSelect={setSelected} />

@@ -81,7 +81,11 @@ class BodyMetricsController extends AsyncNotifier<List<BodyMeasurement>> {
     ));
     final measurement = result.measurement.toEntity();
     final profile = result.profile.toEntity();
-    if (history != null) {
+    if (measurement.isLocalOnly) {
+      // Nothing new on the server: the history stays as it is, and the
+      // reminder doesn't come straight back for a weight just confirmed.
+      unawaited(ref.read(checkInPrefsProvider.notifier).snoozeToday());
+    } else if (history != null) {
       state = AsyncData([measurement, ...history]);
     } else {
       ref.invalidateSelf();

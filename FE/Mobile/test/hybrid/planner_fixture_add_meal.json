@@ -1,0 +1,148 @@
+{
+ "success": true,
+ "message": "Cập nhật món ăn thành công.",
+ "data": {
+  "date": "2026-10-31",
+  "meals": {
+   "breakfast": {
+    "id": "f5c54d7bd21d4d4882be7dfb9b3a6ff7",
+    "recipeId": "6ae595c796695f5c139fa994",
+    "name": "Bánh mì đậu hũ sả ớt",
+    "calories": 460,
+    "proteinG": 22,
+    "carbsG": 58,
+    "fatG": 15,
+    "fiberG": 6,
+    "allergens": [
+     "gluten",
+     "soy"
+    ],
+    "dietTags": [
+     "quick"
+    ],
+    "prepMinutes": 15,
+    "imageUrl": null,
+    "source": "ai",
+    "sourceName": null,
+    "portion": 1,
+    "seasonalSwap": null,
+    "allergyConflicts": []
+   },
+   "lunch": {
+    "id": "0354c2487a424504824d8afed6db28e0",
+    "recipeId": "6ae595c796695f5c139fa99b",
+    "name": "Cơm gạo lứt đậu hũ kho nấm đông cô",
+    "calories": 520,
+    "proteinG": 26,
+    "carbsG": 75,
+    "fatG": 14,
+    "fiberG": 10,
+    "allergens": [
+     "soy"
+    ],
+    "dietTags": [
+     "balanced",
+     "whole_food"
+    ],
+    "prepMinutes": 25,
+    "imageUrl": null,
+    "source": "manual",
+    "sourceName": null,
+    "portion": 1,
+    "seasonalSwap": null,
+    "allergyConflicts": []
+   },
+   "dinner": {
+    "id": "581fe03dbaa04591b55487477c595045",
+    "recipeId": "6ae595c796695f5c139fa9a8",
+    "name": "Súp bí đỏ đậu lăng đỏ sánh mịn",
+    "calories": 360,
+    "proteinG": 18,
+    "carbsG": 52,
+    "fatG": 9,
+    "fiberG": 12,
+    "allergens": [],
+    "dietTags": [
+     "warm",
+     "high_fiber"
+    ],
+    "prepMinutes": 25,
+    "imageUrl": null,
+    "source": "ai",
+    "sourceName": null,
+    "portion": 1,
+    "seasonalSwap": null,
+    "allergyConflicts": []
+   },
+   "snack_pm": {
+    "id": "b2447aca9e064c3dac9ef3229fe4e6d0",
+    "recipeId": "6ae595c796695f5c139fa9ac",
+    "name": "Bánh chuối yến mạch nướng",
+    "calories": 210,
+    "proteinG": 6,
+    "carbsG": 38,
+    "fatG": 4,
+    "fiberG": 5,
+    "allergens": [
+     "gluten"
+    ],
+    "dietTags": [
+     "sweet",
+     "baked"
+    ],
+    "prepMinutes": 20,
+    "imageUrl": null,
+    "source": "ai",
+    "sourceName": null,
+    "portion": 1,
+    "seasonalSwap": null,
+    "allergyConflicts": []
+   },
+   "snack_am": {
+    "id": "85f44413c36d4bc2828fc2d109f78410",
+    "recipeId": "6ae595c796695f5c139fa99b",
+    "name": "Cơm gạo lứt đậu hũ kho nấm đông cô",
+    "calories": 520,
+    "proteinG": 26,
+    "carbsG": 75,
+    "fatG": 14,
+    "fiberG": 10,
+    "allergens": [
+     "soy"
+    ],
+    "dietTags": [
+     "balanced",
+     "whole_food"
+    ],
+    "prepMinutes": 25,
+    "imageUrl": null,
+    "source": "manual",
+    "sourceName": null,
+    "portion": 1,
+    "seasonalSwap": null,
+    "allergyConflicts": []
+   },
+   "snack_late": {
+    "id": "65ba99ff73b445188b2d5bfbfd3ec44d",
+    "recipeId": null,
+    "name": "Canh chua nấm",
+    "calories": 300,
+    "proteinG": null,
+    "carbsG": null,
+    "fatG": null,
+    "fiberG": null,
+    "allergens": [],
+    "dietTags": [],
+    "prepMinutes": 15,
+    "imageUrl": null,
+    "source": "user_recipe",
+    "sourceName": null,
+    "portion": 1,
+    "seasonalSwap": null,
+    "allergyConflicts": []
+   }
+  },
+  "totalCalories": 2370
+ },
+ "statusCode": 200
+}

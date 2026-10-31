@@ -270,6 +270,7 @@ class RecipeDetailDto {
     this.basedOnName,
     this.customizations = const [],
     this.nutritionEstimated = false,
+    this.isSnapshot = false,
   });
 
   factory RecipeDetailDto.fromJson(Map<String, dynamic> json) {
@@ -305,6 +306,7 @@ class RecipeDetailDto {
           ? rawChanges.map(_changeNote).nonNulls.toList()
           : const [],
       nutritionEstimated: json['nutritionEstimated'] == true,
+      isSnapshot: json['isSnapshot'] == true,
     );
   }
 
@@ -331,6 +333,9 @@ class RecipeDetailDto {
   final List<RecipeChangeNote> customizations;
   final bool nutritionEstimated;
 
+  /// Built from a meal plan's slot, not a recipe: see `RecipeDetail.isSnapshot`.
+  final bool isSnapshot;
+
   RecipeDetail toEntity() => RecipeDetail(
         id: id,
         name: name,
@@ -354,5 +359,6 @@ class RecipeDetailDto {
         basedOnName: basedOnName,
         customizations: customizations,
         nutritionEstimated: nutritionEstimated,
+        isSnapshot: isSnapshot,
       );
 }

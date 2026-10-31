@@ -20,7 +20,7 @@ class MockUserRecord {
   });
 
   final String id;
-  final String fullName;
+  String fullName;
   final String email;
   String password;
   final UserRole role;

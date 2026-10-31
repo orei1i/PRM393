@@ -2,7 +2,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/config/env.dart';
+import '../../../core/config/backend_modules.dart';
 import '../../../core/network/api_endpoints.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
@@ -57,6 +57,6 @@ class MockVideoRepository implements VideoApiService {
 }
 
 final videoApiProvider = Provider<VideoApiService>((ref) {
-  if (Env.useMockData) return MockVideoRepository();
+  if (BackendModules.isMock(BackendModule.video)) return MockVideoRepository();
   return RemoteVideoApiService(ref.watch(dioProvider));
 });

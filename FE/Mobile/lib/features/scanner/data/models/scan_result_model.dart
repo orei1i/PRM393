@@ -169,9 +169,8 @@ class ScanResultDto {
       };
 }
 
-/// POST /meal-plans/from-ingredients
-/// `{ "ingredients": [ { "name": "Đậu hũ" } ], "excludeAllergens": ["peanut"] }`
-/// Vegan items only: anything not vegan is left out of the request.
+/// What "Gợi ý món từ nguyên liệu này" is built from. Vegan items only:
+/// anything not vegan is left out of the request.
 class GenerateMenuRequestDto {
   GenerateMenuRequestDto(
       {required List<DetectedIngredient> ingredients,
@@ -189,7 +188,7 @@ class GenerateMenuRequestDto {
       };
 }
 
-/// Item of the `POST /meal-plans/from-ingredients` response:
+/// One dish idea:
 /// `{ "id", "name", "calories", "prepMinutes", "usedIngredients": [],
 ///    "missingIngredients": [], "allergens": ["soy"] }`
 class MenuSuggestionDto {

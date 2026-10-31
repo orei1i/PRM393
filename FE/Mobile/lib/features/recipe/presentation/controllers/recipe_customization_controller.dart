@@ -145,10 +145,13 @@ class RecipeCustomizationController
       source = MealSource.userRecipe;
     } else {
       placed = recipe;
-      final me = ref.read(plannerUserIdProvider);
+      final mine = {
+        ref.read(plannerUserIdProvider),
+        ref.read(plannerPersonaIdProvider),
+      };
       source = recipe.isPublic
           ? MealSource.recipe
-          : recipe.createdBy == me
+          : mine.contains(recipe.createdBy)
               ? MealSource.userRecipe
               : MealSource.chef;
     }

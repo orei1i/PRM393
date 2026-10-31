@@ -22,6 +22,9 @@ class _ReportPostSheetState extends ConsumerState<ReportPostSheet> {
   final _note = TextEditingController();
   bool _sending = false;
 
+  /// Inside the sheet: a snackbar would show behind it, where nobody sees it.
+  String? _error;
+
   @override
   void dispose() {
     _note.dispose();
@@ -31,7 +34,10 @@ class _ReportPostSheetState extends ConsumerState<ReportPostSheet> {
   Future<void> _submit() async {
     final reason = _reason;
     if (reason == null) return;
-    setState(() => _sending = true);
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
     try {
       await ref
           .read(communityApiProvider)
@@ -39,9 +45,10 @@ class _ReportPostSheetState extends ConsumerState<ReportPostSheet> {
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _sending = false);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(describeError(e))));
+      setState(() {
+        _sending = false;
+        _error = describeError(e);
+      });
     }
   }
 
@@ -88,6 +95,14 @@ class _ReportPostSheetState extends ConsumerState<ReportPostSheet> {
                   border: OutlineInputBorder(),
                 ),
               ),
+              if (_error != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  _error!,
+                  style: context.textStyles.bodyMedium
+                      ?.copyWith(color: context.colors.error),
+                ),
+              ],
               const SizedBox(height: 12),
               FilledButton(
                 onPressed: _reason == null || _sending ? null : _submit,

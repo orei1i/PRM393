@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../core/config/env.dart';
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/session/mock_accounts.dart';
 import '../../../../core/session/session_controller.dart';
@@ -18,12 +18,15 @@ import 'register_screen.dart';
 /// "Đăng nhập" with email + password. Pops `true` once signed in.
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key, this.initialEmail, bool? showTestAccounts})
-      : showTestAccounts = showTestAccounts ?? Env.useMockData;
+      : _showTestAccounts = showTestAccounts;
 
   final String? initialEmail;
 
-  /// "Điền tài khoản thử nghiệm" chips: mock builds only.
-  final bool showTestAccounts;
+  final bool? _showTestAccounts;
+
+  /// "Điền tài khoản thử nghiệm" chips: only while auth is mock.
+  bool get showTestAccounts =>
+      _showTestAccounts ?? BackendModules.isMock(BackendModule.auth);
 
   static Route<bool> route({String? email}) =>
       MaterialPageRoute<bool>(builder: (_) => LoginScreen(initialEmail: email));

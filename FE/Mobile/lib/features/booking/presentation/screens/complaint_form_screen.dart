@@ -56,21 +56,33 @@ class _ComplaintFormScreenState extends ConsumerState<ComplaintFormScreen> {
     super.dispose();
   }
 
+  static const _badLink = 'Liên kết phải bắt đầu bằng http:// hoặc https://';
+
+  /// A valid link in the field counts as evidence: "Gửi khiếu nại" adds it.
+  bool get _linkTyped => BookingRules.isHttpUrl(_link.text);
+
   void _addLink() {
-    final url = _link.text.trim();
-    if (!BookingRules.isHttpUrl(url)) {
-      setState(() =>
-          _linkError = 'Liên kết phải bắt đầu bằng http:// hoặc https://');
+    if (!_linkTyped) {
+      setState(() => _linkError = _badLink);
       return;
     }
-    setState(() {
-      _evidence.add(EvidenceDto(
-          kind: EvidenceKind.link, url: url, caption: _caption.text.trim()));
-      _link.clear();
-      _caption.clear();
-      _linkError = null;
-    });
+    setState(_takeTypedLink);
   }
+
+  void _takeTypedLink() {
+    _evidence.add(EvidenceDto(
+        kind: EvidenceKind.link,
+        url: _link.text.trim(),
+        caption: _caption.text.trim()));
+    _link.clear();
+    _caption.clear();
+    _linkError = null;
+  }
+
+  /// The message goes once the field is valid (or empty again).
+  void _onLinkChanged(String text) => setState(() {
+        if (text.trim().isEmpty || _linkTyped) _linkError = null;
+      });
 
   int get _imageCount =>
       _evidence.where((e) => e.kind == EvidenceKind.image).length;
@@ -87,7 +99,7 @@ class _ComplaintFormScreenState extends ConsumerState<ComplaintFormScreen> {
       if (!mounted) return;
       setState(() => _evidence.add(EvidenceDto(
           kind: EvidenceKind.image,
-          url: uploaded.mediaUrl,
+          url: uploaded.absoluteUrl,
           caption: picked.name)));
     } catch (e) {
       if (mounted) {
@@ -101,7 +113,10 @@ class _ComplaintFormScreenState extends ConsumerState<ComplaintFormScreen> {
 
   String? get _evidenceError => _reason == null
       ? null
-      : BookingRules.evidence(_reason!, _evidence.map((e) => e.kind));
+      : BookingRules.evidence(_reason!, [
+          ..._evidence.map((e) => e.kind),
+          if (_linkTyped) EvidenceKind.link,
+        ]);
 
   String? get _amountError => _outcome == RequestedOutcome.partialRefund
       ? BookingRules.partialRefund(int.tryParse(_amount.text.trim()), _price)
@@ -111,6 +126,14 @@ class _ComplaintFormScreenState extends ConsumerState<ComplaintFormScreen> {
     final reason = _reason;
     final descriptionError =
         BookingRules.complaintDescription(_description.text);
+    // Not silently dropped: half a link in the field is worth a look.
+    if (_link.text.trim().isNotEmpty && !_linkTyped) {
+      setState(() {
+        _attempted = true;
+        _linkError = _badLink;
+      });
+      return;
+    }
     if (reason == null ||
         descriptionError != null ||
         _evidenceError != null ||
@@ -118,7 +141,10 @@ class _ComplaintFormScreenState extends ConsumerState<ComplaintFormScreen> {
       setState(() => _attempted = true);
       return;
     }
-    setState(() => _submitting = true);
+    setState(() {
+      if (_linkTyped) _takeTypedLink();
+      _submitting = true;
+    });
     try {
       await ref.read(bookingApiProvider).fileComplaint(
             widget.booking.id,
@@ -215,6 +241,7 @@ class _ComplaintFormScreenState extends ConsumerState<ComplaintFormScreen> {
             TextField(
               controller: _link,
               keyboardType: TextInputType.url,
+              onChanged: _onLinkChanged,
               decoration: InputDecoration(
                 labelText: 'Liên kết nguồn (http/https)',
                 border: const OutlineInputBorder(),

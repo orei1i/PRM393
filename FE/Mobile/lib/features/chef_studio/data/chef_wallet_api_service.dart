@@ -2,10 +2,11 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/config/env.dart';
+import '../../../core/config/backend_modules.dart';
 import '../../../core/network/api_endpoints.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/session/mock_persona.dart';
 import '../../../core/session/session_controller.dart';
 import 'mock_chef_wallet_repository.dart';
 import 'models/wallet_models.dart';
@@ -82,9 +83,9 @@ class RemoteChefWalletApiService implements ChefWalletApiService {
 }
 
 final chefWalletApiProvider = Provider<ChefWalletApiService>((ref) {
-  if (Env.useMockData) {
+  if (BackendModules.isMock(BackendModule.chefWallet)) {
     return MockChefWalletRepository(
-      currentUserId: () => ref.read(sessionControllerProvider).userId,
+      currentUserId: () => mockPersonaId(ref.read(sessionControllerProvider)),
       currentRole: () => ref.read(sessionControllerProvider).role,
     );
   }

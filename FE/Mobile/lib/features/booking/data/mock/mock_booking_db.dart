@@ -2,6 +2,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../../core/utils/formatters.dart';
+import '../../../../core/utils/labels.dart';
 import '../../../chef_studio/domain/wallet_rules.dart';
 import '../../../commerce/data/mock/mock_commerce_db.dart';
 import '../../../commerce/domain/commerce_status.dart';
@@ -521,7 +522,7 @@ class MockBookingDb {
       'Thiết kế thực đơn chay $planDays ngày (${type.label.toLowerCase()}) '
       'theo hồ sơ và nhu cầu của thành viên: ${pattern.length} bữa mỗi ngày, '
       'có định lượng và cách làm từng món'
-      '${allergies.isEmpty ? '' : ', tránh hoàn toàn: ${allergies.join(', ')}'}.';
+      '${allergies.isEmpty ? '' : ', tránh hoàn toàn: ${allergies.map(allergenLabel).join(', ')}'}.';
 
   MockBookingRow create({
     required String memberId,
@@ -603,7 +604,7 @@ class MockBookingDb {
   }
 
   /// Accept: contract, booking order, AwaitingPayment (payment due in 48 h,
-  /// or 30 s with `#expire` in the needs). Reject: the offer is closed.
+  /// or 30 s with `#expire` in the needs, and before the plan starts). Reject: the offer is closed.
   void respond(MockBookingRow row, String offerId, BookingParty by,
       {required bool accept}) {
     final offer = row.lastOffer;
@@ -638,8 +639,9 @@ class MockBookingDb {
       ..bookingType = offer.bookingType
       ..startDate = offer.startDate;
     final fast = row.needs.toLowerCase().contains('#expire');
-    final dueAt = at.add(
-        fast ? BookingRules.fastPaymentWindow : BookingRules.paymentWindow);
+    final dueAt = paymentDeadline(at, offer.startDate,
+        window:
+            fast ? BookingRules.fastPaymentWindow : BookingRules.paymentWindow);
     _contract(row, offer, at, dueAt);
     final order = MockOrderRow(
       id: commerce.newId('ord'),
@@ -910,6 +912,12 @@ class MockBookingDb {
     final day = row.day(dayIndex);
     if (!day.isSent) {
       throw mockError(409, 'Chuyên gia chưa gửi ngày này.', 'day_not_sent');
+    }
+    if (!planDayStarted(day.date, now)) {
+      throw mockError(
+          409,
+          'Ngày này chưa diễn ra. Bạn phản hồi từ ${formatDayMonth(day.date)} nhé.',
+          'day_not_started');
     }
     day.feedback = DayFeedbackDto(
       rating: request.rating.clamp(1, 5),

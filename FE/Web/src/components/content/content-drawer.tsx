@@ -2,10 +2,11 @@
 "use client";
 
 import * as React from "react";
-import { CircleCheck, CircleX, Eye, EyeOff, MapPin, Pin, PinOff, RotateCcw, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
+import { CircleCheck, CircleX, ExternalLink, Eye, EyeOff, MapPin, Pin, PinOff, RotateCcw, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { InitialsAvatar } from "@/components/admin/initials-avatar";
+import { safeHttpUrl } from "@/components/disputes/evidence-list";
 import { ScoreBar } from "@/components/moderation/score-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, Di
 import { Label, Textarea } from "@/components/ui/form-controls";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { describeError } from "@/lib/api_error";
+import { isMock, UNSUPPORTED_ACTION } from "@/lib/backend_modules";
 import { useContentAction, useReviewPost } from "@/lib/hooks/use-admin";
 import { formatAge, formatNumber } from "@/lib/utils";
 import { CONTENT_KIND_LABEL, type ContentAction, type ContentItem, type PostDecision } from "@/types/admin";
@@ -30,6 +32,9 @@ const ACTION_DONE: Record<ContentAction, string> = {
 };
 
 const dateTimeVi = new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" });
+
+/** Real mode: the backend can list and delete posts; hide, pin, review and re-run AI have no route yet. */
+const REAL = !isMock("content");
 
 export function ContentDrawer({
   item,
@@ -61,6 +66,7 @@ function Detail({ item, onClose, onItemChange }: { item: ContentItem; onClose: (
   const approveId = React.useId();
 
   const busy = action.isPending || review.isPending;
+  const attachmentUrl = REAL && item.mediaUrl ? safeHttpUrl(item.mediaUrl) : null;
   const rejectOk = rejectNote.trim().length >= MIN_AUDIT_NOTE_LENGTH;
 
   function run(a: ContentAction) {
@@ -124,6 +130,18 @@ function Detail({ item, onClose, onItemChange }: { item: ContentItem; onClose: (
         </div>
 
         <p className="rounded-lg bg-muted px-4 py-3 text-sm leading-relaxed">{item.excerpt}</p>
+
+        {attachmentUrl && (
+          <a
+            href={attachmentUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex w-fit items-center gap-1.5 text-sm font-semibold text-primary underline-offset-4 hover:underline"
+          >
+            <ExternalLink className="size-4" aria-hidden />
+            Xem tệp đính kèm
+          </a>
+        )}
 
         {item.restaurant && (
           <p className="flex flex-wrap items-center gap-1.5 text-sm">
@@ -193,15 +211,16 @@ function Detail({ item, onClose, onItemChange }: { item: ContentItem; onClose: (
               />
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" disabled={busy} onClick={() => decide("Approve")}>
+              <Button size="sm" disabled={busy || REAL} onClick={() => decide("Approve")}>
                 <CircleCheck aria-hidden />
                 {review.isPending && !rejectOpen ? "Đang lưu…" : "Duyệt & đăng"}
               </Button>
-              <Button size="sm" variant="destructive" disabled={busy} onClick={() => setRejectOpen(true)}>
+              <Button size="sm" variant="destructive" disabled={busy || REAL} onClick={() => setRejectOpen(true)}>
                 <CircleX aria-hidden />
                 Từ chối
               </Button>
             </div>
+            {REAL && <p className="text-xs text-muted-foreground">{UNSUPPORTED_ACTION}</p>}
           </section>
         )}
 
@@ -215,7 +234,7 @@ function Detail({ item, onClose, onItemChange }: { item: ContentItem; onClose: (
           <div className="flex flex-col gap-2 rounded-lg border p-3 text-sm">
             <p className="font-semibold">AI chưa trích xuất được công thức</p>
             <p className="text-muted-foreground">{item.video.failureReason ?? "Không rõ nguyên nhân."}</p>
-            <Button size="sm" variant="ai" className="w-fit" disabled={busy} onClick={() => run("retry_ai")}>
+            <Button size="sm" variant="ai" className="w-fit" disabled={busy || REAL} onClick={() => run("retry_ai")}>
               <RotateCcw aria-hidden />
               Chạy lại AI
             </Button>
@@ -227,24 +246,24 @@ function Detail({ item, onClose, onItemChange }: { item: ContentItem; onClose: (
             <h3 className="text-sm font-bold">Hiển thị trên bảng tin</h3>
             <div className="flex flex-wrap gap-2">
               {item.hidden ? (
-                <Button size="sm" variant="outline" disabled={busy} onClick={() => run("unhide")}>
+                <Button size="sm" variant="outline" disabled={busy || REAL} onClick={() => run("unhide")}>
                   <Eye aria-hidden />
                   Hiện lại
                 </Button>
               ) : (
-                <Button size="sm" variant="warn" disabled={busy} onClick={() => run("hide")}>
+                <Button size="sm" variant="warn" disabled={busy || REAL} onClick={() => run("hide")}>
                   <EyeOff aria-hidden />
                   Ẩn bài
                 </Button>
               )}
               {!item.hidden &&
                 (item.pinned ? (
-                  <Button size="sm" variant="outline" disabled={busy} onClick={() => run("unpin")}>
+                  <Button size="sm" variant="outline" disabled={busy || REAL} onClick={() => run("unpin")}>
                     <PinOff aria-hidden />
                     Bỏ ghim
                   </Button>
                 ) : (
-                  <Button size="sm" variant="outline" disabled={busy} onClick={() => run("pin")}>
+                  <Button size="sm" variant="outline" disabled={busy || REAL} onClick={() => run("pin")}>
                     <Pin aria-hidden />
                     Ghim lên đầu
                   </Button>
@@ -254,7 +273,7 @@ function Detail({ item, onClose, onItemChange }: { item: ContentItem; onClose: (
                 Xoá
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">Ẩn bài có thể hoàn tác; tác giả nhận thông báo trong ứng dụng.</p>
+            <p className="text-xs text-muted-foreground">{REAL ? UNSUPPORTED_ACTION : "Ẩn bài có thể hoàn tác; tác giả nhận thông báo trong ứng dụng."}</p>
           </div>
         ) : (
           <div className="flex flex-col gap-2">
@@ -316,7 +335,7 @@ function Detail({ item, onClose, onItemChange }: { item: ContentItem; onClose: (
           <DialogTitle>Xoá bài viết?</DialogTitle>
           <DialogDescription>
             “{item.title}” sẽ bị xoá khỏi ứng dụng cùng toàn bộ bình luận.
-            {item.status === "Published" ? " Nếu chỉ cần gỡ tạm, hãy dùng “Ẩn bài”." : ""}
+            {item.status === "Published" && !REAL ? " Nếu chỉ cần gỡ tạm, hãy dùng “Ẩn bài”." : ""}
           </DialogDescription>
           <DialogFooter>
             <DialogClose asChild>

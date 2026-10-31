@@ -26,7 +26,8 @@ import type {
 } from "@/types/commerce";
 import { ORDER_STATUSES, PAYMENT_STATUSES } from "@/types/commerce";
 
-import { qs, request, USE_MOCK_DATA } from "./api_client";
+import { qs, request } from "./api_client";
+import { isMock } from "./backend_modules";
 import { readSession } from "./auth";
 import { normalizeEscrow } from "./bookings_api";
 import { readId } from "./ids";
@@ -121,20 +122,20 @@ export function normalizeOrder(raw: Raw): AdminOrder {
 export const commerceApi = {
   /** GET /admin/orders?status=&search= */
   async listOrders(query: OrderQuery): Promise<AdminOrder[]> {
-    if (USE_MOCK_DATA) return mock.listOrders(query);
+    if (isMock("commerce")) return mock.listOrders(query);
     const raw = await request<Raw[]>(`/admin/orders?${qs({ status: query.status === "all" ? undefined : query.status, search: query.search })}`);
     return raw.map(normalizeOrder);
   },
 
   /** GET /admin/orders/{id} */
   async getOrder(id: string): Promise<AdminOrder> {
-    if (USE_MOCK_DATA) return mock.getOrder(id);
+    if (isMock("commerce")) return mock.getOrder(id);
     return normalizeOrder(await request<Raw>(`/admin/orders/${encodeURIComponent(id)}`));
   },
 
   /** POST /admin/orders/{id}/cancel { note } — unpaid orders only. */
   async act(input: OrderActionInput): Promise<AdminOrder> {
-    if (USE_MOCK_DATA) return mock.applyOrderAction(input, readSession());
+    if (isMock("commerce")) return mock.applyOrderAction(input, readSession());
     return normalizeOrder(
       await request<Raw>(`/admin/orders/${encodeURIComponent(input.orderId)}/${input.action}`, {
         method: "POST",
@@ -145,7 +146,7 @@ export const commerceApi = {
 
   /** GET /admin/commerce/summary */
   async summary(): Promise<CommerceSummary> {
-    if (USE_MOCK_DATA) return mock.getSummary();
+    if (isMock("commerce")) return mock.getSummary();
     const raw = await request<Partial<CommerceSummary> & { byStatus?: Partial<Record<OrderStatus, number>> }>("/admin/commerce/summary");
     return {
       revenue: num(raw.revenue),

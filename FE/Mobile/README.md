@@ -130,7 +130,7 @@ Không còn tư vấn theo khung giờ, khoá học, thực đơn VIP hay dịch
 **Quy tắc giữ tiền (escrow)** — `lib/features/booking/domain/booking_rules.dart`, web dùng cùng số:
 
 - 3–30 ngày; tổng giá 100.000đ – 50.000.000đ; lời nhắn đề xuất ≤ 300 ký tự; tin nhắn ≤ 1000. Chỉ bên **không** đưa ra đề xuất mới đồng ý được, và chỉ đề xuất mới nhất. Không tự đặt chính mình (409).
-- Đồng ý giá → tạo hợp đồng + đơn hàng, **hạn thanh toán 48 giờ** (quá hạn → Hết hạn); mỗi mã QR sống 15 phút ("Tạo mã mới").
+- Đồng ý giá → tạo hợp đồng + đơn hàng, **hạn thanh toán 48 giờ, không quá 00:00 ngày bắt đầu** (quá hạn → Hết hạn); mỗi mã QR sống 15 phút ("Tạo mã mới").
 - Giao kế hoạch: một lần → hạn = max(00:00 ngày bắt đầu, lúc thanh toán + 24 giờ); có phản hồi mỗi ngày → ngày N hạn **06:00** sáng ngày đó, thành viên góp ý trước **21:00**.
 - `endDate = startDate + số ngày − 1`; **giữ tiền đến 23:59 (giờ Việt Nam) ngày kết thúc + 3 ngày**. Hết hạn mà không khiếu nại → chuyển cho chuyên gia, **trừ phí nền tảng 10 %** (90 % vào "Có thể rút").
 - Khiếu nại → tiền **tạm giữ** đến khi admin quyết định ở web `/disputes`: chuyển toàn bộ cho chuyên gia, hoàn toàn bộ, hoặc **hoàn một phần X** (1.000đ ≤ X < giá): thành viên nhận X, chuyên gia nhận (giá − X) × 90 %, phí (giá − X) × 10 %. Hoàn tiền về **phương thức thanh toán ban đầu** qua PaymentOS (không có ví thành viên).
@@ -153,7 +153,7 @@ flutter pub get
 flutter run                                                    # mặc định USE_MOCK_DATA=true
 ```
 
-Cần Flutter ≥ 3.27 (Dart ≥ 3.6). Kiểm tra: `dart format --output=none --set-exit-if-changed lib test tool`, `flutter analyze`, `flutter test`, `flutter build apk --debug`. Từ thư mục `FE`, `run_checks.bat` chạy kiểm tra cho cả mobile và web.
+Cần Flutter ≥ 3.27 (Dart ≥ 3.6). Kiểm tra: `dart format --output=none --set-exit-if-changed lib test tool integration_test_be`, `flutter analyze`, `flutter test`, `flutter build apk --debug`. Từ thư mục `FE`, `run_checks.bat` chạy kiểm tra cho cả mobile và web.
 
 ### Quyền
 
@@ -164,7 +164,9 @@ Cần Flutter ≥ 3.27 (Dart ≥ 3.6). Kiểm tra: `dart format --output=none --
 
 | Key | Mặc định | Ý nghĩa |
 |---|---|---|
-| `USE_MOCK_DATA` | `true` | `false` → gọi API thật qua Dio |
+| `USE_MOCK_DATA` | `true` | `false` → chế độ lai: module BE đã hỗ trợ gọi API thật qua Dio, còn lại mock (xem "Chạy với BE thật") |
+| `BACKEND_MOCK_MODULES` | (trống) | Khi `USE_MOCK_DATA=false`: các module ép dùng mock, cách nhau bằng dấu phẩy (`community,scanner`) |
+| `BACKEND_REAL_MODULES` | (trống) | Khi `USE_MOCK_DATA=false`: các module ép gọi BE thật (`video`) |
 | `API_BASE_URL` | `http://10.0.2.2:5001/api/v1` | Gốc API ASP.NET Core (10.0.2.2 = máy host khi chạy Android emulator) |
 | `GUEST_TRIAL_LIMIT` | `3` | Số câu hỏi AI miễn phí cho khách; `0` = bắt đăng nhập ngay (server quyết định cuối cùng) |
 | `MAP_TILES` | `on` | `off` → bản đồ là nền phẳng có điểm và tuyến, không tải ô bản đồ (test luôn tắt) |
@@ -182,7 +184,7 @@ Ví dụ: `flutter run --dart-define=MAP_TILES=off`, `flutter run --dart-define=
 - **JSON camelCase** = camelCase của tên cột SQL. Enum C# (`UserStatusEnum`, `AuthTypeEnum`) nhận cả số lẫn chuỗi. **ID**: SQL dùng `INT`; app giữ id dạng chuỗi và gửi lại dạng số khi là số (`apiId`). **Ngày giờ** ISO-8601 UTC; **tiền** là số nguyên VND. **Vai trò** `Admin` / `User` / `Chef`.
 - Mọi đường dẫn nằm trong `lib/core/network/api_endpoints.dart`; JSON mẫu ở đầu mỗi file `data/models/*.dart` (hoặc đầu API service).
 
-**BE hiện có** (ASP.NET Core + MongoDB) các controller **Auth, Users, HealthProfile, Pantry, MealPlans, Recipes, Ingredients, Catalog, Posts, Comments, Media**. Các nhóm còn lại trong bảng (tìm kiếm, quán, vị trí, quảng cáo, chatbot, quét, chuyên gia, đặt chuyên gia, thanh toán) BE chưa có; nhóm đã có vẫn còn chênh lệch hợp đồng (xem "Chênh lệch với BE hiện tại" bên dưới). Bảng là hợp đồng app dùng (dưới `/api/v1`):
+**BE hiện có** (ASP.NET Core + MongoDB) các controller **Auth, Users, HealthProfile, Pantry, MealPlans, Recipes, Ingredients, Catalog, Posts, Comments, Media, Vision**. Các nhóm còn lại trong bảng (tìm kiếm, quán, vị trí, quảng cáo, chatbot, chuyên gia, đặt chuyên gia, thanh toán) BE chưa có; nhóm đã có vẫn còn chênh lệch hợp đồng (xem "Chênh lệch với BE hiện tại" bên dưới), do các service `Remote*` tự xử lý. Bảng là hợp đồng đầy đủ app mong đợi (dưới `/api/v1`), mock chạy đúng theo bảng; module nào đang thật hay mock xem "Chạy với BE thật":
 
 | Nhóm | Endpoint | File (`lib/…`) |
 |---|---|---|
@@ -198,7 +200,7 @@ Ví dụ: `flutter run --dart-define=MAP_TILES=off`, `flutter run --dart-define=
 | Sức khoẻ & thực đơn | GET/PUT `/health-profile/me` (GET trả **404** khi chưa có hồ sơ; PUT tạo hoặc sửa, và cập nhật `dailyTargets` của tuần hiện tại); **GET `/health-profile/me/metrics?limit=100`** (mới nhất trước, thêm `waistCm`, `bodyFatPct`, `source` `profile`/`check_in`), **POST `/health-profile/me/metrics`** (check-in `{ weightKg, waistCm?, bodyFatPct? }` → 201 `{ measurement, profile }`, cập nhật hồ sơ và mục tiêu tuần như PUT); GET `/catalog/allergens?q=`; GET `/meal-plans/current`; POST `/meal-plans` (tuần trống), `/meal-plans/generate` (`usePantry`); GET `/meal-plans/{id}/swap-suggestions`; PATCH/DELETE `/meal-plans/{id}/meals` (PATCH `{ date, slot, recipeId, source, portion }`, `source` có thêm `recipe`); POST `/meal-plans/current/meals`, **`/meal-plans/current/meals/batch`** (`{ meals: [...] }` → `{ placed, skipped, days }`); POST `/meal-plans/current/adjust`, `/meal-plans/current/adjust/{proposalId}/apply`; GET `/meal-plans/chef-suggestions`; GET `/users/me/recipes`, POST `/recipes` | `features/meal_planner/data/meal_planner_api_service.dart`, `allergen_api_service.dart` |
 | Công thức | **GET `/recipes/{id}`** (khách xem được; nguyên liệu có `key`, `quantity`, `unit`, `role`, `isSignature`, `isOptional`, `allergens`, `nutrition`, `substitutes`; `servings`, `averageRating`, `ratingCount`, `basedOnRecipeId`, `customizations`); **POST `/recipes/{id}/variants`** (`{ name, swaps: [{ ingredientKey, substituteKey }], removed: [...] }` → 201 công thức riêng tư đã tính lại calo; 400 `signature_required` / `invalid_substitute`); **GET `/recipes/{id}/reviews?cursor=&limit=10`** (kèm `myReview` khi có token), **PUT/DELETE `/recipes/{id}/reviews/me`** (403 `own_recipe`); **GET/PUT/DELETE `/recipes/{id}/notes/me`** (GET 404 = chưa có ghi chú) | `features/recipe/data/recipe_api_service.dart`, `recipe_community_api_service.dart` |
 | Tủ lạnh & nguyên liệu | GET/POST/DELETE `/users/me/ingredients`, DELETE `/users/me/ingredients/{id}`; GET `/ingredients?q=&veganOnly=true`, `/ingredients/{id}` | `features/meal_planner/data/pantry_api_service.dart`, `features/ingredient/data/ingredient_api_service.dart` |
-| Quét | POST `/vision/scan`, `/meal-plans/from-ingredients` | `features/scanner/data/scanner_api_service.dart` |
+| Quét | POST `/vision/scan` (tạm dùng route gốc, B1). **Không gọi** `/meal-plans/from-ingredients`: BE dùng nó để tạo lại cả tuần | `features/scanner/data/scanner_api_service.dart` |
 | Chatbot | GET `/chat/guest-trial`, POST `/chat/sessions/{id}/messages` (SSE) | `features/chatbot/data/chat_api_service.dart` |
 | Chuyên gia (danh bạ) | GET `/chefs`, `/chefs/{id}` (kèm bảng giá, `acceptingBookings`) | `features/chef/data/chef_api_service.dart` |
 | Đặt chuyên gia (thành viên) | POST `/bookings`; GET `/bookings/me`, `/bookings/{id}` (kèm hợp đồng, giữ tiền, khiếu nại); GET/POST `/bookings/{id}/messages`; POST `/bookings/{id}/offers`, `/bookings/{id}/offers/{offerId}/accept\|reject`, `/bookings/{id}/cancel`, `/bookings/{id}/payments`, `/bookings/{id}/complaint`; GET `/bookings/{id}/plan`; PUT `/bookings/{id}/plan/days/{dayIndex}/feedback` | `features/booking/data/booking_api_service.dart` |
@@ -216,7 +218,7 @@ App coi các trường mới là tuỳ chọn (thiếu thì UI vẫn chạy), nh
 - **Bảng mới — tài khoản**: `password_reset_codes` (code_hash, expires_at 10 phút, attempts tối đa 3, reset_token_hash, used_at), `chef_applications`.
 - **Bảng mới — sức khoẻ & nguyên liệu**: `user_allergies` (allergen_id hoặc custom_name), `ingredient_nutrition` (khẩu phần, kcal, macro, vi chất JSON, good_for, caution_for, source), `ingredient_incompatibilities`, `meal_plan_adjustments` (message, reply, changes JSON, scope, status Proposed/Applied/Dismissed).
 - **Bảng mới — quán & quảng cáo**: `restaurant_media` (Image/Video), `ad_campaigns` (kèm `placement` = `nearby`, lượt hiển thị/bấm).
-- **Bảng mới — đặt chuyên gia**: `chef_bookings` (booking_type OneShot/DailyFeedback, plan_days, start_date, goal, allergies_snapshot, meal_pattern, budget_per_day, needs, share_health_profile, status, decline_reason, cancel_reason), `booking_offers`, `booking_messages` (Text/Offer/System/Attachment), `booking_contracts` (1:1, bất biến: giá, ngày, delivery_due_at, daily_send_cutoff 06:00, feedback_cutoff 21:00, fee_rate 0.10, hold_days 3, payment_due_at +48 giờ), `booking_plan_days`, `booking_plan_meals` (6 bữa), `booking_day_feedback`.
+- **Bảng mới — đặt chuyên gia**: `chef_bookings` (booking_type OneShot/DailyFeedback, plan_days, start_date, goal, allergies_snapshot, meal_pattern, budget_per_day, needs, share_health_profile, status, decline_reason, cancel_reason), `booking_offers`, `booking_messages` (Text/Offer/System/Attachment), `booking_contracts` (1:1, bất biến: giá, ngày, delivery_due_at, daily_send_cutoff 06:00, feedback_cutoff 21:00, fee_rate 0.10, hold_days 3, payment_due_at = min(+48 giờ, 00:00 ngày bắt đầu)), `booking_plan_days`, `booking_plan_meals` (6 bữa), `booking_day_feedback`.
 - **Bảng mới — giữ tiền & khiếu nại**: `escrow_holds` (Held/Frozen/Released/Refunded/PartiallyRefunded, release_at = end_date 23:59 giờ VN + 3 ngày, released/fee/refunded amount), `booking_complaints` (reason, description, requested_outcome, requested_amount, chef_response, decision ReleaseToChef/RefundMember/Split, refund_amount, admin_note), `complaint_evidence` (Link/Image, url, caption).
 - **Bảng mới — ví chuyên gia**: `wallets`, `wallet_transactions` (kèm `booking_id`; trạng thái `Held` "Đang giữ" thay `Pending`, `Frozen` "Tạm giữ do khiếu nại"), `withdrawal_requests`, `bank_accounts`.
 - **Bảng mới — công thức & cân nặng**: `recipe_ingredient_substitutes` (recipe_ingredient_id, substitute_key, ingredient_id NULL, name, quantity, unit, note, allergens, kcal/protein_g/carbs_g/fat_g/fiber_g NULL; `UNIQUE(recipe_ingredient_id, substitute_key)`), `recipe_reviews` (recipe_id, user_id, rating 1–5, content ≤ 500 NULL, status Visible/Hidden, created_at, updated_at; `UNIQUE(recipe_id, user_id)`), `recipe_notes` (recipe_id, user_id, content ≤ 2000, updated_at; `UNIQUE(recipe_id, user_id)`), `body_measurements` (user_id, logged_at, weight_kg, height_cm, bmi, waist_cm NULL, body_fat_pct NULL, source `profile`/`check_in`; index `(user_id, logged_at DESC)`).
@@ -236,17 +238,56 @@ App coi các trường mới là tuỳ chọn (thiếu thì UI vẫn chạy), nh
 
 ### Chênh lệch với BE hiện tại (MongoDB)
 
-Các tính năng công thức (chỉnh, biến thể, đánh giá, ghi chú) và check-in cân nặng hiện **chỉ chạy với mock** cho tới khi BE bổ sung:
+Kiểm tra trên BE chạy thật ngày 2026-10-31 (bản BE ở nhánh `main`). Mỗi lỗi bên dưới có một test mang đúng số hiệu trong `integration_test_be/be_bug_pins_test.dart`: test đó khẳng định **hành vi sai của hôm nay**, nên khi BE sửa lỗi thì test đỏ và báo phần nào của app cần gỡ.
 
-- **M1** — Chưa có `GET /recipes/{id}`; `GET /recipes` lại trả công thức *của tôi* → trang công thức lỗi với BE thật. `RecipesController` có hai route cấp lớp, thêm `[HttpGet("{id}")]` sẽ lộ cả `/users/me/recipes/{id}` → tách controller hoặc dùng route tuyệt đối.
-- **M2** — `Recipe.ingredients` là `string[]`, không có định lượng, không có `servings`: app vẫn đọc chuỗi ("Đậu hũ", "Đậu hũ 200 g") nhưng không chia theo số người hay tính lại calo được → trang chi tiết cần trả nguyên liệu có cấu trúc.
-- **M3** — `POST /recipes`: app gửi `caloriesCache`, `ingredients: [{ name, quantity, unit }]`, `instructions` (chuỗi), `servings`; BE nhận `calories`, `string[]`, `string[]` → tạo "Công thức của tôi" lỗi với BE thật (biến thể dùng endpoint riêng `/recipes/{id}/variants`).
-- **M4** — `PATCH /meal-plans/{id}/meals` ghi cứng `source = "manual"` và bỏ qua `portion` → món thêm từ trang công thức hiện "Tự nhập", không mở lại được công thức. BE cần lưu `source` (kể cả `recipe`) và `portion`.
-- **M5** — Mục tiêu: app gửi `lose_weight` / `gain_weight`, BE dùng `lose` / `gain` → BE tính 0 % điều chỉnh. App đã đọc được cả `lose` / `gain`; BE nên nhận cả hai.
-- **M6** — Chỉ số cơ thể: chưa có `POST /health-profile/me/metrics`, chưa có `waistCm`, `bodyFatPct`, `source` → check-in không lưu được.
-- **M7** — `AddMealRequestDto` của BE thiếu macro và `sourceName` (macro của món thêm tay bị bỏ).
-- **M8** — README cũ ghi BE chỉ có `UsersController`; đã cập nhật danh sách controller ở mục "Khớp với backend".
-- **M9** — Tài liệu kế hoạch BE ghi ngưỡng BMI của WHO, còn code BE (và app) dùng chuẩn châu Á – Thái Bình Dương → chỉ cần sửa tài liệu.
+**BE chưa có (app có tính năng, BE thiếu):**
+
+- `GET /recipes/{id}`; nguyên liệu có cấu trúc và `servings` (`Recipe.ingredients` chỉ là `string[]`, nên không chia theo số người hay tính lại calo được); biến thể, đánh giá, ghi chú công thức. `RecipesController` có hai route cấp lớp, thêm `[HttpGet("{id}")]` sẽ lộ cả `/users/me/recipes/{id}` → tách controller hoặc dùng route tuyệt đối.
+- `POST /health-profile/me/metrics` với `waistCm`, `bodyFatPct`, `source`.
+- `POST /meal-plans/current/adjust` ("Chỉnh thực đơn với AI").
+- Sửa bài, lưu bài, `/users/me/posts`, `/users/me/saved-posts`, `/users/me/comments`; sửa bình luận; `GET` phản hồi của bình luận.
+- `/chef-applications`; toàn bộ tìm kiếm, quán, vị trí, quảng cáo, chatbot, `/videos`, chuyên gia, đặt chuyên gia, thanh toán, ví, tài liệu kiến thức.
+
+**Lỗi BE đã biết** (mức độ theo ảnh hưởng tới người dùng):
+
+| # | Mức | Lỗi | Đề xuất sửa |
+|---|---|---|---|
+| B1 | Cao | `POST /api/v1/vision/scan` luôn 500: hai attribute cho cùng một route | Xoá `[Route("api/v1/[controller]")]`, giữ `api/v1/vision`, sau này bỏ `vision` ở gốc |
+| B2 | **Chặn (web)** | Admin không đăng nhập được: endpoint login duy nhất ném Forbidden khi `Role == "Admin"` | Thêm `POST /auth/admin/login` yêu cầu Admin, giữ chặn ở `/auth/login` |
+| B3 | Cao | `AppRoles.AdminOrMember = "Admin,Member"` trong khi người dùng là `User`/`Chef`, nên GET/PUT `/users/{id}` là 403 với mọi người | `"Admin,User,Chef"` **và** kiểm tra chủ sở hữu `id == sub \|\| Admin`; chỉ nới vai trò sẽ thành lỗi IDOR |
+| B4 | Cao, riêng tư | Tạo thực đơn và đổi món dùng cả công thức riêng của người khác | Lọc `r.CreatedBy == null \|\| r.CreatedBy == userId` ở cả hai truy vấn |
+| B5 | TB | Tài khoản mẫu trong tài liệu không tồn tại; DatabaseSeeder chỉ tạo nguyên liệu và công thức (test để skip, không ghim được) | Seed một admin, một chef, một thành viên ở Development |
+| B6 | TB | PATCH meals bỏ qua `source`, `portion`; luôn là `manual` | Thêm vào `SwapMealRequestDto`, truyền cho `MapToMealSlotItem` |
+| B7 | TB | POST meals/batch bỏ macro và `sourceName`; `recipeId` bị bỏ qua (chỉ đọc `sourceId`) | Thêm `ProteinG, CarbsG, FatG, FiberG, SourceName` vào `AddMealRequestDto` |
+| B8 | TB | PUT hồ sơ sức khoẻ không cập nhật `dailyTargets`/`goal` của thực đơn hiện tại | Cập nhật thực đơn tuần này trong `UpdateMyHealthProfileAsync` |
+| B9 | TB | PUT đặt lại trường bị thiếu: `gender` → Other, `birthYear` → 1998; `null` → 400 tiếng Anh | Cho phép null trong DTO và giữ giá trị đã lưu |
+| B10 | TB | `goal` không được kiểm tra: `lose_weight`, `gain_weight` âm thầm thành 0 % | Thêm alias trong `GetGoalAdjustment` hoặc từ chối giá trị lạ |
+| B11 | TB | Tạo thực đơn bỏ qua `mealPattern`; `snack_am`, `snack_late` không bao giờ có món | Lặp theo `profile.MealPattern` |
+| B12 | TB | Ảnh/video tải lên 404 nếu thiếu `wwwroot` lúc khởi động; bản dev trả URL tương đối | Commit `wwwroot/.gitkeep` (hoặc tạo trước `CreateBuilder`) |
+| B13 | TB | Tủ lạnh lưu thực phẩm không thuần chay với `isVegan: true` | Kiểm tra từ khoá cho tên lạ, hoặc từ chối |
+| B14 | TB | `allergyWarning` không bao giờ bật với dị ứng chuẩn: `FindConflicts` nhận tag rỗng | Truyền `matchedIngredient.Allergens` làm tag |
+| B15 | TB | Trả `nextCursor` nhưng bỏ qua `cursor`, `limit` | Làm theo hai tham số này, hoặc thôi trả `nextCursor` |
+| B16 | TB | Phản hồi thứ 3 trở đi không đọc được; xoá bình luận gốc để lại phản hồi mồ côi và `commentCount` chỉ giảm 1 | Thêm GET replies; xoá theo cả nhánh |
+| B17 | Thấp | `updatedAt` của bình luận có ngay lúc tạo và khi thêm phản hồi, nên không biết đã sửa hay chưa | Để null tới khi có endpoint sửa |
+| B18 | TB | Không làm mới được token: `refreshToken` luôn null, không có `/auth/refresh`, JWT sống 60 phút | Làm luồng refresh, hoặc tăng hạn ở dev |
+| B19 | Thấp | POST `/recipes` bỏ qua `prepMinutes` (20 → 15), đổi `calories: 0` thành 300 | Map `PrepMinutes`; giữ 0 |
+| B20 | Thấp | `/catalog/allergens` bỏ qua `q` | Lọc, hoặc ghi vào tài liệu |
+| B21 | Thấp | Bài video báo `aiStatus: "ready"`, `durationSeconds: 0`, `video.id` = id bài, không có API `/videos` phía sau | Trả `video: null` tới khi có pipeline; dùng `MediaAsset.DurationSeconds` |
+| B22 | Thấp | `stats` của `/users/me` luôn 0; `chefApplication` chỉ `none`/`approved` | Tính số thật |
+| B23 | Thấp | Quên mật khẩu không gửi email: mã nằm trong bộ nhớ và stdout, không giới hạn số lần thử; lỗi là `invalid_code` thô, không có trường `code` | Thêm `code`, thông báo tiếng Việt, giới hạn số lần |
+| B24 | Thấp | "Tuần hiện tại" tính theo UTC, và `/current` trả thực đơn cũ bất kỳ | Dùng Asia/Ho_Chi_Minh; 404 khi tuần này chưa có |
+| B25 | Thấp | Lỗi validation là ProblemDetails, không qua `ValidationFilter` (`[ApiController]` chặn trước) | `SuppressModelStateInvalidFilter = true` |
+| B26 | Thấp | swap-suggestions không kiểm tra thực đơn có tồn tại và thuộc về người gọi không | Trả 404 (app sẽ luôn gửi id thật) |
+| B27 | Thấp | Ba báo cáo chuyển bài sang `Pending`, không có endpoint admin để khôi phục | Thêm endpoint kiểm duyệt |
+| B28 | TB | Thích lại sau khi bỏ thích là 500: bỏ thích xoá mềm dòng `PostLikes`, chỉ mục duy nhất `PostId_1_UserId_1` từ chối dòng mới (E11000) | Khôi phục dòng đã xoá mềm, hoặc cho chỉ mục unique partial theo `IsDeleted = false` |
+| B29 | TB | `POST /meal-plans` trả nguyên tuần đang có, bỏ qua `empty`: không làm trống được một tuần đã có món | Thêm `empty` vào `CreateMealPlanRequest` và xoá món khi `empty: true`, hoặc thêm endpoint xoá cả tuần |
+| B30 | Thấp | `swap-suggestions` gợi ý cả món đang có trong bữa đó ("±0") | Loại `recipeId` hiện tại khỏi kết quả |
+| B31 | TB | Tuần được tạo thấp hơn mục tiêu nhiều: 1.170–1.430 kcal/ngày so với 1.890 khi 3 bữa (mới thấy trên một tài khoản) | Chọn món theo mục tiêu từng bữa |
+| B32 | Thấp | `POST /media/videos` lưu `DurationSeconds: 15` cho mọi video | Đọc thời lượng thật |
+| B33 | Thấp | Món thêm qua `meals` và `meals/batch` nhận `PrepMinutes: 15` nên hiện "15 phút" không có thật | Giữ null khi không gửi |
+| B34 | Thấp | Tủ lạnh nhận hai dòng cho cùng một nguyên liệu | Gộp theo nguyên liệu, hoặc xác nhận trùng là hợp lệ |
+
+**Sai trong `TAI_LIEU_API_CHO_FRONTEND.md`**: tài khoản mẫu; dị ứng ghi là chuỗi; `/from-ingredients` trả 10 gợi ý (thực ra nó **ghi đè cả tuần**, app không bao giờ gọi); đường dẫn `/vision/scan`. Tài liệu kế hoạch BE ghi ngưỡng BMI của WHO, còn code BE (và app) dùng chuẩn châu Á – Thái Bình Dương.
 
 Lưu trữ đề xuất cho BE (MongoDB; bản SQL ở mục trên):
 
@@ -262,7 +303,7 @@ Lưu trữ đề xuất cho BE (MongoDB; bản SQL ở mục trên):
 lib/
 ├── main.dart, app.dart              # ProviderScope, theme, AppEntry (Welcome / shell), thanh tab + nút Quét + bong bóng Hỏi AI
 ├── core/
-│   ├── config/env.dart              # --dart-define
+│   ├── config/                      # env.dart (--dart-define), backend_modules.dart (module thật hay mock)
 │   ├── network/                     # dio_client, api_endpoints, envelope, interceptors, api_exception
 │   ├── session/                     # phiên, vai trò, auth API, tài khoản & máy chủ auth mock
 │   ├── settings/ theme/ utils/      # giao diện, màu, BMI/năng lượng, định dạng VN, tìm không dấu
@@ -286,6 +327,7 @@ lib/
         ├── domain/                  # entities, quy tắc nghiệp vụ
         └── presentation/            # controllers (Riverpod), screens, widgets
 tool/brand/                          # sinh icon + splash
+integration_test_be/                 # test với BE thật (xem "Chạy với BE thật")
 ```
 
 ## Thử nhanh (mock)
@@ -319,10 +361,127 @@ tool/brand/                          # sinh icon + splash
 
 Video mẫu (bảng tin, Bếp nhanh) dùng clip công khai của Flutter docs (`bee.mp4`, `butterfly.mp4`) và MDN (`flower.mp4`, CC0). Thay bằng URL Cloudinary khi BE sẵn sàng.
 
-## Nối API thật
+## Chạy với BE thật
 
-1. Đặt `USE_MOCK_DATA=false` và `API_BASE_URL`.
-2. Đăng nhập: `POST /auth/login` trả `{ accessToken, refreshToken, expiresAt, user: { id, fullName, email, role, status } }`; lỗi 401 `invalid_credentials`, 403 `admin_web_only`, 423 `account_locked`, 409 `email_taken`, 429 `too_many_attempts`. Chuyển token sang secure storage trước khi phát hành.
+### Khởi động BE
+
+BE là ASP.NET Core + MongoDB, **target .NET 9** (`net9.0`). Dùng bản BE ở nhánh `main`: bản trên nhánh này cũ hơn, chưa có `VisionController`.
+
+```powershell
+cd BE/ControllerLayer
+# Máy chỉ có runtime .NET 10 (không có .NET 9) thì cho chạy lên bản major kế tiếp:
+$env:DOTNET_ROLL_FORWARD = "Major"
+dotnet run --no-launch-profile --urls http://localhost:5001
+```
+
+- Chuỗi kết nối và JWT cấu hình như `BE/README.md`. Nên dùng một database thử riêng: chạy `integration_test_be` để lại tài khoản và công thức (BE chưa có API xoá).
+- Tạo sẵn `BE/ControllerLayer/wwwroot` **trước khi** khởi động, không thì mọi ảnh/video tải lên đều 404 tới lần khởi động lại (B12).
+- Không có khoá Gemini thì `/vision/scan` trả kết quả mẫu; không có khoá Cloudinary thì tệp nằm trong `wwwroot/uploads`.
+- Mã quên mật khẩu chỉ in ra log của BE (B23).
+
+### Chạy app
+
+```bash
+cd FE/Mobile
+flutter run --dart-define=USE_MOCK_DATA=false                  # Android emulator: http://10.0.2.2:5001/api/v1
+```
+
+- `10.0.2.2` là máy host khi nhìn từ emulator, và là `API_BASE_URL` mặc định. Máy thật: `adb reverse tcp:5001 tcp:5001` rồi thêm `--dart-define=API_BASE_URL=http://localhost:5001/api/v1`.
+- HTTP thường chỉ được phép ở bản debug (`android/app/src/debug/AndroidManifest.xml`); profile và release không đổi. iOS chưa kiểm tra được trên máy này.
+- Tài khoản: tự đăng ký trong app (BE chưa có tài khoản mẫu, B5; các chip thử nghiệm ở màn Đăng nhập tự ẩn). Vai trò `Chef` chỉ đổi được trong DB thử: `db.Users.updateOne({Email:"…"},{$set:{Role:"Chef"}})`, rồi đăng nhập lại.
+
+Bật/tắt từng module, không cần sửa code (mọi quyết định nằm trong `lib/core/config/backend_modules.dart`):
+
+```bash
+flutter run --dart-define=USE_MOCK_DATA=false \
+  --dart-define=BACKEND_MOCK_MODULES=community,scanner \
+  --dart-define=BACKEND_REAL_MODULES=video
+```
+
+Tên module không phân biệt hoa thường, tên lạ bị bỏ qua. Có trong cả hai danh sách thì là mock. `auth` mock thì **mọi** module đều mock (module thật cần JWT).
+
+### Module: thật hay mock
+
+Với `USE_MOCK_DATA=false`, hôm nay:
+
+| Module | Mặc định | Ghi chú |
+|---|---|---|
+| `auth`, `profile` | Thật | Đổi thông tin cá nhân bị 403 (B3); đơn đăng ký chuyên gia lưu trên máy |
+| `community`, `reels`, `media` | Thật | Phân trang theo `page`/`pageSize`; bài đã lưu lưu trên máy |
+| `planner`, `pantry`, `ingredients`, `allergens` | Thật | Check-in cân nặng đi qua PUT hồ sơ |
+| `recipes` | Thật | Đọc từ danh mục qua swap-suggestions (dựa vào B26); id mock (`l5`, `menu_1`, `cs_…`) vẫn mở bằng mock |
+| `scanner` | Thật | Quét qua route gốc `/vision/scan` (B1); "Gợi ý món" chọn ngay trên máy từ danh mục, **không đụng tới thực đơn** |
+| `video`, `recipeSocial` | Mock | BE chưa có `/videos`, biến thể, đánh giá, ghi chú |
+| `chatbot`, `search`, `restaurants`, `geocoding`, `ads` | Mock | BE chưa có |
+| `chefs`, `bookings`, `commerce`, `chefStudio`, `chefWallet` | Mock | BE chưa có; tài khoản thật đóng vai dữ liệu mẫu: thành viên là Minh Anh (`u_me`), vai trò Chef là Tâm (`u_chef_tam`) |
+
+**Banner "Dữ liệu mẫu · Máy chủ chưa hỗ trợ tính năng này"**: màn hình này đang hiện dữ liệu mẫu trong app, không phải dữ liệu của bạn trên máy chủ, vì BE chưa có module đó (Chuyên gia, Lịch sử tư vấn, Quán chay, Tìm kiếm, Hỏi AI, Ví, trang công thức id mock). Thao tác ở đó chỉ sống trong phiên chạy app. Banner chỉ hiện ở chế độ lai, không bao giờ hiện khi toàn mock.
+
+### Hành vi bị giới hạn khi chạy BE thật
+
+| Ở đâu | Khi nào | App làm gì |
+|---|---|---|
+| Luồng bình luận | Còn phản hồi chưa đọc được (B16) | "Còn {N} phản hồi khác, chưa xem được trên bản này" thay cho "Xem thêm" |
+| Bình luận, menu bài, Tạo bài viết | BE chưa có | Ẩn "Sửa" bình luận, "Sửa bài", "Gắn quán"; vẫn "Xoá". Không còn "(đã sửa)" sai (B17) |
+| Thích bài | Thích lại sau khi đã bỏ thích (B28) | BE trả 500, app báo lỗi máy chủ; tải lại vẫn thấy đúng trạng thái |
+| Tạo bài viết | Video trên 100 MB | "Video MP4, MOV, WEBM tối đa 100 MB" |
+| Nội dung của tôi › Đã lưu | Luôn luôn | "Bài đã lưu chỉ nằm trên máy này." |
+| Nội dung của tôi › Bài của tôi | Hơn 5 trang bảng tin | "Đang hiện bài của bạn trong 250 bài mới nhất."; chỉ có bài đã đăng |
+| Nội dung của tôi › Bình luận | BE chưa có | "Chưa xem được bình luận của bạn" · "Máy chủ chưa hỗ trợ danh sách này. Bình luận của bạn vẫn hiện trong từng bài viết." |
+| Chi tiết bài, Bếp nhanh | B21 | Không có chip AI, không có "Xem công thức" |
+| Thực đơn | BE chưa có | Ẩn "Chỉnh thực đơn với AI" |
+| Thực đơn | Tuần đã có món (B29) | Ẩn "Tự lên thực đơn" trong menu ⋮; vẫn còn khi chưa có thực đơn tuần này |
+| Thực đơn | Món đã đổi (B6) | Nhãn "Từ công thức", kể cả món AI gợi ý |
+| Thực đơn | Đổi mục tiêu (B8) | App tự tính lại mục tiêu ngày để hiển thị; máy chủ vẫn giữ số cũ |
+| Thực đơn | "Áp dụng kế hoạch" (B7) | Mất macro và tên chuyên gia, nhãn "Chuyên gia" |
+| Thực đơn | Tạo thực đơn (B11) | Có thể có bữa ngoài "Các bữa trong ngày" |
+| Tự nhập món | B7 | Ẩn ô macro; "Máy chủ chưa lưu đạm, tinh bột, chất béo của món tự nhập." |
+| Check-in cân nặng | BE chưa có các trường này | Ẩn vòng eo, tỉ lệ mỡ; "Vòng eo và tỉ lệ mỡ tạm chưa lưu được nên đã ẩn." |
+| Check-in cân nặng | Cân nặng không đổi | "Cân nặng không đổi nên chưa thêm dòng mới vào lịch sử." |
+| Trang công thức thật | Luôn luôn | Chỉ có "Nguyên liệu", "Cách làm"; "Công thức này chưa có định lượng chi tiết nên chưa chỉnh được số người hay đổi nguyên liệu."; vẫn "Thêm vào Thực đơn" |
+| Trang món tự nhập | Không có trong danh mục | "Món này chưa có chi tiết công thức." |
+| Thông tin cá nhân | B3 | Form giữ nguyên: "Máy chủ chưa cho phép đổi thông tin cá nhân. Thử lại sau nhé." |
+| Hồ sơ chuyên gia | BE chưa có | "Hồ sơ đã lưu trên máy này. Máy chủ chưa nhận hồ sơ chuyên gia nên chưa có người duyệt." |
+| Quét | Không có ảnh | "Chưa có ảnh để quét. Hãy chụp hoặc chọn ảnh khác."; không chọn ảnh nào: "Bạn có thể chụp bằng camera hoặc nhập tay." |
+| Tủ lạnh | Tên không thuần chay (B13) | App tự từ chối: "{tên} không thuần chay nên không lưu vào tủ." kèm "Gợi ý thay thế" |
+| Quên mật khẩu | Bản debug (B23) | "(Bản thử nghiệm) Máy chủ chưa gửi email: xem mã trong nhật ký máy chủ." |
+| Mọi request | 401 khi đang đăng nhập (JWT 60 phút, không có refresh, B18) | Đóng mọi trang đang mở trên tab, về chế độ khách, snackbar "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại." |
+| Mọi request | ProblemDetails không đọc được (B25) | "Dữ liệu gửi lên chưa hợp lệ." |
+
+### Bộ test với BE thật (`integration_test_be`)
+
+Gọi các service `Remote*` thật qua Dio thật, tới BE đang chạy. Nằm ngoài `test/` nên `flutter test` thường không chạy nó. Tài khoản do bộ test tự đăng ký (email và mật khẩu ngẫu nhiên lúc chạy, không in ra); không lưu bí mật nào trong repo.
+
+```bash
+cd FE/Mobile/integration_test_be
+flutter test . --concurrency=1 --dart-define=USE_MOCK_DATA=false --dart-define=API_BASE_URL=http://localhost:5001/api/v1
+flutter test . --tags be-bug-pin --dart-define=USE_MOCK_DATA=false --dart-define=API_BASE_URL=http://localhost:5001/api/v1   # chỉ các lỗi BE
+```
+
+- **Phải chạy từ trong thư mục này.** `flutter test integration_test_be` từ gốc dự án dừng với lỗi `cannot run without a dependency on "package:integration_test"`: flutter_tools coi mọi đường dẫn bắt đầu bằng `<gốc>/integration_test` là test chạy trên thiết bị. Không cần thêm thư viện.
+- `--concurrency=1` vì các file dùng chung một bảng tin; bài mới của file khác làm lệch trang khi đang thử phân trang.
+- BE tắt, hoặc thiếu `USE_MOCK_DATA=false`: mọi test **skip** kèm lý do ("BE down at …") và thoát 0. Không chạy được khi thiếu `API_BASE_URL`, vì mặc định `10.0.2.2` chỉ dùng được từ emulator.
+- Test `be_bug_pins_test.dart` đỏ nghĩa là **BE đã sửa lỗi đó**: thông báo nêu số hiệu và phần cần gỡ. Dòng `Warning: A tag was used…` là vô hại (tag chưa khai báo trong `dart_test.yaml`).
+- Thực đơn tính theo tuần UTC của BE (B24): khoảng 00:00–07:00 sáng thứ Hai giờ Việt Nam, test thực đơn có thể đỏ.
+
+### Kiểm tra trên thiết bị (emulator, BE thật)
+
+1. Đăng ký → vào app; màn Đăng nhập không có chip thử nghiệm. Tắt và mở lại → vẫn đăng nhập, Tôi hiện đúng tên.
+2. Sai mật khẩu, sai định dạng → tiếng Việt, không bao giờ tiếng Anh. Quên mật khẩu với mã trong log BE; mật khẩu mới dùng được.
+3. Hồ sơ sức khoẻ: chọn "Đậu phộng" và một dị ứng tự nhập, mục tiêu Giảm cân → mục tiêu ≈ −15 %.
+4. Tạo thực đơn: không có món đậu phộng. Đổi món mở đúng công thức, "Hoàn tác" được, tự nhập món không có ô macro, "Bỏ món" được.
+5. Tủ lạnh: thêm, món không thuần chay bị từ chối, vuốt xoá + "Hoàn tác", "Xoá hết", sửa số lượng và hạn dùng.
+6. Quét: khung nhận diện, phần không thuần chay, lưu vào tủ, "Gợi ý món" ra công thức thật, thêm vào thực đơn; **các ngày khác không đổi**.
+7. Bảng tin: đăng bài có ảnh và video thật, cả hai hiện và phát được. Cuộn quá 10 bài không quay vòng. 11 bình luận trở lên tải được trang 2; phản hồi thứ 3 hiện nhãn tĩnh; không có "(đã sửa)".
+8. Thích và bỏ thích còn đúng sau khi tải lại. Báo cáo hai lần → thông báo 409. Xoá bài của mình. Lưu bài → "Đã lưu" có ghi chú, còn sau khi mở lại app.
+9. Theo dõi cân nặng: check-in, cân nặng không đổi có thông báo, biểu đồ cập nhật.
+10. Chuyên gia: banner, yêu cầu mẫu của Minh Anh, thanh toán bằng nút mô phỏng, "Áp dụng kế hoạch" vào thực đơn thật. Tìm `bun rieu` → công thức mẫu → thêm vào thực đơn thật.
+11. Đăng xuất → bảng tin vẫn thật, thao tác cần đăng nhập mở sheet. Hết phiên (đợi 60 phút, hoặc đặt `vl.expires_at` về quá khứ) → snackbar và về chế độ khách.
+
+### Khi nối các module còn mock
+
+1. Đổi một dòng trong `BackendModules.supportedByBackend` hoặc getter năng lực tương ứng, rồi gỡ phần chạy vòng mà test ghim lỗi chỉ ra.
+2. Lỗi đăng nhập: 401 `invalid_credentials`, 403 `admin_web_only`, 423 `account_locked`, 409 `email_taken`, 429 `too_many_attempts`. Chuyển token sang secure storage trước khi phát hành.
 3. Chat dùng SSE (`text/event-stream`) với các sự kiện `token`, `citation`, `done`, `error`. Khách gửi kèm `X-Guest-Token`; server trả `402` / `trial_exhausted` khi hết lượt.
-4. PaymentOS: BE tạo mã QR và nhận webhook; app chỉ hỏi `GET /payments/{id}` mỗi 3 giây. Nút mô phỏng thanh toán tự ẩn khi tắt mock. Giữ tiền cần PaymentOS hỗ trợ hoàn tiền và một job BE giải ngân khi đến `releaseAt`; cần điều khoản về việc giữ tiền (liên kết từ tab Hợp đồng).
-5. Chưa có (cần thêm thư viện, chờ duyệt): GPS thật (`geolocator`), lưu token an toàn, tải tệp thật lên Cloudinary. Dữ liệu dinh dưỡng là số tham khảo; lời lẽ về sức khoẻ phải giữ thận trọng.
+4. PaymentOS: BE tạo mã QR và nhận webhook; app chỉ hỏi `GET /payments/{id}` mỗi 3 giây. Nút mô phỏng thanh toán chỉ có khi `commerce` là mock. Giữ tiền cần PaymentOS hỗ trợ hoàn tiền và một job BE giải ngân khi đến `releaseAt`; cần điều khoản về việc giữ tiền (liên kết từ tab Hợp đồng).
+5. Chưa có (cần thêm thư viện, chờ duyệt): GPS thật (`geolocator`), lưu token an toàn. Dữ liệu dinh dưỡng là số tham khảo; lời lẽ về sức khoẻ phải giữ thận trọng.

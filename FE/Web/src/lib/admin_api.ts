@@ -1,7 +1,7 @@
 // src/lib/admin_api.ts
-// Admin-only endpoints. Users map to the backend UsersController
-// (GET/PUT/DELETE /users, Admin role); the rest are agreed contracts the
-// backend still has to implement (see README › API contract).
+// Admin-only endpoints. Real today: login, GET/DELETE /users, and posts through the
+// public GET /posts + DELETE /posts/{id}. The rest are agreed contracts the backend
+// still has to implement (see README › API contract).
 import type {
   AdminComment,
   AdminSession,
@@ -32,11 +32,13 @@ import type {
 } from "@/types/admin";
 import { AUTH_TYPES, CONTENT_KIND_LABEL, MEDIA_TYPES, USER_STATUSES } from "@/types/admin";
 
-import { qs, request, USE_MOCK_DATA } from "./api_client";
+import { absoluteMediaUrl, qs, request } from "./api_client";
 import { ApiError } from "./api_error";
 import { readSession } from "./auth";
+import { isMock, UNSUPPORTED_ACTION } from "./backend_modules";
 import { readId } from "./ids";
 import * as mock from "./mock_admin";
+import { foldText } from "./utils";
 
 /* ------------------------------------------------------- normalisation --- */
 
@@ -95,6 +97,8 @@ type RawContent = Partial<Omit<ContentItem, "id" | "author" | "status" | "mediaT
   status?: unknown;
   mediaType?: unknown;
   imageUrl?: string | null;
+  /** PostResponse name of pinned. */
+  isPinned?: boolean;
   /** SQL aliases of excerpt. */
   body?: string;
   content?: string;
@@ -126,11 +130,11 @@ export function normalizeContent(raw: RawContent): ContentItem {
     commentCount: raw.commentCount ?? 0,
     reportCount: raw.reportCount ?? 0,
     hidden: raw.hidden ?? false,
-    pinned: raw.pinned ?? false,
+    pinned: raw.pinned ?? raw.isPinned ?? false,
     video: raw.video,
     status: raw.status === undefined || raw.status === null ? "Published" : enumValue(POST_STATUS_WIRE, raw.status, "Pending"),
     mediaType: raw.mediaType === undefined || raw.mediaType === null ? derived : enumValue(MEDIA_TYPES, raw.mediaType, "Text"),
-    mediaUrl: raw.mediaUrl ?? raw.imageUrl ?? null,
+    mediaUrl: absoluteMediaUrl(raw.mediaUrl ?? raw.imageUrl),
     restaurant:
       r && r.id !== undefined && r.id !== null
         ? { id: readId(r.id), name: r.name ?? "", district: r.district ?? "", isCertified: r.isCertified ?? r.isVeganCertified ?? false }
@@ -178,11 +182,16 @@ interface AuthResponse {
   user: RawUser;
 }
 
+/** BE bug B2: the only login endpoint answers 403 for every Admin, with a message meant for the mobile app. */
+const ADMIN_LOGIN_BLOCKED = "Máy chủ chưa cho phép tài khoản quản trị đăng nhập. Hãy báo nhóm BE.";
+
 export const authApi = {
   /** POST /auth/login → AuthResponse { accessToken, refreshToken, expiresAt, user } */
   async login(email: string, password: string): Promise<AdminSession> {
-    if (USE_MOCK_DATA) return mock.login(email, password);
-    const res = await request<AuthResponse>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+    if (isMock("auth")) return mock.login(email, password);
+    const res = await request<AuthResponse>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }).catch((e: unknown) => {
+      throw e instanceof ApiError && e.status === 403 ? new ApiError(ADMIN_LOGIN_BLOCKED, 403, "admin_login_blocked") : e;
+    });
     const user = normalizeUser(res.user);
     if (user.role !== "Admin") {
       throw new ApiError(
@@ -197,39 +206,36 @@ export const authApi = {
 
 /* --------------------------------------------------------------- users --- */
 
+const unsupported = () => new ApiError(UNSUPPORTED_ACTION, undefined, "unsupported");
+
 export const usersApi = {
   /** BE: GET /users (Admin) returns every user; filtering happens client-side until it supports query params. */
   async list(query: UserQuery): Promise<AdminUser[]> {
-    if (USE_MOCK_DATA) return mock.listUsers(query);
+    if (isMock("users")) return mock.listUsers(query);
     const raw = await request<RawUser[]>(`/users?${qs({ search: query.search, role: query.role === "all" ? undefined : query.role })}`);
-    const q = query.search.trim().toLowerCase();
+    const q = foldText(query.search.trim());
     return raw
       .map(normalizeUser)
       .filter((u) => query.role === "all" || u.role === query.role)
       .filter((u) => query.status === "all" || u.status === query.status)
-      .filter((u) => !q || `${u.fullName} ${u.email} ${u.phone}`.toLowerCase().includes(q));
+      .filter((u) => !q || foldText(`${u.fullName} ${u.email} ${u.phone}`).includes(q));
   },
 
   /** Needs BE: PATCH /users/{id}/role { role: "Admin" | "User" } — Chef comes only from approving an application. */
   async setRole(userId: string, role: AssignableRole): Promise<AdminUser> {
-    if (USE_MOCK_DATA) return mock.updateUserRole(userId, role, readSession());
-    return normalizeUser(await request<RawUser>(`/users/${userId}/role`, { method: "PATCH", body: JSON.stringify({ role }) }));
+    if (isMock("users")) return mock.updateUserRole(userId, role, readSession());
+    throw unsupported();
   },
 
   /** Needs BE: PATCH /users/{id}/status { status, reason } — status sent as the C# enum name. */
   async setStatus(change: UserStatusChange): Promise<AdminUser> {
-    if (USE_MOCK_DATA) return mock.updateUserStatus(change, readSession());
-    return normalizeUser(
-      await request<RawUser>(`/users/${change.userId}/status`, {
-        method: "PATCH",
-        body: JSON.stringify({ status: change.status, reason: change.reason }),
-      }),
-    );
+    if (isMock("users")) return mock.updateUserStatus(change, readSession());
+    throw unsupported();
   },
 
   /** BE: DELETE /users/{id} (Admin) */
   async remove(userId: string): Promise<void> {
-    if (USE_MOCK_DATA) return mock.deleteUser(userId, readSession());
+    if (isMock("users")) return mock.deleteUser(userId, readSession());
     await request<unknown>(`/users/${userId}`, { method: "DELETE" });
   },
 };
@@ -238,17 +244,17 @@ export const usersApi = {
 
 export const chefApplicationsApi = {
   list(status: ChefApplicationStatus): Promise<ChefApplication[]> {
-    if (USE_MOCK_DATA) return mock.listChefApplications(status);
+    if (isMock("chefs")) return mock.listChefApplications(status);
     return request<ChefApplication[]>(`/admin/chef-applications?${qs({ status })}`);
   },
 
   counts(): Promise<Record<ChefApplicationStatus, number>> {
-    if (USE_MOCK_DATA) return mock.getChefApplicationCounts();
+    if (isMock("chefs")) return mock.getChefApplicationCounts();
     return request<Record<ChefApplicationStatus, number>>("/admin/chef-applications/counts");
   },
 
   review(input: ChefReviewInput): Promise<ChefApplication> {
-    if (USE_MOCK_DATA) return mock.reviewChefApplication(input, readSession());
+    if (isMock("chefs")) return mock.reviewChefApplication(input, readSession());
     return request<ChefApplication>(`/admin/chef-applications/${input.applicationId}/review`, {
       method: "POST",
       body: JSON.stringify({ decision: input.decision, note: input.note }),
@@ -258,40 +264,83 @@ export const chefApplicationsApi = {
 
 /* ------------------------------------------------------------- content --- */
 
+const FEED_PAGE_SIZE = 50; // the backend's maximum
+const FEED_MAX_PAGES = 100;
+
+interface FeedPage {
+  items: RawContent[];
+  totalPages?: number;
+}
+
+/** BE: GET /posts is public and lists Published posts only. `nextCursor` is ignored by the backend (B15), so this pages by number. */
+async function fetchPublishedPosts(): Promise<ContentItem[]> {
+  const byId = new Map<string, ContentItem>();
+  for (let page = 1; page <= FEED_MAX_PAGES; page++) {
+    const res = await request<FeedPage>(`/posts?${qs({ page, pageSize: FEED_PAGE_SIZE })}`);
+    for (const raw of res.items) {
+      const item = normalizeContent(raw);
+      // B21: every video claims AI status "ready" with duration 0, though no AI pipeline exists yet.
+      if (item.video?.aiStatus === "ready" && !item.video.durationSeconds) item.video = undefined;
+      byId.set(item.id, item);
+    }
+    if (res.items.length === 0 || page >= (res.totalPages ?? 1)) break;
+  }
+  return [...byId.values()];
+}
+
+let postsInFlight: Promise<ContentItem[]> | null = null;
+
+/** /content runs two queries at once (current tab + pending count); they share one pass over the pages. */
+function listPublishedPosts(): Promise<ContentItem[]> {
+  postsInFlight ??= fetchPublishedPosts().finally(() => {
+    postsInFlight = null;
+  });
+  return postsInFlight;
+}
+
+function inContentView(c: ContentItem, view: ContentQuery["view"]): boolean {
+  switch (view) {
+    case "pending":
+      return c.status === "Pending";
+    case "rejected":
+      return c.status === "Rejected";
+    case "reported":
+      return c.status === "Published" && c.reportCount > 0 && !c.hidden;
+    case "hidden":
+      return c.hidden;
+    case "pinned":
+      return c.pinned;
+    default:
+      return true;
+  }
+}
+
 export const contentApi = {
+  /** The backend has no admin list or filters yet, so every filter runs client-side. */
   async list(query: ContentQuery): Promise<ContentItem[]> {
-    if (USE_MOCK_DATA) return mock.listContent(query);
-    const raw = await request<RawContent[]>(
-      `/admin/posts?${qs({
-        view: query.view,
-        kind: query.kind === "all" ? undefined : query.kind,
-        hasVideo: query.hasVideo ? "true" : undefined,
-        search: query.search,
-        authorId: query.authorId,
-      })}`,
-    );
-    return raw.map(normalizeContent);
+    if (isMock("content")) return mock.listContent(query);
+    const q = foldText(query.search.trim());
+    return (await listPublishedPosts())
+      .filter((c) => query.kind === "all" || c.kind === query.kind)
+      .filter((c) => !query.hasVideo || c.mediaType === "Video")
+      .filter((c) => !query.authorId || c.author.id === query.authorId)
+      .filter((c) => inContentView(c, query.view))
+      .filter((c) => !q || foldText(`${c.title} ${c.author.fullName} ${c.restaurant?.name ?? ""}`).includes(q));
   },
 
   /** Returns the updated item, or null when deleted. */
   async act(id: string, action: ContentAction): Promise<ContentItem | null> {
-    if (USE_MOCK_DATA) return mock.applyContentAction(id, action, readSession());
-    if (action === "delete") {
-      await request<unknown>(`/admin/posts/${id}`, { method: "DELETE" });
-      return null;
-    }
-    return normalizeContent(await request<RawContent>(`/admin/posts/${id}/actions`, { method: "POST", body: JSON.stringify({ action }) }));
+    if (isMock("content")) return mock.applyContentAction(id, action, readSession());
+    // Needs BE: POST /admin/posts/{id}/actions for hide, unhide, pin, unpin and retry_ai.
+    if (action !== "delete") throw unsupported();
+    await request<unknown>(`/posts/${id}`, { method: "DELETE" });
+    return null;
   },
 
-  /** POST /admin/posts/{id}/review { decision, note } → moderation_decisions (admin_id from the JWT). */
+  /** Needs BE: POST /admin/posts/{id}/review { decision, note } → moderation_decisions (admin_id from the JWT). */
   async review(input: PostReviewInput): Promise<ContentItem> {
-    if (USE_MOCK_DATA) return mock.reviewPost(input, readSession());
-    return normalizeContent(
-      await request<RawContent>(`/admin/posts/${input.postId}/review`, {
-        method: "POST",
-        body: JSON.stringify({ decision: input.decision, note: input.note }),
-      }),
-    );
+    if (isMock("content")) return mock.reviewPost(input, readSession());
+    throw unsupported();
   },
 };
 
@@ -299,7 +348,7 @@ export const contentApi = {
 
 export const commentsApi = {
   async list(query: CommentQuery): Promise<AdminComment[]> {
-    if (USE_MOCK_DATA) return mock.listComments(query);
+    if (isMock("comments")) return mock.listComments(query);
     const raw = await request<RawComment[]>(
       `/admin/comments?${qs({ view: query.view, search: query.search, authorId: query.authorId, postId: query.postId })}`,
     );
@@ -309,14 +358,14 @@ export const commentsApi = {
   /** hide / unhide return the updated comment; delete returns null. `reason` is sent to the author on delete. */
   async act(id: string, action: CommentAction, reason?: string): Promise<AdminComment | null> {
     if (action === "delete") {
-      if (USE_MOCK_DATA) {
+      if (isMock("comments")) {
         await mock.deleteComment(id, reason, readSession());
         return null;
       }
       await request<unknown>(`/admin/comments/${id}`, { method: "DELETE", body: JSON.stringify({ reason: reason || undefined }) });
       return null;
     }
-    if (USE_MOCK_DATA) return mock.applyCommentAction(id, action, readSession());
+    if (isMock("comments")) return mock.applyCommentAction(id, action, readSession());
     return normalizeComment(await request<RawComment>(`/admin/comments/${id}/actions`, { method: "POST", body: JSON.stringify({ action }) }));
   },
 };
@@ -325,22 +374,22 @@ export const commentsApi = {
 
 export const catalogApi = {
   list(kind: CatalogKind): Promise<CatalogItem[]> {
-    if (USE_MOCK_DATA) return mock.listCatalog(kind);
+    if (isMock("catalog")) return mock.listCatalog(kind);
     return request<CatalogItem[]>(`/admin/catalog?${qs({ kind })}`);
   },
 
   create(input: CatalogInput): Promise<CatalogItem> {
-    if (USE_MOCK_DATA) return mock.createCatalogItem(input);
+    if (isMock("catalog")) return mock.createCatalogItem(input);
     return request<CatalogItem>("/admin/catalog", { method: "POST", body: JSON.stringify(input) });
   },
 
   update(id: string, patch: Partial<Pick<CatalogItem, "label" | "active" | "cvLabel">>): Promise<CatalogItem> {
-    if (USE_MOCK_DATA) return mock.updateCatalogItem(id, patch);
+    if (isMock("catalog")) return mock.updateCatalogItem(id, patch);
     return request<CatalogItem>(`/admin/catalog/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
   },
 
   async remove(id: string): Promise<void> {
-    if (USE_MOCK_DATA) return mock.deleteCatalogItem(id);
+    if (isMock("catalog")) return mock.deleteCatalogItem(id);
     await request<unknown>(`/admin/catalog/${id}`, { method: "DELETE" });
   },
 };
@@ -349,7 +398,7 @@ export const catalogApi = {
 
 export const overviewApi = {
   get(): Promise<OverviewStats> {
-    if (USE_MOCK_DATA) return mock.getOverview();
+    if (isMock("overview")) return mock.getOverview();
     return request<OverviewStats>("/admin/overview");
   },
 };

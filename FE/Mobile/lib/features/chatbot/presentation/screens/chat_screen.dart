@@ -2,10 +2,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../core/config/env.dart';
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/session/session_controller.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/widgets/account_button.dart';
+import '../../../../core/widgets/demo_data_banner.dart';
 import '../../domain/entities/chat_message.dart';
 import '../controllers/chat_controller.dart';
 import '../widgets/chat_composer.dart';
@@ -13,8 +14,11 @@ import '../widgets/guest_trial_banner.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/trial_exhausted_sheet.dart';
 
+/// Asks about the member's own menu: a guest has none.
+const _personalPrompts = ['Giải thích lượng sắt mỗi ngày của tôi'];
+
 const _quickPrompts = [
-  'Giải thích lượng sắt mỗi ngày của tôi',
+  ..._personalPrompts,
   'Gợi ý món thay thế đậu hũ',
   'Đậu hũ có phải đạm hoàn chỉnh?',
   'Người ăn chay bổ sung B12 thế nào?',
@@ -128,6 +132,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
       body: Column(
         children: [
+          if (DemoDataBanner.visibleFor(BackendModule.chatbot))
+            const DemoDataBanner(module: BackendModule.chatbot),
           if (chat.trialRemaining case final remaining?)
             GuestTrialBanner(
               remaining: remaining,
@@ -141,7 +147,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             child: Stack(
               children: [
                 if (chat.messages.isEmpty)
-                  _WelcomeView(onPrompt: controller.send)
+                  _WelcomeView(onPrompt: controller.send, isGuest: isGuest)
                 else
                   ListView.separated(
                     controller: _scroll,
@@ -200,9 +206,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 }
 
 class _WelcomeView extends StatelessWidget {
-  const _WelcomeView({required this.onPrompt});
+  const _WelcomeView({required this.onPrompt, required this.isGuest});
 
   final ValueChanged<String> onPrompt;
+  final bool isGuest;
 
   @override
   Widget build(BuildContext context) {
@@ -227,25 +234,26 @@ class _WelcomeView extends StatelessWidget {
         ),
         const SizedBox(height: 20),
         for (final prompt in _quickPrompts)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: OutlinedButton(
-              onPressed: () => onPrompt(prompt),
-              style: OutlinedButton.styleFrom(
-                alignment: Alignment.centerLeft,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.auto_awesome, size: 16, color: vl.ai),
-                  const SizedBox(width: 10),
-                  Expanded(child: Text(prompt)),
-                ],
+          if (!isGuest || !_personalPrompts.contains(prompt))
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: OutlinedButton(
+                onPressed: () => onPrompt(prompt),
+                style: OutlinedButton.styleFrom(
+                  alignment: Alignment.centerLeft,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.auto_awesome, size: 16, color: vl.ai),
+                    const SizedBox(width: 10),
+                    Expanded(child: Text(prompt)),
+                  ],
+                ),
               ),
             ),
-          ),
-        if (Env.useMockData) ...[
+        if (!BackendModules.isHybrid) ...[
           const SizedBox(height: 8),
           Text(
             'Chế độ mock: thêm "#offline" vào câu hỏi để thử trạng thái mất mạng giữa chừng.',

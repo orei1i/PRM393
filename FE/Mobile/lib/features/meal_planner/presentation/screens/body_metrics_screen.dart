@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/navigation/app_nav.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
@@ -321,8 +322,8 @@ class _ChartCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 24),
               child: Text(
-                'Chưa đủ dữ liệu để vẽ biểu đồ — cần ít nhất 2 lần cân trong '
-                'khoảng này.',
+                'Chưa đủ dữ liệu để vẽ biểu đồ — cần số cân của ít nhất 2 ngày '
+                'trong khoảng này.',
                 textAlign: TextAlign.center,
                 style: context.textStyles.bodyMedium
                     ?.copyWith(color: context.vl.muted),
@@ -452,6 +453,10 @@ class _HistoryRow extends StatelessWidget {
         : '${formatLongDate(day)}/${day.year}';
     final ratio = m.waistToHeight;
     final p = previous;
+    // The real BE's rows don't say where they came from: without this, every
+    // one of them would read as a profile save.
+    final fromProfile = m.source == MeasurementSource.profile &&
+        BackendModules.isMock(BackendModule.planner);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Column(
@@ -484,9 +489,7 @@ class _HistoryRow extends StatelessWidget {
               ),
             ],
           ),
-          if (m.waistCm != null ||
-              m.bodyFatPct != null ||
-              m.source == MeasurementSource.profile) ...[
+          if (m.waistCm != null || m.bodyFatPct != null || fromProfile) ...[
             const SizedBox(height: 8),
             Wrap(
               spacing: 6,
@@ -506,7 +509,7 @@ class _HistoryRow extends StatelessWidget {
                 if (m.bodyFatPct case final fat?)
                   MetricPill.neutral(
                       context, 'Mỡ ${BodyProgress.formatTrim(fat)} %'),
-                if (m.source == MeasurementSource.profile)
+                if (fromProfile)
                   MetricPill.neutral(context, 'Từ Hồ sơ sức khoẻ'),
               ],
             ),

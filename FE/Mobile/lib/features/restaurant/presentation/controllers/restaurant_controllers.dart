@@ -92,6 +92,22 @@ class RestaurantListState {
   RestaurantSort get sort => filters.sort;
   double? get radiusKm => filters.radiusKm;
 
+  /// Whether [r] fits the area and the "Bộ lọc" choices that decide which
+  /// places belong in this list (the sponsored row obeys them too).
+  bool admits(Restaurant r) {
+    if (certifiedOnly && !r.isVeganCertified) return false;
+    final area = this.area;
+    if (area != null) {
+      final point = r.location;
+      return point != null && haversineKm(area.center, point) <= area.radiusKm;
+    }
+    final radius = radiusKm;
+    if (radius == null) return true;
+    final distance = r.distanceKm ??
+        (r.location == null ? null : haversineKm(location.point, r.location!));
+    return distance != null && distance <= radius;
+  }
+
   /// "14 quán · trong 5 km · gần nhất trước".
   String get summary => [
         '${restaurants.length} quán',

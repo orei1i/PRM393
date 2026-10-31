@@ -2,7 +2,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/session/session_controller.dart';
+import '../../../../core/widgets/demo_data_banner.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../chef_studio/presentation/widgets/chef_only_gate.dart';
 import '../../../commerce/presentation/widgets/commerce_ui.dart';
@@ -67,27 +69,28 @@ class _Inbox extends ConsumerWidget {
             ],
           ),
         ),
-        body: switch (async) {
-          AsyncValue(:final value?) => TabBarView(
-              children: [
-                for (final tab in InboxTab.values)
-                  _List(
-                    tab: tab,
-                    items: value
-                        .where((b) => InboxTab.of(b.status) == tab)
-                        .toList(),
+        body: DemoDataBanner.wrap(BackendModule.bookings,
+            child: switch (async) {
+              AsyncValue(valueOrNull: final value?) => TabBarView(
+                  children: [
+                    for (final tab in InboxTab.values)
+                      _List(
+                        tab: tab,
+                        items: value
+                            .where((b) => InboxTab.of(b.status) == tab)
+                            .toList(),
+                      ),
+                  ],
+                ),
+              AsyncError(:final error) => Center(
+                  child: SingleChildScrollView(
+                    child: ErrorStateView(
+                        error: error,
+                        onRetry: () => ref.invalidate(chefInboxProvider)),
                   ),
-              ],
-            ),
-          AsyncError(:final error) => Center(
-              child: SingleChildScrollView(
-                child: ErrorStateView(
-                    error: error,
-                    onRetry: () => ref.invalidate(chefInboxProvider)),
-              ),
-            ),
-          _ => const ListSkeleton(height: 120),
-        },
+                ),
+              _ => const ListSkeleton(height: 120),
+            }),
       ),
     );
   }

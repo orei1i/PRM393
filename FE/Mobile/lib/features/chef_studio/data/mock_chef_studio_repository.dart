@@ -73,7 +73,8 @@ class MockChefStudioRepository implements ChefStudioApiService {
     _check(ChefProfileRules.specialty(request.specialty));
     _check(ChefProfileRules.bio(request.bio));
     _check(ChefProfileRules.dayPrice(request.pricePerDay));
-    _check(ChefProfileRules.dayPrice(request.feedbackPricePerDay));
+    _check(ChefProfileRules.feedbackDayPrice(
+        request.feedbackPricePerDay, request.pricePerDay));
     _check(ChefProfileRules.planDays(request.minPlanDays, request.maxPlanDays));
     final row = _db.chefOfUser(userId) ??
         MockChefRow.created(

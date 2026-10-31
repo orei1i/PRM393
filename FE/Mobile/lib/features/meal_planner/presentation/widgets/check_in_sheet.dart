@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/bmi.dart';
@@ -16,6 +17,14 @@ import 'progress_review_sheet.dart';
 /// the saved height, with a live BMI preview. On success it closes and the
 /// progress review opens; a failure stays in the sheet with the input kept.
 class CheckInSheet extends ConsumerStatefulWidget {
+  /// Shown when the server added no row, because the weight is the same.
+  static const sameWeightNote =
+      'Cân nặng không đổi nên chưa thêm dòng mới vào lịch sử.';
+
+  /// Instead of the waist and body fat fields, when they can't be saved.
+  static const noExtrasNote =
+      'Vòng eo và tỉ lệ mỡ tạm chưa lưu được nên đã ẩn.';
+
   const CheckInSheet({super.key, required this.heightCm, this.last});
 
   /// The saved height ("đổi trong Hồ sơ sức khoẻ").
@@ -40,6 +49,12 @@ class CheckInSheet extends ConsumerStatefulWidget {
       builder: (_) => CheckInSheet(heightCm: heightCm, last: last),
     );
     if (result == null || !context.mounted) return;
+    if (result.measurement.isLocalOnly) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text(sameWeightNote)));
+      return;
+    }
     await ProgressReviewSheet.show(context, result.review, origin: origin);
   }
 
@@ -114,6 +129,7 @@ class _CheckInSheetState extends ConsumerState<CheckInSheet> {
       LengthLimitingTextInputFormatter(6),
     ];
     const keyboard = TextInputType.numberWithOptions(decimal: true);
+    final extras = BackendModules.checkInExtras;
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: SafeArea(
@@ -133,7 +149,9 @@ class _CheckInSheetState extends ConsumerState<CheckInSheet> {
                   controller: _weight,
                   keyboardType: keyboard,
                   inputFormatters: numbers,
-                  textInputAction: TextInputAction.next,
+                  textInputAction:
+                      extras ? TextInputAction.next : TextInputAction.done,
+                  onFieldSubmitted: extras ? null : (_) => _save(),
                   decoration: InputDecoration(
                     labelText: 'Cân nặng (kg)',
                     helperText: last == null
@@ -143,28 +161,38 @@ class _CheckInSheetState extends ConsumerState<CheckInSheet> {
                   ),
                   validator: BodyProgress.validateWeight,
                 ),
+                if (extras) ...[
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _waist,
+                    keyboardType: keyboard,
+                    inputFormatters: numbers,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                        labelText: 'Vòng eo (cm) — không bắt buộc'),
+                    validator: BodyProgress.validateWaist,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _fat,
+                    keyboardType: keyboard,
+                    inputFormatters: numbers,
+                    textInputAction: TextInputAction.done,
+                    decoration: const InputDecoration(
+                        labelText: 'Tỉ lệ mỡ cơ thể (%) — không bắt buộc'),
+                    validator: BodyProgress.validateBodyFat,
+                    onFieldSubmitted: (_) => _save(),
+                  ),
+                ],
                 const SizedBox(height: 12),
-                TextFormField(
-                  controller: _waist,
-                  keyboardType: keyboard,
-                  inputFormatters: numbers,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                      labelText: 'Vòng eo (cm) — không bắt buộc'),
-                  validator: BodyProgress.validateWaist,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _fat,
-                  keyboardType: keyboard,
-                  inputFormatters: numbers,
-                  textInputAction: TextInputAction.done,
-                  decoration: const InputDecoration(
-                      labelText: 'Tỉ lệ mỡ cơ thể (%) — không bắt buộc'),
-                  validator: BodyProgress.validateBodyFat,
-                  onFieldSubmitted: (_) => _save(),
-                ),
-                const SizedBox(height: 12),
+                if (!extras) ...[
+                  Text(
+                    CheckInSheet.noExtrasNote,
+                    style:
+                        context.textStyles.bodySmall?.copyWith(color: vl.muted),
+                  ),
+                  const SizedBox(height: 4),
+                ],
                 Text(
                   'Chiều cao ${BodyProgress.formatTrim(widget.heightCm)} cm · '
                   'đổi trong Hồ sơ sức khoẻ',

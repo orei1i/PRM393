@@ -7,7 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 
-import '../../../core/config/env.dart';
+import '../../../core/config/backend_modules.dart';
 import '../../../core/theme/vl_colors.dart';
 import '../../../core/utils/formatters.dart';
 
@@ -66,17 +66,20 @@ class PickedMedia {
 
 /// Client-side checks, mirrored by the server (413 / 415).
 abstract final class MediaUploadRules {
-  static const int maxVideoBytes = 200 * 1024 * 1024;
+  /// The real BE takes 100 MB (`RequestSizeLimit` on `/media/videos`).
+  static int get _maxVideoMb =>
+      BackendModules.isReal(BackendModule.media) ? 100 : 200;
+  static int get maxVideoBytes => _maxVideoMb * 1024 * 1024;
   static const int maxImageBytes = 10 * 1024 * 1024;
   static const videoExtensions = {'mp4', 'mov', 'webm'};
   static const imageExtensions = {'jpg', 'jpeg', 'png', 'webp', 'heic'};
 
   static const imageHint = 'Ảnh JPG, PNG, WEBP, HEIC tối đa 10 MB';
-  static const videoHint = 'Video MP4, MOV, WEBM tối đa 200 MB';
+  static String get videoHint => 'Video MP4, MOV, WEBM tối đa $_maxVideoMb MB';
 
   /// Photos and videos: "Ảnh JPG, PNG, WEBP, HEIC tối đa 10 MB · Video MP4,
   /// MOV, WEBM tối đa 200 MB".
-  static const hint = '$imageHint · $videoHint';
+  static String get hint => '$imageHint · $videoHint';
 
   /// The formats and limits of only what [kinds] allows (a photo-only
   /// picker doesn't advertise video formats).
@@ -99,7 +102,9 @@ abstract final class MediaUploadRules {
       if (!videoExtensions.contains(media.extension)) {
         return 'Định dạng video chưa hỗ trợ';
       }
-      if (media.sizeBytes > maxVideoBytes) return 'Video vượt quá 200 MB';
+      if (media.sizeBytes > maxVideoBytes) {
+        return 'Video vượt quá $_maxVideoMb MB';
+      }
       return null;
     }
     if (!imageExtensions.contains(media.extension)) {
@@ -327,6 +332,6 @@ class MockMediaPickerService implements MediaPickerService {
 /// API only the gallery is offered. Shared with the restaurant suggestion
 /// and complaint forms.
 final mediaPickerProvider = Provider<MediaPickerService>((ref) =>
-    Env.useMockData
+    BackendModules.isMock(BackendModule.media)
         ? const MockMediaPickerService()
         : const GalleryMediaPickerService());

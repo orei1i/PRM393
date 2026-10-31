@@ -46,6 +46,10 @@ class BodyMeasurement {
 
   BmiCategory get bmiCategory => Bmi.categorize(bmi);
 
+  /// A weigh-in the server added no row for (same weight): shown once, not
+  /// part of the history.
+  bool get isLocalOnly => id.startsWith('local_');
+
   /// Waist-to-height ratio (WHtR), unrounded; `null` without a waist.
   double? get waistToHeight =>
       waistCm == null || heightCm <= 0 ? null : waistCm! / heightCm;

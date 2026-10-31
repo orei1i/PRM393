@@ -1,0 +1,11 @@
+{
+ "success": true,
+ "message": "Tải ảnh lên thành công.",
+ "data": {
+  "mediaUrl": "/uploads/images/f3cded949a7e4f49a9767329d615763e.png",
+  "sizeBytes": 69,
+  "width": 800,
+  "height": 600
+ },
+ "statusCode": 200
+}

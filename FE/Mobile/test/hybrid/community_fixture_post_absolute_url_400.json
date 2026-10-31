@@ -1,0 +1,5 @@
+{
+ "success": false,
+ "message": "Tài nguyên media không tồn tại hoặc không thuộc quyền sở hữu của bạn.",
+ "statusCode": 400
+}

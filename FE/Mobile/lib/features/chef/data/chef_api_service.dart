@@ -2,7 +2,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/config/env.dart';
+import '../../../core/config/backend_modules.dart';
 import '../../../core/network/api_endpoints.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
@@ -47,6 +47,6 @@ class RemoteChefApiService implements ChefApiService {
 }
 
 final chefApiProvider = Provider<ChefApiService>((ref) {
-  if (Env.useMockData) return MockChefRepository();
+  if (BackendModules.isMock(BackendModule.chefs)) return MockChefRepository();
   return RemoteChefApiService(ref.watch(dioProvider));
 });

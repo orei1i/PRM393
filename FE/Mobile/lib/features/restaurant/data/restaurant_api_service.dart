@@ -2,10 +2,11 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/config/env.dart';
+import '../../../core/config/backend_modules.dart';
 import '../../../core/network/api_endpoints.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/session/mock_persona.dart';
 import '../../../core/session/session_controller.dart';
 import '../domain/entities/restaurant.dart';
 import '../domain/geo.dart';
@@ -151,10 +152,11 @@ class RemoteRestaurantApiService implements RestaurantApiService {
 }
 
 final restaurantApiProvider = Provider<RestaurantApiService>((ref) {
-  if (Env.useMockData) {
+  if (BackendModules.isMock(BackendModule.restaurants)) {
     return MockRestaurantRepository(
       isSignedIn: () => !ref.read(sessionControllerProvider).isGuest,
-      currentUserId: () => ref.read(sessionControllerProvider).userId ?? 'u_me',
+      currentUserId: () =>
+          mockPersonaId(ref.read(sessionControllerProvider)) ?? 'u_me',
       currentUserName: () =>
           ref.read(sessionControllerProvider).displayName ?? 'Bạn',
     );
