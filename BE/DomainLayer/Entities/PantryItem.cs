@@ -14,6 +14,8 @@ namespace DomainLayer.Entities
 
         public string Ingredient { get; set; } = string.Empty;
 
+        public string? NormalizedName { get; set; }
+
         public double Quantity { get; set; } = 1.0;
 
         public string Unit { get; set; } = "phần";
@@ -27,6 +29,8 @@ namespace DomainLayer.Entities
         public int? CaloriesPer100g { get; set; }
 
         public bool IsVegan { get; set; } = true;
+
+        public System.Collections.Generic.List<string> Allergens { get; set; } = new();
 
         /// <summary>
         /// "manual" | "vision"

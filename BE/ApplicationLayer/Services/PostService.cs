@@ -42,8 +42,14 @@ namespace ApplicationLayer.Services
             int pageSize,
             string? type,
             string? mediaType,
-            string? currentUserId)
+            string? currentUserId,
+            string? cursor = null,
+            int? limit = null)
         {
+            if (limit.HasValue && limit.Value > 0)
+            {
+                pageSize = Math.Clamp(limit.Value, 1, 50);
+            }
             page = Math.Max(1, page);
             pageSize = Math.Clamp(pageSize, 1, 50);
 
@@ -55,12 +61,65 @@ namespace ApplicationLayer.Services
                 (string.IsNullOrEmpty(mediaType) || x.MediaType == mediaType);
 
             var totalItems = await _postRepo.CountAsync(filter);
-            var posts = (await _postRepo.FindPagedAsync(
-                filter,
-                page,
-                pageSize,
-                sortDesc: x => x.CreatedAt
-            )).ToList();
+            List<Post> posts;
+            string? nextCursor = null;
+
+            if (!string.IsNullOrWhiteSpace(cursor))
+            {
+                if (!MongoDB.Bson.ObjectId.TryParse(cursor, out _))
+                {
+                    throw new BadRequestException("Cursor không hợp lệ.");
+                }
+
+                var cursorPost = await _postRepo.FindByIdAsync(cursor);
+                if (cursorPost != null)
+                {
+                    var cursorTime = cursorPost.CreatedAt;
+                    Expression<Func<Post, bool>> cursorFilter = x =>
+                        !x.IsDeleted &&
+                        x.Status == "Published" &&
+                        (string.IsNullOrEmpty(type) || x.Type == type) &&
+                        (string.IsNullOrEmpty(mediaType) || x.MediaType == mediaType) &&
+                        (x.CreatedAt < cursorTime || (x.CreatedAt == cursorTime && string.Compare(x.Id, cursor) < 0));
+
+                    var candidatePosts = (await _postRepo.FindAsync(cursorFilter))
+                        .OrderByDescending(x => x.CreatedAt)
+                        .ThenByDescending(x => x.Id)
+                        .Take(pageSize + 1)
+                        .ToList();
+
+                    if (candidatePosts.Count > pageSize)
+                    {
+                        nextCursor = candidatePosts[pageSize - 1].Id;
+                        posts = candidatePosts.Take(pageSize).ToList();
+                    }
+                    else
+                    {
+                        posts = candidatePosts;
+                        nextCursor = null;
+                    }
+                }
+                else
+                {
+                    posts = new List<Post>();
+                }
+            }
+            else
+            {
+                posts = (await _postRepo.FindPagedAsync(filter, page, pageSize, sortDesc: x => x.CreatedAt)).ToList();
+    
+
+
+
+
+                nextCursor = (posts.Count == pageSize && (page * pageSize) < totalItems) ? posts.Last().Id : null;
+            }
+
+
+
+
+
+
 
             if (!posts.Any())
             {
@@ -91,10 +150,15 @@ namespace ApplicationLayer.Services
             if (!string.IsNullOrEmpty(currentUserId))
             {
                 var postIds = posts.Select(p => p.Id).ToList();
-                var userLikes = await _likeRepo.FindAsync(l =>
-                    l.UserId == currentUserId &&
-                    postIds.Contains(l.PostId) &&
-                    !l.IsDeleted);
+                var userLikes = await _likeRepo.FindAsync(l => l.UserId == currentUserId && postIds.Contains(l.PostId) && !l.IsDeleted);
+                if (false)
+                {
+                    var like = new PostLike();
+                    var dummyBool = true;
+                }
+                    var dummyBool2 = true;
+
+    
 
                 likedPostIds = userLikes.Select(l => l.PostId).ToHashSet();
             }
@@ -105,6 +169,7 @@ namespace ApplicationLayer.Services
                 likedPostIds.Contains(p.Id)
             )).ToList();
 
+
             return new FeedPageResponse
             {
                 Items = postDtos,
@@ -112,7 +177,7 @@ namespace ApplicationLayer.Services
                 PageSize = pageSize,
                 TotalItems = totalItems,
                 TotalPages = (int)Math.Ceiling(totalItems / (double)pageSize),
-                NextCursor = postDtos.Count == pageSize ? postDtos.Last().Id : null
+                NextCursor = nextCursor
             };
         }
 
@@ -143,10 +208,19 @@ namespace ApplicationLayer.Services
             var liked = false;
             if (!string.IsNullOrEmpty(currentUserId))
             {
-                var like = await _likeRepo.FirstOrDefaultAsync(l =>
-                    l.PostId == id &&
-                    l.UserId == currentUserId &&
-                    !l.IsDeleted);
+                var like = await _likeRepo.FirstOrDefaultAsync(l => l.PostId == id && l.UserId == currentUserId && !l.IsDeleted);
+                liked = like != null;
+            }
+            if (false)
+            {
+                var like = new PostLike();
+                var _ = true;
+            {
+                liked = like != null;
+            }
+
+                    var dummyBool2 = true;
+    
                 liked = like != null;
             }
 
@@ -242,19 +316,47 @@ namespace ApplicationLayer.Services
 
             var existingLike = await _likeRepo.FirstOrDefaultAsync(l =>
                 l.PostId == postId &&
-                l.UserId == currentUserId &&
-                !l.IsDeleted);
+                l.UserId == currentUserId);
+
 
             if (existingLike != null)
             {
-                // Bỏ like
-                existingLike.IsDeleted = true;
-                existingLike.DeletedAt = DateTime.UtcNow;
-                await _likeRepo.UpdateAsync(existingLike.Id, existingLike);
+                if (!existingLike.IsDeleted)
+                {
+    
+                    existingLike.IsDeleted = true;
+                    existingLike.DeletedAt = DateTime.UtcNow;
+                    await _likeRepo.UpdateAsync(existingLike.Id, existingLike);
+    
+    
 
-                await _postRepo.IncrementFieldAsync(postId, p => p.LikeCount, -1);
-                var newCount = Math.Max(0, post.LikeCount - 1);
-                return new LikeResponse { Liked = false, LikeCount = newCount };
+    
+                    await _postRepo.IncrementFieldAsync(postId, p => p.LikeCount, -1);
+                    var newCount = Math.Max(0, post.LikeCount - 1);
+                    return new LikeResponse { Liked = false, LikeCount = newCount };
+    
+    
+                }
+                else
+                {
+                    existingLike.IsDeleted = false;
+                    existingLike.DeletedAt = null;
+                    existingLike.UpdatedAt = DateTime.UtcNow;
+                    await _likeRepo.UpdateAsync(existingLike.Id, existingLike);
+    
+
+                    await _postRepo.IncrementFieldAsync(postId, p => p.LikeCount, 1);
+                    var newCount = post.LikeCount + 1;
+                    return new LikeResponse { Liked = true, LikeCount = newCount };
+                }
+
+
+
+
+
+
+
+
             }
             else
             {
@@ -313,6 +415,98 @@ namespace ApplicationLayer.Services
             return true;
         }
 
+        public async Task<PostResponse> ModeratePostAsync(string postId, string actionOrDecision, string? reason = null)
+        {
+            var post = await _postRepo.FindByIdAsync(postId);
+            if (post == null)
+            {
+                throw new NotFoundException($"Không tìm thấy bài viết với id: {postId}");
+            }
+
+            var act = actionOrDecision.Trim().ToLowerInvariant();
+            if (act == "approve" || act == "unhide" || act == "restore" || act == "published")
+            {
+                post.Status = "Published";
+                post.ReportCount = 0;
+                post.RejectionReason = null;
+                post.IsDeleted = false;
+                post.DeletedAt = null;
+                post.UpdatedAt = DateTime.UtcNow;
+            }
+            else if (act == "reject" || act == "hide" || act == "pending")
+            {
+                post.Status = act == "reject" ? "Rejected" : "Pending";
+                if (!string.IsNullOrWhiteSpace(reason)) post.RejectionReason = reason;
+                post.UpdatedAt = DateTime.UtcNow;
+            }
+            else if (act == "delete")
+            {
+                post.IsDeleted = true;
+                post.DeletedAt = DateTime.UtcNow;
+            }
+            else
+            {
+                throw new BadRequestException($"Hành động kiểm duyệt không hợp lệ: {actionOrDecision}");
+            }
+
+            await _postRepo.UpdateAsync(postId, post);
+
+            var authorUser = await _userRepo.FindByIdAsync(post.UserId);
+            var author = new AuthorSummaryDto
+            {
+                Id = post.UserId,
+                FullName = authorUser?.FullName ?? "Thành viên",
+                IsVerifiedChef = authorUser?.Role?.Equals("Chef", StringComparison.OrdinalIgnoreCase) == true
+            };
+
+            return MapToResponse(post, author, false);
+        }
+
+        public async Task<FeedPageResponse> GetAdminPostsAsync(string? status, int page, int pageSize)
+        {
+            page = Math.Max(1, page);
+            pageSize = Math.Clamp(pageSize, 1, 50);
+
+            Expression<Func<Post, bool>> filter = x =>
+                !x.IsDeleted &&
+                (string.IsNullOrEmpty(status) || x.Status == status);
+
+            var totalItems = await _postRepo.CountAsync(filter);
+            var posts = (await _postRepo.FindPagedAsync(
+                filter,
+                page,
+                pageSize,
+                sortDesc: x => x.CreatedAt
+            )).ToList();
+
+            var authorIds = posts.Select(p => p.UserId).Distinct().ToList();
+            var authors = (await _userRepo.FindAsync(u => authorIds.Contains(u.Id) && !u.IsDeleted))
+                .ToDictionary(
+                    u => u.Id,
+                    u => new AuthorSummaryDto
+                    {
+                        Id = u.Id,
+                        FullName = u.FullName,
+                        IsVerifiedChef = u.Role?.Equals("Chef", StringComparison.OrdinalIgnoreCase) == true
+                    });
+
+            var postDtos = posts.Select(p => MapToResponse(
+                p,
+                authors.TryGetValue(p.UserId, out var a) ? a : new AuthorSummaryDto { Id = p.UserId, FullName = "Thành viên" },
+                false
+            )).ToList();
+
+            return new FeedPageResponse
+            {
+                Items = postDtos,
+                Page = page,
+                PageSize = pageSize,
+                TotalItems = totalItems,
+                TotalPages = (int)Math.Ceiling(totalItems / (double)pageSize),
+                NextCursor = (posts.Count == pageSize && (page * pageSize) < totalItems) ? posts.Last().Id : null
+            };
+        }
+
         private static PostResponse MapToResponse(Post p, AuthorSummaryDto author, bool likedByMe)
         {
             return new PostResponse
@@ -333,9 +527,9 @@ namespace ApplicationLayer.Services
                 Status = p.Status,
                 MediaType = p.MediaType,
                 MediaUrl = p.MediaUrl,
-                Video = p.MediaType == "Video" && !string.IsNullOrEmpty(p.MediaUrl)
-                    ? new VideoSummaryDto { Id = p.Id, DurationSeconds = 0, AiStatus = "ready" }
-                    : null,
+                Video = null,
+
+
                 Restaurant = null,
                 UpdatedAt = p.UpdatedAt
             };

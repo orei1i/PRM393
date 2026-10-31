@@ -14,7 +14,7 @@ namespace ApplicationLayer.DTOs.MealPlan
         public double? FiberG { get; set; }
         public List<string> Allergens { get; set; } = new();
         public List<string> DietTags { get; set; } = new();
-        public int PrepMinutes { get; set; }
+        public int? PrepMinutes { get; set; }
         public List<string> Ingredients { get; set; } = new();
         public List<string> Instructions { get; set; } = new();
         public SeasonalSwapDto? SeasonalSwap { get; set; }
@@ -31,7 +31,7 @@ namespace ApplicationLayer.DTOs.MealPlan
         public double? FiberG { get; set; }
         public List<string>? Allergens { get; set; }
         public List<string>? DietTags { get; set; }
-        public int PrepMinutes { get; set; } = 20;
+        public int? PrepMinutes { get; set; } = 20;
         public List<string>? Ingredients { get; set; }
         public List<string>? Instructions { get; set; }
     }

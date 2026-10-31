@@ -15,22 +15,23 @@ using Microsoft.IdentityModel.Tokens;
 namespace ApplicationLayer.Services
 {
     /// <summary>
-    /// Xử lý authentication: login, register, forgot/verify/reset-password.
-    /// Rate limiting và reset codes lưu in-memory (đủ cho MVP).
-    /// Production: chuyển sang Redis (package StackExchange.Redis đã cài sẵn).
+    /// Xá»­ lÃ½ authentication: login, register, forgot/verify/reset-password.
+    /// Rate limiting vÃ  reset codes lÆ°u in-memory (Ä‘á»§ cho MVP).
+    /// Production: chuyá»ƒn sang Redis (package StackExchange.Redis Ä‘Ã£ cÃ i sáºµn).
     /// </summary>
     public class AuthService : IAuthService
     {
         private readonly IGenericRepository<User> _userRepo;
         private readonly IConfiguration _config;
 
-        // ─── In-memory rate limiter: email → (failCount, lockUntil) ──────────
+        // â”€â”€â”€ In-memory rate limiter: email â†’ (failCount, lockUntil) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         private static readonly ConcurrentDictionary<string, (int Count, DateTime? LockUntil)> _failAttempts = new();
         private const int MaxFailAttempts = 5;
         private static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(5);
 
-        // ─── In-memory reset codes: email → (code, expiresAt, usedResetToken) ─
+        // â”€â”€â”€ In-memory reset codes: email â†’ (code, expiresAt, usedResetToken) â”€
         private static readonly ConcurrentDictionary<string, (string Code, DateTime ExpiresAt, string? ResetToken)> _resetCodes = new();
+        private static readonly ConcurrentDictionary<string, int> _resetCodeAttempts = new();
         private static readonly TimeSpan CodeTtl = TimeSpan.FromMinutes(10);
 
         public AuthService(IGenericRepository<User> userRepo, IConfiguration config)
@@ -39,9 +40,9 @@ namespace ApplicationLayer.Services
             _config   = config;
         }
 
-        // ─────────────────────────────────────────────────────────────────────
+        // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         // LOGIN
-        // ─────────────────────────────────────────────────────────────────────
+        // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         public async Task<AuthResponse> LoginAsync(LoginRequest request)
         {
             var email = request.Email.Trim().ToLowerInvariant();
@@ -51,43 +52,114 @@ namespace ApplicationLayer.Services
             {
                 if (DateTime.UtcNow < attempt.LockUntil.Value)
                     throw new TooManyRequestsException();
-                // Lock expired — reset
+                // Lock expired â€” reset
                 _failAttempts.TryRemove(email, out _);
             }
 
             var user = await _userRepo.FirstOrDefaultAsync(u => u.Email.ToLower() == email && !u.IsDeleted);
 
-            // Kiểm tra credentials
+            // Kiá»ƒm tra credentials
+            if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+            {
+                RecordFailedAttempt(email);
+                throw new UnauthorizedException("Email hoáº·c máº­t kháº©u khÃ´ng Ä‘Ãºng.");
+            }
+
+            // Admin khÃ´ng Ä‘Æ°á»£c login qua Mobile
+            if (user.Role == "Admin")
+                throw new ForbiddenException("TÃ i khoáº£n quáº£n trá»‹ chá»‰ dÃ¹ng trÃªn web quáº£n trá»‹.");
+
+            // Kiá»ƒm tra status
+            if (user.Status == GeneralEnum.UserStatusEnum.Locked || user.Status == GeneralEnum.UserStatusEnum.Banned)
+                throw new AccountLockedException();
+
+            // ÄÄƒng nháº­p thÃ nh cÃ´ng â€” xÃ³a fail attempts
+            _failAttempts.TryRemove(email, out _);
+
+            return await GenerateAuthResponseWithRefreshTokenAsync(user);
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // ADMIN LOGIN
+        // ─────────────────────────────────────────────────────────────────────
+        public async Task<AuthResponse> AdminLoginAsync(LoginRequest request)
+        {
+            var email = request.Email.Trim().ToLowerInvariant();
+
+            if (_failAttempts.TryGetValue(email, out var attempt) && attempt.LockUntil.HasValue)
+            {
+                if (DateTime.UtcNow < attempt.LockUntil.Value)
+                    throw new TooManyRequestsException();
+                _failAttempts.TryRemove(email, out _);
+            }
+
+            var user = await _userRepo.FirstOrDefaultAsync(u => u.Email.ToLower() == email && !u.IsDeleted);
+
             if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             {
                 RecordFailedAttempt(email);
                 throw new UnauthorizedException("Email hoặc mật khẩu không đúng.");
             }
 
-            // Admin không được login qua Mobile
-            if (user.Role == "Admin")
-                throw new ForbiddenException("Tài khoản quản trị chỉ dùng trên web quản trị.");
+            if (user.Role != "Admin")
+                throw new ForbiddenException("Chỉ tài khoản Quản trị viên mới được đăng nhập vào hệ thống quản trị.");
 
-            // Kiểm tra status
             if (user.Status == GeneralEnum.UserStatusEnum.Locked || user.Status == GeneralEnum.UserStatusEnum.Banned)
                 throw new AccountLockedException();
 
-            // Đăng nhập thành công — xóa fail attempts
             _failAttempts.TryRemove(email, out _);
 
-            return BuildAuthResponse(user);
+            return await GenerateAuthResponseWithRefreshTokenAsync(user);
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        // REGISTER
+        // REFRESH TOKEN
         // ─────────────────────────────────────────────────────────────────────
+        public async Task<AuthResponse> RefreshTokenAsync(RefreshTokenRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.RefreshToken))
+                throw new UnauthorizedException("Refresh token không được để trống.");
+
+            var tokenHash = HashToken(request.RefreshToken);
+            var user = await _userRepo.FirstOrDefaultAsync(u => u.RefreshTokenHash == tokenHash && !u.IsDeleted);
+
+            if (user == null)
+                throw new UnauthorizedException("Refresh token không hợp lệ hoặc đã bị thu hồi.");
+
+            if (!user.RefreshTokenExpiresAt.HasValue || user.RefreshTokenExpiresAt.Value < DateTime.UtcNow)
+                throw new UnauthorizedException("Refresh token đã hết hạn.");
+
+            if (user.Status == GeneralEnum.UserStatusEnum.Locked || user.Status == GeneralEnum.UserStatusEnum.Banned)
+                throw new AccountLockedException();
+
+            // Xoay vòng token
+            return await GenerateAuthResponseWithRefreshTokenAsync(user);
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // LOGOUT
+        // ─────────────────────────────────────────────────────────────────────
+        public async Task LogoutAsync(string userId)
+        {
+            var user = await _userRepo.FindByIdAsync(userId);
+            if (user != null)
+            {
+                user.RefreshTokenHash = null;
+                user.RefreshTokenExpiresAt = null;
+                await _userRepo.UpdateAsync(user.Id, user);
+            }
+        }
+
+        // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // REGISTER
+        // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         public async Task<AuthResponse> RegisterAsync(RegisterRequest request)
         {
             var email = request.Email.Trim().ToLowerInvariant();
 
             var existing = await _userRepo.FirstOrDefaultAsync(u => u.Email.ToLower() == email && !u.IsDeleted);
             if (existing != null)
-                throw new ConflictException("Email này đã có tài khoản. Đăng nhập hoặc dùng email khác.");
+                throw new ConflictException("Email nÃ y Ä‘Ã£ cÃ³ tÃ i khoáº£n. ÄÄƒng nháº­p hoáº·c dÃ¹ng email khÃ¡c.");
 
             var user = new User
             {
@@ -103,12 +175,12 @@ namespace ApplicationLayer.Services
             };
 
             await _userRepo.CreateAsync(user);
-            return BuildAuthResponse(user);
+            return await GenerateAuthResponseWithRefreshTokenAsync(user);
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        // FORGOT PASSWORD — luôn trả 204 (không tiết lộ email tồn tại)
-        // ─────────────────────────────────────────────────────────────────────
+        // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // FORGOT PASSWORD â€” luÃ´n tráº£ 204 (khÃ´ng tiáº¿t lá»™ email tá»“n táº¡i)
+        // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         public async Task ForgotPasswordAsync(ForgotPasswordRequest request)
         {
             var email = request.Email.Trim().ToLowerInvariant();
@@ -116,37 +188,48 @@ namespace ApplicationLayer.Services
 
             if (user != null)
             {
-                // Tạo mã 6 số ngẫu nhiên
+                // Táº¡o mÃ£ 6 sá»‘ ngáº«u nhiÃªn
                 var code    = Random.Shared.Next(100000, 999999).ToString();
                 var expires = DateTime.UtcNow.Add(CodeTtl);
                 _resetCodes[email] = (code, expires, null);
 
-                // TODO: gửi email thật qua IEmailService (MailKit — out of scope, package đã cài)
-                // Hiện tại: log ra console cho dev test
+                // TODO: gá»­i email tháº­t qua IEmailService (MailKit â€” out of scope, package Ä‘Ã£ cÃ i)
+                // Hiá»‡n táº¡i: log ra console cho dev test
                 Console.WriteLine($"[DEV] Reset code for {email}: {code}");
             }
-            // Nếu user không tồn tại → vẫn trả về bình thường (không lộ thông tin)
+            // Náº¿u user khÃ´ng tá»“n táº¡i â†’ váº«n tráº£ vá» bÃ¬nh thÆ°á»ng (khÃ´ng lá»™ thÃ´ng tin)
             await Task.CompletedTask;
         }
 
-        // ─────────────────────────────────────────────────────────────────────
+        // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         // VERIFY RESET CODE
-        // ─────────────────────────────────────────────────────────────────────
+        // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         public async Task<VerifyResetCodeResponse> VerifyResetCodeAsync(VerifyResetCodeRequest request)
         {
             var email = request.Email.Trim().ToLowerInvariant();
 
             if (!_resetCodes.TryGetValue(email, out var entry))
-                throw new ArgumentException("invalid_code");
+                throw new BadRequestException("Mã xác thực không hợp lệ hoặc đã hết hạn.");
 
             if (DateTime.UtcNow > entry.ExpiresAt)
             {
                 _resetCodes.TryRemove(email, out _);
-                throw new ArgumentException("code_expired");
+                throw new BadRequestException("Mã xác thực đã hết hạn.");
             }
 
             if (entry.Code != request.Code)
-                throw new ArgumentException("invalid_code");
+            {
+                var attempts = _resetCodeAttempts.AddOrUpdate(email, 1, (_, count) => count + 1);
+                if (attempts >= 5)
+                {
+                    _resetCodes.TryRemove(email, out _);
+                    _resetCodeAttempts.TryRemove(email, out _);
+                    throw new BadRequestException("Bạn đã nhập sai mã xác thực quá 5 lần. Vui lòng yêu cầu mã mới.");
+                }
+                throw new BadRequestException("Mã xác thực không chính xác.");
+            }
+
+            _resetCodeAttempts.TryRemove(email, out _);
 
             // Tạo một-lần-dùng resetToken
             var resetToken = Guid.NewGuid().ToString("N");
@@ -155,12 +238,12 @@ namespace ApplicationLayer.Services
             return await Task.FromResult(new VerifyResetCodeResponse { ResetToken = resetToken });
         }
 
-        // ─────────────────────────────────────────────────────────────────────
+        // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         // RESET PASSWORD
-        // ─────────────────────────────────────────────────────────────────────
+        // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         public async Task ResetPasswordAsync(ResetPasswordRequest request)
         {
-            // Tìm entry có resetToken khớp
+            // TÃ¬m entry cÃ³ resetToken khá»›p
             var entry = _resetCodes.FirstOrDefault(kv => kv.Value.ResetToken == request.ResetToken);
             if (entry.Key == null)
                 throw new ArgumentException("invalid_code");
@@ -173,7 +256,7 @@ namespace ApplicationLayer.Services
 
             var email = entry.Key;
             var user  = await _userRepo.FirstOrDefaultAsync(u => u.Email.ToLower() == email && !u.IsDeleted)
-                        ?? throw new DomainException("Không tìm thấy tài khoản.");
+                        ?? throw new DomainException("KhÃ´ng tÃ¬m tháº¥y tÃ i khoáº£n.");
 
             user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
             user.UpdatedAt    = DateTime.UtcNow;
@@ -182,9 +265,41 @@ namespace ApplicationLayer.Services
             _resetCodes.TryRemove(email, out _);
         }
 
-        // ─────────────────────────────────────────────────────────────────────
+        // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         // PRIVATE HELPERS
-        // ─────────────────────────────────────────────────────────────────────
+        // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        private async Task<AuthResponse> GenerateAuthResponseWithRefreshTokenAsync(User user)
+        {
+            var (token, expiresAt) = GenerateJwtToken(user);
+            var rawRefreshToken = GenerateRefreshTokenString();
+            user.RefreshTokenHash = HashToken(rawRefreshToken);
+            user.RefreshTokenExpiresAt = DateTime.UtcNow.AddDays(7);
+            await _userRepo.UpdateAsync(user.Id, user);
+
+            return new AuthResponse
+            {
+                AccessToken  = token,
+                RefreshToken = rawRefreshToken,
+                ExpiresAt    = expiresAt,
+                User         = MapToUserResponse(user)
+            };
+        }
+
+        private static string GenerateRefreshTokenString()
+        {
+            var bytes = new byte[32];
+            using var rng = System.Security.Cryptography.RandomNumberGenerator.Create();
+            rng.GetBytes(bytes);
+            return Convert.ToBase64String(bytes).Replace("+", "-").Replace("/", "_").TrimEnd('=');
+        }
+
+        private static string HashToken(string token)
+        {
+            using var sha256 = System.Security.Cryptography.SHA256.Create();
+            var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(token));
+            return Convert.ToHexString(hashBytes).ToLowerInvariant();
+        }
+
         private AuthResponse BuildAuthResponse(User user)
         {
             var (token, expiresAt) = GenerateJwtToken(user);
@@ -207,7 +322,7 @@ namespace ApplicationLayer.Services
             {
                 new Claim(JwtRegisteredClaimNames.Sub,   user.Id),
                 new Claim(JwtRegisteredClaimNames.Email, user.Email),
-                new Claim(ClaimTypes.Name,               user.FullName),
+                new Claim(ClaimTypes.Name,               user.FullName ?? user.Email),
                 new Claim(ClaimTypes.Role,               user.Role),
                 new Claim(JwtRegisteredClaimNames.Jti,   Guid.NewGuid().ToString())
             };

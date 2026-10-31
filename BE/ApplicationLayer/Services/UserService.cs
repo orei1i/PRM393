@@ -8,16 +8,18 @@ using DomainLayer.Interfaces;
 namespace ApplicationLayer.Services
 {
     /// <summary>
-    /// Xử lý business logic liên quan đến User.
-    /// Không inject Repository trực tiếp vào Controller nữa — tất cả đi qua đây.
+    /// Xá»­ lÃ½ business logic liÃªn quan Ä‘áº¿n User.
+    /// KhÃ´ng inject Repository trá»±c tiáº¿p vÃ o Controller ná»¯a â€” táº¥t cáº£ Ä‘i qua Ä‘Ã¢y.
     /// </summary>
     public class UserService : IUserService
     {
         private readonly IGenericRepository<User> _userRepository;
+        private readonly IGenericRepository<Post> _postRepository;
 
-        public UserService(IGenericRepository<User> userRepository)
+        public UserService(IGenericRepository<User> userRepository, IGenericRepository<Post> postRepository)
         {
             _userRepository = userRepository;
+            _postRepository = postRepository;
         }
 
         public async Task<IEnumerable<UserResponse>> GetAllUsersAsync()
@@ -36,10 +38,10 @@ namespace ApplicationLayer.Services
         public async Task<UserResponse> UpdateUserAsync(string id, UpdateUserRequest request)
         {
             var user = await _userRepository.FindByIdAsync(id)
-                       ?? throw new KeyNotFoundException($"Không tìm thấy user với id: {id}");
+                       ?? throw new KeyNotFoundException($"KhÃ´ng tÃ¬m tháº¥y user vá»›i id: {id}");
 
             if (user.IsDeleted)
-                throw new KeyNotFoundException($"Không tìm thấy user với id: {id}");
+                throw new KeyNotFoundException($"KhÃ´ng tÃ¬m tháº¥y user vá»›i id: {id}");
 
             user.FullName = request.FullName;
             if (request.Phone != null) user.Phone = request.Phone;
@@ -72,7 +74,12 @@ namespace ApplicationLayer.Services
             if (user.Status == GeneralEnum.UserStatusEnum.Locked || user.Status == GeneralEnum.UserStatusEnum.Banned)
                 throw new AccountLockedException();
 
-            return MapToProfileResponse(user);
+            var userPosts = await _postRepository.FindAsync(p => p.UserId == userId && !p.IsDeleted);
+            var postList = userPosts.ToList();
+            var totalPosts = postList.Count;
+            var totalLikes = postList.Sum(p => p.LikeCount);
+
+            return MapToProfileResponse(user, totalPosts, totalLikes);
         }
 
         // ─── Mapping helpers ──────────────────────────────────────────────
@@ -88,7 +95,7 @@ namespace ApplicationLayer.Services
             CreatedAt = user.CreatedAt
         };
 
-        private static UserProfileResponse MapToProfileResponse(User user) => new()
+        private static UserProfileResponse MapToProfileResponse(User user, int totalPosts = 0, int totalLikes = 0) => new()
         {
             Id        = user.Id,
             Email     = user.Email,
@@ -100,8 +107,8 @@ namespace ApplicationLayer.Services
             CreatedAt = user.CreatedAt,
             Stats     = new UserStatsDto
             {
-                Posts = 0,
-                LikesReceived = 0,
+                Posts = totalPosts,
+                LikesReceived = totalLikes,
                 Saved = 0
             },
             ChefApplication = new ChefApplicationSummaryDto

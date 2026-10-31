@@ -13,6 +13,11 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 
+// B12: Tạo sẵn thư mục wwwroot và uploads trước khi CreateBuilder khởi tạo web root
+var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+Directory.CreateDirectory(Path.Combine(webRoot, "uploads", "images"));
+Directory.CreateDirectory(Path.Combine(webRoot, "uploads", "videos"));
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.WebHost.ConfigureKestrel(options =>
@@ -25,6 +30,28 @@ builder.Services.AddControllers(options =>
 {
     // Áp dụng ValidationFilter toàn bộ app — không cần gắn từng action
     options.Filters.Add<ValidationFilter>();
+});
+
+// B25: Chuẩn hoá lỗi ModelState thành envelope ApiResponse thống nhất
+builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options =>
+{
+    options.InvalidModelStateResponseFactory = context =>
+    {
+        var errors = context.ModelState
+            .Where(e => e.Value?.Errors.Count > 0)
+            .ToDictionary(
+                kvp => kvp.Key,
+                kvp => kvp.Value!.Errors.Select(e => e.ErrorMessage).ToArray()
+            );
+        var response = new ControllerLayer.Models.ApiResponse<object>
+        {
+            Success = false,
+            StatusCode = StatusCodes.Status400BadRequest,
+            Message = "Dữ liệu yêu cầu không hợp lệ.",
+            Errors = errors
+        };
+        return new Microsoft.AspNetCore.Mvc.BadRequestObjectResult(response);
+    };
 });
 
 // ─── Swagger / OpenAPI ────────────────────────────────────────────────────────
@@ -131,6 +158,16 @@ builder.Services.AddHttpClient<IGeminiClient, GeminiClient>(client =>
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ─── Kiểm tra an toàn khoá bí mật khi khởi động ─────────────────────────────
+var configuredJwtSecret = builder.Configuration["JwtSettings:SecretKey"];
+if (!builder.Environment.IsDevelopment())
+{
+    if (string.IsNullOrWhiteSpace(configuredJwtSecret) || configuredJwtSecret.Contains("PLACEHOLDER"))
+    {
+        throw new InvalidOperationException("CRITICAL: JwtSettings:SecretKey chưa được cấu hình hoặc vẫn mang giá trị placeholder!");
+    }
+}
+
 var app = builder.Build();
 
 // ─── Exception Handling (phải là middleware đầu tiên) ─────────────────────────
@@ -155,7 +192,17 @@ app.UseAuthorization();
 app.MapControllers();
 
 // ─── Khởi tạo chỉ mục MongoDB & Dữ liệu Seed ban đầu ──────────────────────────
-await app.Services.EnsureIndexesAsync();
-await app.Services.SeedAsync();
+try
+{
+    await app.Services.EnsureIndexesAsync();
+    await app.Services.SeedAsync();
+}
+catch (Exception ex)
+{
+    var logger = app.Services.GetService<ILogger<Program>>();
+    logger?.LogWarning(ex, "Không thể kết nối MongoDB lúc khởi động để tạo index/seed. Bỏ qua để ứng dụng tiếp tục.");
+}
 
 app.Run();
+
+public partial class Program { }

@@ -60,10 +60,10 @@ namespace DomainLayer.Helpers
             var g = (goal ?? "maintain").Trim().ToLowerInvariant();
             return g switch
             {
-                "lose" or "giảm cân" or "giam_can" => -0.15,
-                "maintain" or "giữ cân" or "giu_can" => 0.0,
-                "muscle" or "lean_muscle" or "tăng cơ" or "tang_co" => 0.05,
-                "gain" or "tăng cân" or "tang_can" => 0.10,
+                "lose" or "lose_weight" or "giảm cân" or "giam_can" => -0.15,
+                "maintain" or "giữ cân" or "giu_can" or "eat_clean" => 0.0,
+                "muscle" or "lean_muscle" or "gain_muscle" or "tăng cơ" or "tang_co" => 0.05,
+                "gain" or "gain_weight" or "tăng cân" or "tang_can" => 0.10,
                 _ => 0.0
             };
         }

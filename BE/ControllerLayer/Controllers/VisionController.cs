@@ -9,7 +9,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace ControllerLayer.Controllers
 {
     [ApiController]
-    [Route("api/v1/[controller]")]
+
     [Route("api/v1/vision")]
     [Route("vision")]
     public class VisionController : ControllerBase

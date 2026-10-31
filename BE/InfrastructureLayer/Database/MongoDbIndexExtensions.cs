@@ -17,6 +17,17 @@ namespace InfrastructureLayer.Database
 
             try
             {
+                using var pingCts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(2));
+                await context.Database.RunCommandAsync((Command<MongoDB.Bson.BsonDocument>)"{ping:1}", cancellationToken: pingCts.Token);
+            }
+            catch
+            {
+                logger?.LogWarning("MongoDB không phản hồi ping trong 2s. Bỏ qua khởi tạo chỉ mục.");
+                return;
+            }
+
+            try
+            {
                 // 1. MediaAssets
                 var mediaPublicIdIndex = new CreateIndexModel<MediaAsset>(
                     Builders<MediaAsset>.IndexKeys.Ascending(m => m.PublicId),
@@ -66,7 +77,58 @@ namespace InfrastructureLayer.Database
                     new CreateIndexOptions { Unique = true });
                 await context.Ingredients.Indexes.CreateOneAsync(ingredientNameIndex);
 
-                // 9. PantryItems
+                // 9. PantryItems: Backfill, deduplicate and create unique index on (UserId, NormalizedName)
+                try
+                {
+                    var pantryCol = context.PantryItems;
+                    var allPantryItems = await pantryCol.Find(p => !p.IsDeleted).ToListAsync();
+
+                    // Step A: Backfill NormalizedName for items missing it
+                    foreach (var pItem in allPantryItems)
+                    {
+                        var norm = DomainLayer.Helpers.AllergyMatcher.RemoveDiacritics(pItem.Ingredient ?? string.Empty).ToLowerInvariant();
+                        if (string.IsNullOrEmpty(pItem.NormalizedName) || pItem.NormalizedName != norm)
+                        {
+                            pItem.NormalizedName = norm;
+                            await pantryCol.UpdateOneAsync(
+                                Builders<PantryItem>.Filter.Eq(x => x.Id, pItem.Id),
+                                Builders<PantryItem>.Update.Set(x => x.NormalizedName, norm));
+                        }
+                    }
+
+                    // Step B: Deduplicate active items by (UserId, NormalizedName)
+                    var grouped = allPantryItems
+                        .Where(p => !string.IsNullOrEmpty(p.UserId) && !string.IsNullOrEmpty(p.NormalizedName))
+                        .GroupBy(p => new { p.UserId, p.NormalizedName });
+
+                    foreach (var group in grouped)
+                    {
+                        var list = group.OrderByDescending(p => p.UpdatedAt ?? p.CreatedAt).ToList();
+                        if (list.Count > 1)
+                        {
+                            for (int i = 1; i < list.Count; i++)
+                            {
+                                await pantryCol.UpdateOneAsync(
+                                    Builders<PantryItem>.Filter.Eq(x => x.Id, list[i].Id),
+                                    Builders<PantryItem>.Update.Set(x => x.IsDeleted, true).Set(x => x.DeletedAt, DateTime.UtcNow));
+                            }
+                        }
+                    }
+
+                    // Step C: Create partial unique index on { UserId: 1, NormalizedName: 1 }
+                    var pantryUserNormalizedIndex = new CreateIndexModel<PantryItem>(
+                        Builders<PantryItem>.IndexKeys.Ascending(p => p.UserId).Ascending(p => p.NormalizedName),
+                        new CreateIndexOptions<PantryItem>
+                        {
+                            Unique = true,
+                            PartialFilterExpression = Builders<PantryItem>.Filter.Eq(p => p.IsDeleted, false)
+                        });
+                    await pantryCol.Indexes.CreateOneAsync(pantryUserNormalizedIndex);
+                }
+                catch (Exception ex)
+                {
+                    logger?.LogWarning(ex, "Lỗi khi xử lý migration/chỉ mục duy nhất cho PantryItems");
+                }
                 var pantryUserExpiryIndex = new CreateIndexModel<PantryItem>(
                     Builders<PantryItem>.IndexKeys.Ascending(p => p.UserId).Ascending(p => p.ExpiryDate));
                 await context.PantryItems.Indexes.CreateOneAsync(pantryUserExpiryIndex);

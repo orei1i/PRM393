@@ -33,6 +33,17 @@ namespace ControllerLayer.Controllers
             return Ok(ApiResponse<IEnumerable<RecipeResponse>>.Ok(results));
         }
 
+        /// <summary>Lấy chi tiết một công thức theo ID.</summary>
+        [HttpGet("{id}")]
+        [ProducesResponseType(typeof(ApiResponse<RecipeResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<ApiResponse<RecipeResponse>>> GetById(string id)
+        {
+            var userId = User.GetUserId();
+            var result = await _mealPlanService.GetRecipeByIdAsync(userId, id);
+            return Ok(ApiResponse<RecipeResponse>.Ok(result));
+        }
+
         /// <summary>Tạo mới một công thức món ăn của riêng tôi.</summary>
         [HttpPost]
         [ProducesResponseType(typeof(ApiResponse<RecipeResponse>), StatusCodes.Status201Created)]
@@ -44,4 +55,3 @@ namespace ControllerLayer.Controllers
         }
     }
 }
-

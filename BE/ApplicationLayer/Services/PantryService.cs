@@ -77,16 +77,22 @@ namespace ApplicationLayer.Services
                     !i.IsDeleted &&
                     (i.NormalizedName == normalized || i.Name.ToLower() == trimmedName.ToLower() || i.Aliases.Contains(trimmedName)));
 
+                var isVegan = VeganClassifier.ClassifyIsVegan(trimmedName, matchedIngredient);
+                var allergens = matchedIngredient?.Allergens ?? new List<string>();
+
                 // Kiểm tra xem món này đã có trong tủ chưa
                 var duplicate = existingPantry.FirstOrDefault(p =>
-                    AllergyMatcher.RemoveDiacritics(p.Ingredient).ToLowerInvariant() == normalized &&
-                    string.Equals(p.Unit, req.Unit, StringComparison.OrdinalIgnoreCase));
+                    (p.NormalizedName == normalized || AllergyMatcher.RemoveDiacritics(p.Ingredient).ToLowerInvariant() == normalized));
+
 
                 if (duplicate != null)
                 {
-                    duplicate.Quantity += req.Quantity > 0 ? req.Quantity : 1.0;
+                    if (req.Quantity > 0) duplicate.Quantity = req.Quantity;
                     if (req.ExpiryDate.HasValue) duplicate.ExpiryDate = req.ExpiryDate;
                     if (req.ScannedAt.HasValue) duplicate.ScannedAt = req.ScannedAt;
+                    duplicate.NormalizedName = normalized;
+                    duplicate.IsVegan = isVegan;
+                    if (allergens.Any()) duplicate.Allergens = allergens;
                     duplicate.UpdatedAt = DateTime.UtcNow;
 
                     await _pantryRepo.UpdateAsync(duplicate.Id, duplicate);
@@ -98,6 +104,7 @@ namespace ApplicationLayer.Services
                     {
                         UserId = userId,
                         Ingredient = trimmedName,
+                        NormalizedName = normalized,
                         IngredientId = matchedIngredient?.Id,
                         Category = matchedIngredient?.Category ?? "vegetable",
                         CaloriesPer100g = matchedIngredient?.CaloriesPer100g,
@@ -105,7 +112,8 @@ namespace ApplicationLayer.Services
                         Unit = string.IsNullOrWhiteSpace(req.Unit) ? "phần" : req.Unit.Trim(),
                         ExpiryDate = req.ExpiryDate,
                         ScannedAt = req.ScannedAt,
-                        IsVegan = matchedIngredient?.IsVegan ?? true,
+                        IsVegan = isVegan,
+                        Allergens = allergens,
                         Source = req.ScannedAt.HasValue ? "vision" : "manual",
                         CreatedAt = DateTime.UtcNow
                     };
@@ -203,7 +211,7 @@ namespace ApplicationLayer.Services
             if (userAllergies.Any())
             {
                 var conflicts = AllergyMatcher.FindConflicts(
-                    dishAllergenTags: Enumerable.Empty<string>(),
+                    dishAllergenTags: item.Allergens ?? Enumerable.Empty<string>(),
                     dishTexts: new[] { item.Ingredient },
                     userAllergies: userAllergies);
 

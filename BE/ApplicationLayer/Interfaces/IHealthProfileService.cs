@@ -9,7 +9,7 @@ namespace ApplicationLayer.Interfaces
         Task<HealthProfileResponse> GetMyHealthProfileAsync(string userId);
         Task<HealthProfileResponse> UpdateMyHealthProfileAsync(string userId, UpdateHealthProfileRequest request);
         Task<IEnumerable<HealthMetricLogResponse>> GetMetricsHistoryAsync(string userId, int limit = 30);
-        IEnumerable<AllergenResponse> GetAllergens();
+        Task<HealthMetricLogResponse> LogMetricsAsync(string userId, LogMetricsRequest request);
+        IEnumerable<AllergenResponse> GetAllergens(string? q = null);
     }
 }
-

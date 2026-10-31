@@ -27,7 +27,7 @@ namespace DomainLayer.Entities
 
         public List<string> DietTags { get; set; } = new();
 
-        public int PrepMinutes { get; set; } = 15;
+        public int? PrepMinutes { get; set; }
 
         public string? ImageUrl { get; set; }
 

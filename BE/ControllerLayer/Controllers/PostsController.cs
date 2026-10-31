@@ -28,13 +28,15 @@ namespace ControllerLayer.Controllers
         [AllowAnonymous]
         [ProducesResponseType(typeof(ApiResponse<FeedPageResponse>), StatusCodes.Status200OK)]
         public async Task<ActionResult<ApiResponse<FeedPageResponse>>> GetFeed(
+            [FromQuery] string? cursor = null,
+            [FromQuery] int? limit = null,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 10,
             [FromQuery] string? type = null,
             [FromQuery] string? mediaType = null)
         {
             var currentUserId = User.GetUserIdOrDefault();
-            var result = await _postService.GetFeedAsync(page, pageSize, type, mediaType, currentUserId);
+            var result = await _postService.GetFeedAsync(page, pageSize, type, mediaType, currentUserId, cursor, limit);
             return Ok(ApiResponse<FeedPageResponse>.Ok(result));
         }
 
@@ -134,6 +136,16 @@ namespace ControllerLayer.Controllers
             var currentUserId = User.GetUserId();
             var result = await _commentService.CreateCommentAsync(id, request, currentUserId);
             return StatusCode(StatusCodes.Status201Created, ApiResponse<CommentResponse>.Created(result, "Gửi bình luận thành công."));
+        }
+
+        /// <summary>Lấy danh sách phản hồi của một bình luận trong bài viết.</summary>
+        [HttpGet("{id}/comments/{commentId}/replies")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(ApiResponse<IEnumerable<CommentResponse>>), StatusCodes.Status200OK)]
+        public async Task<ActionResult<ApiResponse<IEnumerable<CommentResponse>>>> GetCommentReplies(string id, string commentId)
+        {
+            var result = await _commentService.GetCommentRepliesAsync(commentId);
+            return Ok(ApiResponse<IEnumerable<CommentResponse>>.Ok(result));
         }
     }
 }

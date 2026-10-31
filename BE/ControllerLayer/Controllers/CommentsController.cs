@@ -38,5 +38,15 @@ namespace ControllerLayer.Controllers
 
             return Ok(ApiResponse<object?>.Ok(null, "Xóa bình luận thành công."));
         }
+
+        /// <summary>Lấy danh sách các phản hồi của bình luận.</summary>
+        [HttpGet("{id}/replies")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(ApiResponse<System.Collections.Generic.IEnumerable<ApplicationLayer.DTOs.Posts.CommentResponse>>), StatusCodes.Status200OK)]
+        public async Task<ActionResult<ApiResponse<System.Collections.Generic.IEnumerable<ApplicationLayer.DTOs.Posts.CommentResponse>>>> GetReplies(string id)
+        {
+            var result = await _commentService.GetCommentRepliesAsync(id);
+            return Ok(ApiResponse<System.Collections.Generic.IEnumerable<ApplicationLayer.DTOs.Posts.CommentResponse>>.Ok(result));
+        }
     }
 }

@@ -9,5 +9,6 @@ namespace ApplicationLayer.Interfaces
         Task<IEnumerable<CommentResponse>> GetPostCommentsAsync(string postId, int page, int pageSize);
         Task<CommentResponse> CreateCommentAsync(string postId, CreateCommentRequest request, string currentUserId);
         Task<bool> DeleteCommentAsync(string commentId, string currentUserId, string? role);
+        Task<IEnumerable<CommentResponse>> GetCommentRepliesAsync(string commentId);
     }
 }

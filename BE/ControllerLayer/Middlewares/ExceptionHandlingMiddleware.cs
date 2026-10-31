@@ -64,6 +64,8 @@ namespace ControllerLayer.Middlewares
                 DomainException                 => (HttpStatusCode.BadRequest,          ex.Message),
                 KeyNotFoundException            => (HttpStatusCode.NotFound,            ex.Message),
                 UnauthorizedAccessException     => (HttpStatusCode.Unauthorized,       ex.Message),
+                BadHttpRequestException         => (HttpStatusCode.BadRequest,          "Dữ liệu yêu cầu HTTP hoặc JSON không hợp lệ."),
+                JsonException                   => (HttpStatusCode.BadRequest,          "Định dạng JSON gửi lên không hợp lệ."),
                 ArgumentException               => (HttpStatusCode.BadRequest,          ex.Message),
                 InvalidOperationException       => (HttpStatusCode.BadRequest,          ex.Message),
                 _                               => (HttpStatusCode.InternalServerError, "Đã xảy ra lỗi, vui lòng thử lại sau.")

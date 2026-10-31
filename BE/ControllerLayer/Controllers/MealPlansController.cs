@@ -8,6 +8,7 @@ using ControllerLayer.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace ControllerLayer.Controllers
 {
@@ -66,15 +67,15 @@ namespace ControllerLayer.Controllers
             return Ok(ApiResponse<MealPlanResponse>.Ok(result, "Tự động sinh thực đơn thành công."));
         }
 
-        /// <summary>Tự động xếp thực đơn ưu tiên nguyên liệu đang có sẵn trong tủ lạnh (Pantry).</summary>
+        /// <summary>Gợi ý danh sách món ăn từ nguyên liệu có trong tủ lạnh (Pantry) mà không sửa đổi DB.</summary>
         [HttpPost("from-ingredients")]
-        [ProducesResponseType(typeof(ApiResponse<MealPlanResponse>), StatusCodes.Status200OK)]
-        public async Task<ActionResult<ApiResponse<MealPlanResponse>>> GenerateFromPantry([FromBody] GenerateMealPlanRequest request)
+        [ProducesResponseType(typeof(ApiResponse<List<RecipeResponse>>), StatusCodes.Status200OK)]
+        public async Task<ActionResult<ApiResponse<List<RecipeResponse>>>> GenerateFromPantry(
+            [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] GenerateMealPlanRequest? request)
         {
             var userId = User.GetUserId();
-            request.UsePantry = true;
-            var result = await _mealPlanService.GenerateMealPlanAsync(userId, request);
-            return Ok(ApiResponse<MealPlanResponse>.Ok(result, "Xếp thực đơn từ nguyên liệu trong tủ thành công."));
+            var results = await _mealPlanService.SuggestFromIngredientsAsync(userId);
+            return Ok(ApiResponse<List<RecipeResponse>>.Ok(results, "Gợi ý món ăn từ nguyên liệu trong tủ thành công."));
         }
 
         /// <summary>Đổi món ăn trong một ô bữa của thực đơn.</summary>
@@ -97,7 +98,7 @@ namespace ControllerLayer.Controllers
             return Ok(ApiResponse<MealPlanDayResponse>.Ok(result, "Cập nhật món ăn thành công."));
         }
 
-        /// <summary>Gán hàng loạt món vào thực đơn tuần hiện tại (dùng khi áp dụng kế hoạch mẫu hoặc thực đơn chuyên gia).</summary>
+        /// <summary>Gán hàng loạt món vào thực đơn tuần hiện tại.</summary>
         [HttpPost("current/meals/batch")]
         [ProducesResponseType(typeof(ApiResponse<AddMealsResultDto>), StatusCodes.Status200OK)]
         public async Task<ActionResult<ApiResponse<AddMealsResultDto>>> AddMealsBatch([FromBody] AddMealsBatchRequestDto request)
@@ -135,4 +136,3 @@ namespace ControllerLayer.Controllers
         }
     }
 }
-
