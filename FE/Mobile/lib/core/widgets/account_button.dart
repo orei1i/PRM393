@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../features/auth/presentation/auth_navigation.dart';
 import '../network/api_exception.dart';
 import '../session/session_controller.dart';
+import 'user_avatar.dart';
 
 /// App-bar avatar. Guests: "Đăng nhập" / "Tạo tài khoản". Members: "Xin
 /// chào, …" and "Đăng xuất" (back to guest mode).
@@ -15,9 +16,7 @@ class AccountButton extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionControllerProvider);
     final notifier = ref.read(sessionControllerProvider.notifier);
-    final initial = (session.displayName?.isNotEmpty ?? false)
-        ? session.displayName!.characters.first.toUpperCase()
-        : null;
+    final name = session.displayName;
 
     return PopupMenuButton<String>(
       tooltip: session.isGuest ? 'Tài khoản (khách)' : 'Tài khoản',
@@ -50,15 +49,15 @@ class AccountButton extends ConsumerWidget {
       ],
       child: Padding(
         padding: const EdgeInsets.all(8),
-        child: CircleAvatar(
-          radius: 18,
-          backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-          foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
-          child: initial == null
-              ? const Icon(Icons.person_outline_rounded, size: 20)
-              : Text(initial,
-                  style: const TextStyle(fontWeight: FontWeight.w800)),
-        ),
+        child: name == null || name.isEmpty
+            ? CircleAvatar(
+                radius: 18,
+                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                foregroundColor:
+                    Theme.of(context).colorScheme.onPrimaryContainer,
+                child: const Icon(Icons.person_outline_rounded, size: 20),
+              )
+            : UserAvatar(name: name, size: 36),
       ),
     );
   }

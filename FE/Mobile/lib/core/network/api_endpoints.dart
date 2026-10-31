@@ -1,4 +1,5 @@
 // lib/core/network/api_endpoints.dart
+import '../config/env.dart';
 
 /// Relative paths under [Env.apiBaseUrl]. Agreed contract with the backend team;
 /// update here only — features never hard-code URLs. Request / response JSON
@@ -35,6 +36,11 @@ abstract final class ApiEndpoints {
 
   // Health profile & meal planner
   static const String healthProfile = '/health-profile/me';
+
+  /// Body measurements ("Theo dõi cân nặng"): GET `?limit=` (≤ 100, newest
+  /// first); POST `{ weightKg, waistCm?, bodyFatPct? }` → `{ measurement,
+  /// profile }` (BE: POST is new).
+  static const String healthMetrics = '/health-profile/me/metrics';
 
   /// POST `{ startDate, empty: true }` → a week with every slot empty
   /// ("Tự lên thực đơn").
@@ -81,8 +87,10 @@ abstract final class ApiEndpoints {
   static const String allergens = '/catalog/allergens';
 
   // Smart kitchen (computer vision)
-  static const String visionScan = '/vision/scan';
-  static const String menuFromIngredients = '/meal-plans/from-ingredients';
+  /// Absolute on purpose: the host-root route, because BE bug B1 makes
+  /// `/api/v1/vision/scan` answer 500. Revert to the relative `/vision/scan`
+  /// once B1 is fixed.
+  static String get visionScan => '${Env.apiOrigin}/vision/scan';
 
   // RAG chatbot
   static const String guestTrial = '/chat/guest-trial';
@@ -100,6 +108,9 @@ abstract final class ApiEndpoints {
   static String postReport(String id) => '/posts/$id/reports';
   static String postComment(String postId, String commentId) =>
       '/posts/$postId/comments/$commentId';
+
+  /// DELETE a comment on the real BE (it has no route under `/posts/{id}`).
+  static String commentDelete(String commentId) => '/comments/$commentId';
 
   /// GET `?cursor=&limit=`: replies of a top-level comment.
   static String commentReplies(String postId, String commentId) =>
@@ -243,6 +254,21 @@ abstract final class ApiEndpoints {
 
   /// Declared, not called yet (optional; the mock computes it in [search]).
   static String recipeRelatedPosts(String id) => '/recipes/$id/related-posts';
+
+  /// POST `{ name, swaps: [{ ingredientKey, substituteKey }], removed }` →
+  /// the saved private recipe ("Lưu thành công thức của tôi"). BE: new.
+  static String recipeVariants(String id) => '/recipes/$id/variants';
+
+  /// GET `?cursor=&limit=10`: rating summary, `myReview` and reviews,
+  /// newest first. BE: new.
+  static String recipeReviews(String id) => '/recipes/$id/reviews';
+
+  /// PUT `{ rating, content? }` (one per member, upsert) / DELETE the
+  /// signed-in member's review. BE: new.
+  static String recipeMyReview(String id) => '/recipes/$id/reviews/me';
+
+  /// GET / PUT `{ content }` / DELETE the member's private note. BE: new.
+  static String recipeMyNote(String id) => '/recipes/$id/notes/me';
 
   // Current user (BE: UsersController) + chef application
   static const String me = '/users/me';

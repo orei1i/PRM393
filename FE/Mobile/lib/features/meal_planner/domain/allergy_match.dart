@@ -21,6 +21,16 @@ const dishAllergenIds = {
 
 bool isDishAllergenId(String key) => dishAllergenIds.contains(key);
 
+/// Allergen id → Vietnamese ingredient words that contain it (whole words,
+/// so "nấm mèo" is not mistaken for "mè").
+const _allergenWords = {
+  'peanut': ['đậu phộng', 'lạc rang'],
+  'soy': ['đậu hũ', 'đậu phụ', 'tàu hũ', 'đậu nành', 'nước tương', 'tempeh'],
+  'gluten': ['bánh mì', 'lúa mì', 'mì căn', 'mì ý'],
+  'sesame': ['mè', 'vừng'],
+  'tree_nut': ['hạt điều', 'hạnh nhân', 'óc chó'],
+};
+
 /// "Lá lốt (tươi)" → " la lot tuoi ": folded, punctuation as spaces, padded
 /// so whole words can be found with `contains(' word ')`.
 String allergyText(String text) {
@@ -49,6 +59,17 @@ bool mentionsAllergy(String name, Iterable<String> texts) {
     return texts.any((t) => _accentedWords(t).contains(exact));
   }
   return texts.any((t) => allergyText(t).contains(needle));
+}
+
+/// Allergens that a dish's name and ingredients mention, by the rules of
+/// [mentionsAllergy]: "Pho dau phong", "Phở đậu phộng," and "ĐẬU PHỘNG" alike.
+Set<String> detectDishAllergens(String name,
+    [Iterable<String> ingredients = const []]) {
+  final texts = [name, ...ingredients];
+  return {
+    for (final MapEntry(key: id, value: words) in _allergenWords.entries)
+      if (words.any((word) => mentionsAllergy(word, texts))) id,
+  };
 }
 
 /// The member's allergy keys a dish conflicts with: tagged ids found in

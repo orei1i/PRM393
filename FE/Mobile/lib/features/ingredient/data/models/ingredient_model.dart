@@ -17,7 +17,8 @@
 //   "suggestedDishes": ["Canh cà chua đậu hũ"],
 //   "recipes": [ { "id": "l5", "name": "Bún riêu chay", "calories": 580 } ],
 //   "allergens": [], "source": "Tham khảo: …" }
-// A macro the source doesn't give is null (never 0).
+// A macro the source doesn't give is null (never 0). The real BE sends the
+// macros at the root, without `per100g`, and no micronutrients or recipes.
 import '../../../../core/utils/json_helpers.dart';
 import '../../domain/entities/ingredient.dart';
 
@@ -102,7 +103,9 @@ class IngredientDetailDto {
   });
 
   factory IngredientDetailDto.fromJson(Map<String, dynamic> json) {
-    final per100g = readMap(json['per100g']);
+    final per100g = json['per100g'] is Map<String, dynamic>
+        ? readMap(json['per100g'])
+        : json;
     List<Map<String, dynamic>> maps(Object? v) => v is List<Object?>
         ? v.whereType<Map<String, dynamic>>().toList()
         : const [];

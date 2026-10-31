@@ -2,6 +2,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
+import '../../../../core/navigation/app_nav.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
@@ -17,6 +19,7 @@ import '../../domain/entities/meal_plan.dart';
 import '../controllers/meal_plan_controller.dart';
 import '../widgets/adjust_plan_sheet.dart';
 import '../widgets/allergy_guard_banner.dart';
+import '../widgets/check_in_card.dart';
 import '../widgets/health_header_card.dart';
 import '../widgets/macro_progress_bar.dart';
 import '../widgets/meal_picker_sheet.dart';
@@ -24,6 +27,7 @@ import '../widgets/meal_planner_skeleton.dart';
 import '../widgets/meal_slot_card.dart';
 import '../widgets/pantry_summary_card.dart';
 import '../widgets/week_date_picker.dart';
+import 'body_metrics_screen.dart';
 import 'health_profile_edit_screen.dart';
 
 class MealPlannerScreen extends StatelessWidget {
@@ -122,7 +126,7 @@ class _Loaded extends ConsumerWidget {
                   _PlanAction.adjust => _adjust(context),
                 },
                 itemBuilder: (_) => [
-                  if (plan != null)
+                  if (plan != null && BackendModules.planAdjust)
                     const PopupMenuItem(
                       value: _PlanAction.adjust,
                       child: ListTile(
@@ -147,14 +151,15 @@ class _Loaded extends ConsumerWidget {
                       title: Text('Tạo thực đơn từ tủ lạnh'),
                     ),
                   ),
-                  const PopupMenuItem(
-                    value: _PlanAction.manual,
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.edit_calendar_outlined),
-                      title: Text('Tự lên thực đơn'),
+                  if (plan == null || BackendModules.planClear)
+                    const PopupMenuItem(
+                      value: _PlanAction.manual,
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.edit_calendar_outlined),
+                        title: Text('Tự lên thực đơn'),
+                      ),
                     ),
-                  ),
                 ],
               ),
               const AccountButton(),
@@ -165,13 +170,17 @@ class _Loaded extends ConsumerWidget {
                 EdgeInsets.fromLTRB(16, 4, 16, floatingBarClearance(context)),
             sliver: SliverList.list(
               children: [
-                if (state.healthProfile case final profile?)
+                if (state.healthProfile case final profile?) ...[
                   HealthHeaderCard(
                     profile: profile,
                     onEdit: () => Navigator.of(context)
                         .push(HealthProfileEditScreen.route()),
-                  )
-                else
+                    onOpenMetrics: () => AppNav.open(
+                        Navigator.of(context), BodyMetricsScreen.route()),
+                  ),
+                  // "Cập nhật cân nặng" when a weigh-in is due.
+                  const CheckInCard(),
+                ] else
                   HealthProfileSetupCard(
                     onSetUp: () => Navigator.of(context)
                         .push(HealthProfileEditScreen.route()),
@@ -206,8 +215,10 @@ class _Loaded extends ConsumerWidget {
                     userAllergies: allergies,
                     onSelected: controller.selectDate,
                   ),
-                  const SizedBox(height: 10),
-                  _AdjustWithAiPill(onTap: () => _adjust(context)),
+                  if (BackendModules.planAdjust) ...[
+                    const SizedBox(height: 10),
+                    _AdjustWithAiPill(onTap: () => _adjust(context)),
+                  ],
                   const SizedBox(height: 12),
                   DailyMacroCard(
                     date: day.date,
@@ -219,10 +230,15 @@ class _Loaded extends ConsumerWidget {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  AllergyGuardBanner(
+                  if (AllergyGuardBanner.shownFor(day, allergies)) ...[
+                    AllergyGuardBanner(
                       allergies: allergies,
-                      conflictCount: day.conflictCount(allergies)),
-                  const SizedBox(height: 12),
+                      conflictCount: day.conflictCount(allergies),
+                      allAi: day.meals.values
+                          .every((r) => r.source == MealSource.ai),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   for (final slot in state.slotsFor(day))
                     Padding(
                       padding: const EdgeInsets.only(bottom: 12),
@@ -236,10 +252,14 @@ class _Loaded extends ConsumerWidget {
                             onRemove: state.isExtraSlot(slot)
                                 ? () => _remove(context, ref, slot)
                                 : null,
+                            // The recipe page compares with this meal and
+                            // "Thêm vào Thực đơn" defaults to it.
                             onOpen: recipe.hasDetail
                                 ? () => Navigator.of(context).push(
                                     RecipeDetailScreen.route(recipe.id,
-                                        name: recipe.name))
+                                        name: recipe.name,
+                                        contextDate: day.date,
+                                        contextSlot: slot))
                                 : null,
                             onSwap: () => _pick(context, ref, slot, recipe),
                             onSeasonalSwap: recipe.seasonalSwap == null
@@ -400,7 +420,10 @@ class _Loaded extends ConsumerWidget {
   Future<void> _pick(BuildContext context, WidgetRef ref, MealSlot slot,
       Recipe? current) async {
     final pick = await MealPickerSheet.show(context,
-        slot: slot, allergies: state.profile.allergies, current: current);
+        slot: slot,
+        date: state.selectedDay?.date,
+        allergies: state.profile.allergies,
+        current: current);
     if (pick == null || !context.mounted) return;
     switch (pick) {
       case RecipePick(:final recipe):

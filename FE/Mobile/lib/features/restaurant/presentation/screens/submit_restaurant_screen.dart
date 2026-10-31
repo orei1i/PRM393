@@ -161,10 +161,10 @@ class _SubmitRestaurantScreenState
       final url = item.file.isVideo
           ? (await api.uploadVideo(item.file,
                   onProgress: progress, cancelToken: item.token))
-              .mediaUrl
+              .absoluteUrl
           : (await api.uploadImage(item.file,
                   onProgress: progress, cancelToken: item.token))
-              .mediaUrl;
+              .absoluteUrl;
       if (mounted) setState(() => item.url = url);
     } catch (e) {
       if (!mounted || !_media.contains(item)) return;

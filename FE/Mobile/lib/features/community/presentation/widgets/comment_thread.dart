@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/models/author_summary.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/session/session_controller.dart';
@@ -127,7 +128,7 @@ class CommentThreadList extends StatelessWidget {
       comment: c,
       highlighted: c.id == highlightId,
       onReply: () => onReply(c),
-      onEdit: own ? () => onEdit(c) : null,
+      onEdit: own && BackendModules.commentEdit ? () => onEdit(c) : null,
       onDelete: own ? () => onDelete(c) : null,
     );
   }
@@ -159,7 +160,18 @@ class CommentThreadList extends StatelessWidget {
                                 padding: const EdgeInsets.only(bottom: 6),
                                 child: _tile(r),
                               ),
-                            if (t.hiddenReplies > 0)
+                            if (t.hiddenReplies > 0 &&
+                                !BackendModules.commentReplyPaging)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    vertical: 6, horizontal: 8),
+                                child: Text(
+                                  'Còn ${t.hiddenReplies} phản hồi khác, chưa xem được trên bản này',
+                                  style: context.textStyles.bodySmall
+                                      ?.copyWith(color: context.vl.muted),
+                                ),
+                              )
+                            else if (t.hiddenReplies > 0)
                               Align(
                                 alignment: Alignment.centerLeft,
                                 child: t.loadingReplies

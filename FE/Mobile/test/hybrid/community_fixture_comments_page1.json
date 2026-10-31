@@ -1,0 +1,188 @@
+{
+ "success": true,
+ "message": null,
+ "data": [
+  {
+   "id": "6ae5a8876c01fc07a9257792",
+   "postId": "6ae5a8876c01fc07a925777c",
+   "parentId": null,
+   "author": {
+    "id": "6ae5a8876c01fc07a9257777",
+    "fullName": "FE M1 Hai",
+    "isVerifiedChef": false
+   },
+   "content": "Bình luận số 11",
+   "createdAt": "2026-10-31T08:36:23.693Z",
+   "updatedAt": "2026-10-31T08:36:23.709Z",
+   "replyCount": 3,
+   "replies": [
+    {
+     "id": "6ae5a8876c01fc07a9257793",
+     "postId": "6ae5a8876c01fc07a925777c",
+     "parentId": "6ae5a8876c01fc07a9257792",
+     "author": {
+      "id": "6ae5a8876c01fc07a9257777",
+      "fullName": "FE M1 Hai",
+      "isVerifiedChef": false
+     },
+     "content": "Phản hồi số 1",
+     "createdAt": "2026-10-31T08:36:23.701Z",
+     "updatedAt": "2026-10-31T08:36:23.701Z",
+     "replyCount": 0,
+     "replies": []
+    },
+    {
+     "id": "6ae5a8876c01fc07a9257794",
+     "postId": "6ae5a8876c01fc07a925777c",
+     "parentId": "6ae5a8876c01fc07a9257792",
+     "author": {
+      "id": "6ae5a8876c01fc07a9257777",
+      "fullName": "FE M1 Hai",
+      "isVerifiedChef": false
+     },
+     "content": "Phản hồi số 2",
+     "createdAt": "2026-10-31T08:36:23.706Z",
+     "updatedAt": "2026-10-31T08:36:23.706Z",
+     "replyCount": 0,
+     "replies": []
+    }
+   ]
+  },
+  {
+   "id": "6ae5a8876c01fc07a9257791",
+   "postId": "6ae5a8876c01fc07a925777c",
+   "parentId": null,
+   "author": {
+    "id": "6ae5a8876c01fc07a9257776",
+    "fullName": "FE M1",
+    "isVerifiedChef": false
+   },
+   "content": "Bình luận số 10",
+   "createdAt": "2026-10-31T08:36:23.691Z",
+   "updatedAt": "2026-10-31T08:36:23.691Z",
+   "replyCount": 0,
+   "replies": []
+  },
+  {
+   "id": "6ae5a8876c01fc07a9257790",
+   "postId": "6ae5a8876c01fc07a925777c",
+   "parentId": null,
+   "author": {
+    "id": "6ae5a8876c01fc07a9257777",
+    "fullName": "FE M1 Hai",
+    "isVerifiedChef": false
+   },
+   "content": "Bình luận số 9",
+   "createdAt": "2026-10-31T08:36:23.686Z",
+   "updatedAt": "2026-10-31T08:36:23.686Z",
+   "replyCount": 0,
+   "replies": []
+  },
+  {
+   "id": "6ae5a8876c01fc07a925778f",
+   "postId": "6ae5a8876c01fc07a925777c",
+   "parentId": null,
+   "author": {
+    "id": "6ae5a8876c01fc07a9257776",
+    "fullName": "FE M1",
+    "isVerifiedChef": false
+   },
+   "content": "Bình luận số 8",
+   "createdAt": "2026-10-31T08:36:23.665Z",
+   "updatedAt": "2026-10-31T08:36:23.665Z",
+   "replyCount": 0,
+   "replies": []
+  },
+  {
+   "id": "6ae5a8876c01fc07a925778e",
+   "postId": "6ae5a8876c01fc07a925777c",
+   "parentId": null,
+   "author": {
+    "id": "6ae5a8876c01fc07a9257777",
+    "fullName": "FE M1 Hai",
+    "isVerifiedChef": false
+   },
+   "content": "Bình luận số 7",
+   "createdAt": "2026-10-31T08:36:23.662Z",
+   "updatedAt": "2026-10-31T08:36:23.662Z",
+   "replyCount": 0,
+   "replies": []
+  },
+  {
+   "id": "6ae5a8876c01fc07a925778d",
+   "postId": "6ae5a8876c01fc07a925777c",
+   "parentId": null,
+   "author": {
+    "id": "6ae5a8876c01fc07a9257776",
+    "fullName": "FE M1",
+    "isVerifiedChef": false
+   },
+   "content": "Bình luận số 6",
+   "createdAt": "2026-10-31T08:36:23.658Z",
+   "updatedAt": "2026-10-31T08:36:23.658Z",
+   "replyCount": 0,
+   "replies": []
+  },
+  {
+   "id": "6ae5a8876c01fc07a925778c",
+   "postId": "6ae5a8876c01fc07a925777c",
+   "parentId": null,
+   "author": {
+    "id": "6ae5a8876c01fc07a9257777",
+    "fullName": "FE M1 Hai",
+    "isVerifiedChef": false
+   },
+   "content": "Bình luận số 5",
+   "createdAt": "2026-10-31T08:36:23.656Z",
+   "updatedAt": "2026-10-31T08:36:23.656Z",
+   "replyCount": 0,
+   "replies": []
+  },
+  {
+   "id": "6ae5a8876c01fc07a925778b",
+   "postId": "6ae5a8876c01fc07a925777c",
+   "parentId": null,
+   "author": {
+    "id": "6ae5a8876c01fc07a9257776",
+    "fullName": "FE M1",
+    "isVerifiedChef": false
+   },
+   "content": "Bình luận số 4",
+   "createdAt": "2026-10-31T08:36:23.652Z",
+   "updatedAt": "2026-10-31T08:36:23.652Z",
+   "replyCount": 0,
+   "replies": []
+  },
+  {
+   "id": "6ae5a8876c01fc07a925778a",
+   "postId": "6ae5a8876c01fc07a925777c",
+   "parentId": null,
+   "author": {
+    "id": "6ae5a8876c01fc07a9257777",
+    "fullName": "FE M1 Hai",
+    "isVerifiedChef": false
+   },
+   "content": "Bình luận số 3",
+   "createdAt": "2026-10-31T08:36:23.649Z",
+   "updatedAt": "2026-10-31T08:36:23.649Z",
+   "replyCount": 0,
+   "replies": []
+  },
+  {
+   "id": "6ae5a8876c01fc07a9257789",
+   "postId": "6ae5a8876c01fc07a925777c",
+   "parentId": null,
+   "author": {
+    "id": "6ae5a8876c01fc07a9257776",
+    "fullName": "FE M1",
+    "isVerifiedChef": false
+   },
+   "content": "Bình luận số 2",
+   "createdAt": "2026-10-31T08:36:23.645Z",
+   "updatedAt": "2026-10-31T08:36:23.645Z",
+   "replyCount": 0,
+   "replies": []
+  }
+ ],
+ "statusCode": 200
+}

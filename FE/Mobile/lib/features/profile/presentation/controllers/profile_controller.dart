@@ -1,6 +1,7 @@
 // lib/features/profile/presentation/controllers/profile_controller.dart
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/session/session_controller.dart';
 import '../../../community/data/community_api_service.dart';
 import '../../../community/domain/entities/post.dart';
@@ -27,7 +28,22 @@ class ProfileController extends AsyncNotifier<UserProfile> {
     final me = state.requireValue;
     final updated = await ref.read(profileApiProvider).updateMe(
         me.id, UpdateUserRequestDto(fullName: fullName, phone: phone));
-    state = AsyncData(updated.toEntity());
+    final saved = updated.toEntity();
+    // The session's name signs the composer, the avatar menu, new posts…
+    await ref
+        .read(sessionControllerProvider.notifier)
+        .updateDisplayName(saved.fullName.isEmpty ? fullName : saved.fullName);
+    if (BackendModules.isMock(BackendModule.profile)) {
+      state = AsyncData(saved);
+      return;
+    }
+    // The real PUT answers without `stats` and `chefApplication`.
+    ref.invalidateSelf();
+    try {
+      await future;
+    } catch (_) {
+      // Saved anyway: the profile screen shows the failed reload.
+    }
   }
 
   Future<void> submitChefApplication(ChefApplicationRequest request) async {
@@ -50,6 +66,14 @@ final myPostsProvider = FutureProvider<List<Post>>((ref) async {
   ref.watch(communityRevisionProvider);
   final list = await ref.watch(communityApiProvider).getMyPosts();
   return list.map((p) => p.toEntity()).toList();
+});
+
+/// The real BE has no "my posts", so the list comes from scanning the newest
+/// posts of the feed: `true` when there were more than it scanned.
+final myPostsTruncatedProvider = Provider<bool>((ref) {
+  ref.watch(myPostsProvider);
+  final api = ref.watch(communityApiProvider);
+  return api is RemoteCommunityApiService && api.myPostsTruncated;
 });
 
 final savedPostsProvider = FutureProvider<List<Post>>((ref) async {

@@ -66,7 +66,12 @@ ApiException _fromResponse(DioException err) {
   String? message;
   if (data is Map<String, dynamic>) {
     code = data['code']?.toString();
-    message = (data['message'] ?? data['title'])?.toString();
+    message = data['message']?.toString();
+    // ASP.NET ProblemDetails: its `title` is English, so never shown.
+    final errors = data['errors'];
+    if (message == null && errors is Map<String, dynamic>) {
+      message = _validationMessage(errors) ?? _invalidInput;
+    }
   }
   if (status == 402 || code == 'trial_exhausted') {
     return const TrialExhaustedException();
@@ -78,8 +83,28 @@ ApiException _fromResponse(DioException err) {
   );
 }
 
+const _invalidInput = 'Dữ liệu gửi lên chưa hợp lệ.';
+
+/// The first usable message of each field of `ProblemDetails.errors`, joined:
+/// `{"Email": ["Email không đúng định dạng."]}`. Keys like `$.birthYear` and
+/// values starting with "The " are the framework's English parser errors.
+String? _validationMessage(Map<String, dynamic> errors) {
+  final messages = <String>[];
+  for (final MapEntry(:key, :value) in errors.entries) {
+    if (key.startsWith(r'$') || value is! List) continue;
+    for (final item in value) {
+      final text = item?.toString().trim() ?? '';
+      if (text.isNotEmpty && !text.startsWith('The ')) {
+        messages.add(text);
+        break;
+      }
+    }
+  }
+  return messages.isEmpty ? null : messages.join(' ');
+}
+
 String _fallbackMessage(int? status) => switch (status) {
-      400 => 'Dữ liệu gửi lên chưa hợp lệ.',
+      400 => _invalidInput,
       401 => 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.',
       403 => 'Bạn không có quyền thực hiện thao tác này.',
       404 => 'Không tìm thấy dữ liệu.',

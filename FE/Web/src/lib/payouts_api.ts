@@ -31,7 +31,8 @@ import type {
 } from "@/types/payouts";
 import { AUTO_APPROVE_LIMIT, LEDGER_ENTRY_TYPES, LEDGER_STATUSES, PLATFORM_FEE_RATE, WITHDRAWAL_STATUSES } from "@/types/payouts";
 
-import { qs, request, USE_MOCK_DATA } from "./api_client";
+import { qs, request } from "./api_client";
+import { isMock } from "./backend_modules";
 import { readSession } from "./auth";
 import { readId } from "./ids";
 import * as mock from "./mock_payouts";
@@ -142,7 +143,7 @@ export function normalizeTransaction(raw: Raw): WalletTransaction {
 export const payoutsApi = {
   /** GET /admin/payouts/summary */
   async summary(): Promise<PayoutSummary> {
-    if (USE_MOCK_DATA) return mock.getPayoutSummary();
+    if (isMock("payouts")) return mock.getPayoutSummary();
     const raw = await request<Raw>("/admin/payouts/summary");
     const byStatus = obj(raw.byStatus) ?? {};
     return {
@@ -165,14 +166,14 @@ export const payoutsApi = {
 
   /** GET /admin/withdrawals?status=&search= */
   async listWithdrawals(query: WithdrawalQuery): Promise<WithdrawalRequest[]> {
-    if (USE_MOCK_DATA) return mock.listWithdrawals(query);
+    if (isMock("payouts")) return mock.listWithdrawals(query);
     const raw = await request<Raw[]>(`/admin/withdrawals?${qs({ status: query.status, search: query.search })}`);
     return raw.map(normalizeWithdrawal);
   },
 
   /** POST /admin/withdrawals/{id}/complete { transactionRef } | /reject { reason } */
   async act(input: WithdrawalActionInput): Promise<WithdrawalRequest> {
-    if (USE_MOCK_DATA) return mock.applyWithdrawalAction(input, readSession());
+    if (isMock("payouts")) return mock.applyWithdrawalAction(input, readSession());
     const body = input.action === "complete" ? { transactionRef: input.transactionRef } : { reason: input.reason };
     return normalizeWithdrawal(
       await request<Raw>(`/admin/withdrawals/${encodeURIComponent(input.withdrawalId)}/${input.action}`, {
@@ -184,14 +185,14 @@ export const payoutsApi = {
 
   /** GET /admin/chef-wallets */
   async wallets(): Promise<ChefWallet[]> {
-    if (USE_MOCK_DATA) return mock.listChefWallets();
+    if (isMock("payouts")) return mock.listChefWallets();
     const raw = await request<Raw[]>("/admin/chef-wallets");
     return raw.map(normalizeWallet);
   },
 
   /** GET /admin/chef-wallets/{chefId}/transactions?limit= — newest first. */
   async transactions(chefId: string, limit = 8): Promise<WalletTransaction[]> {
-    if (USE_MOCK_DATA) return mock.listWalletTransactions(chefId, limit);
+    if (isMock("payouts")) return mock.listWalletTransactions(chefId, limit);
     const raw = await request<Raw[]>(`/admin/chef-wallets/${encodeURIComponent(chefId)}/transactions?${qs({ limit })}`);
     return raw.map(normalizeTransaction).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   },

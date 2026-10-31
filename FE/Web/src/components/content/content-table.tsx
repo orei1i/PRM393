@@ -7,6 +7,7 @@ import { InitialsAvatar } from "@/components/admin/initials-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/form-controls";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { isMock } from "@/lib/backend_modules";
 import { formatAge, formatNumber } from "@/lib/utils";
 import { CONTENT_KIND_LABEL, POST_STATUS_LABEL, VIDEO_AI_STATUS_LABEL, type ContentItem, type PostStatus } from "@/types/admin";
 
@@ -71,6 +72,9 @@ export function VideoAiBadge({ item }: { item: ContentItem }) {
     </Badge>
   );
 }
+
+/** The backend's post list has no report count: "—", never a made-up 0. */
+const REPORTS_KNOWN = isMock("content");
 
 export function ContentTable({
   items,
@@ -175,7 +179,9 @@ export function ContentTable({
                   </div>
                 </TableCell>
                 <TableCell className="text-right">
-                  {item.reportCount > 0 ? (
+                  {!REPORTS_KNOWN ? (
+                    <span className="font-mono text-muted-foreground tabular">—</span>
+                  ) : item.reportCount > 0 ? (
                     <span className="inline-flex items-center gap-1 font-mono font-semibold text-ochre-text tabular">
                       <Flag className="size-3.5" aria-hidden />
                       {item.reportCount}

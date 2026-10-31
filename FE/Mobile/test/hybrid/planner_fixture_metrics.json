@@ -1,0 +1,35 @@
+{
+ "success": true,
+ "message": null,
+ "data": [
+  {
+   "id": "6ae5966f96695f5c139fa9c4",
+   "weightKg": 66,
+   "heightCm": 172,
+   "bmi": 22.3,
+   "loggedAt": "2026-10-31T07:19:11.062Z"
+  },
+  {
+   "id": "6ae5966f96695f5c139fa9c3",
+   "weightKg": 65.4,
+   "heightCm": 172,
+   "bmi": 22.1,
+   "loggedAt": "2026-10-31T07:19:11.051Z"
+  },
+  {
+   "id": "6ae5966f96695f5c139fa9c2",
+   "weightKg": 65,
+   "heightCm": 172,
+   "bmi": 22,
+   "loggedAt": "2026-10-31T07:19:11.046Z"
+  },
+  {
+   "id": "6ae5966f96695f5c139fa9c1",
+   "weightKg": 66,
+   "heightCm": 172,
+   "bmi": 22.3,
+   "loggedAt": "2026-10-31T07:19:11.026Z"
+  }
+ ],
+ "statusCode": 200
+}

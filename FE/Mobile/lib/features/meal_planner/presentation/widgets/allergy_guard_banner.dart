@@ -3,15 +3,30 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/labels.dart';
+import '../../domain/entities/meal_plan.dart';
 
-/// Always shown on AI-generated plans. Neutral when clear; ochre alert when a
-/// meal of the selected day contains one of the user's allergens.
+/// Over the selected day's meals. An ochre alert when one contains the user's
+/// allergens, whoever chose it. Otherwise neutral, and it only speaks for what
+/// AI chose: nothing at all ([shownFor]) on a day of hand-picked, typed-in or
+/// chef's dishes, and only about the AI's dishes on a mixed day.
 class AllergyGuardBanner extends StatelessWidget {
-  const AllergyGuardBanner(
-      {super.key, required this.allergies, required this.conflictCount});
+  const AllergyGuardBanner({
+    super.key,
+    required this.allergies,
+    required this.conflictCount,
+    this.allAi = true,
+  });
 
   final List<String> allergies;
   final int conflictCount;
+
+  /// Every meal of the day came from AI.
+  final bool allAi;
+
+  /// Whether [day] has anything for this banner to say.
+  static bool shownFor(MealPlanDay day, Iterable<String> allergies) =>
+      day.conflictCount(allergies) > 0 ||
+      day.meals.values.any((r) => r.source == MealSource.ai);
 
   @override
   Widget build(BuildContext context) {
@@ -22,9 +37,13 @@ class AllergyGuardBanner extends StatelessWidget {
     final message = hasConflict
         ? '$conflictCount món hôm nay có thể chứa chất bạn dị ứng ($names). '
             'Hãy đổi món hoặc kiểm tra kỹ trước khi nấu.'
-        : allergies.isEmpty
-            ? 'Thực đơn do AI tạo. Luôn đọc nhãn thành phần trước khi nấu.'
-            : 'Thực đơn do AI tạo, đã loại trừ: $names. Luôn đọc nhãn thành phần trước khi nấu.';
+        : !allAi
+            ? allergies.isEmpty
+                ? 'Một số món do AI gợi ý. Luôn đọc nhãn thành phần trước khi nấu.'
+                : 'Món do AI gợi ý đã loại trừ: $names. Các món khác hãy tự kiểm tra; luôn đọc nhãn thành phần trước khi nấu.'
+            : allergies.isEmpty
+                ? 'Thực đơn do AI tạo. Luôn đọc nhãn thành phần trước khi nấu.'
+                : 'Thực đơn do AI tạo, đã loại trừ: $names. Luôn đọc nhãn thành phần trước khi nấu.';
 
     return Semantics(
       liveRegion: hasConflict,

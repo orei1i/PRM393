@@ -1,0 +1,24 @@
+{
+ "success": true,
+ "message": null,
+ "data": {
+  "stats": {
+   "posts": 0,
+   "likesReceived": 0,
+   "saved": 0
+  },
+  "chefApplication": {
+   "status": "none",
+   "rejectReason": null
+  },
+  "id": "6ae5a8876c01fc07a9257776",
+  "email": "member@example.com",
+  "fullName": "FE M1",
+  "phone": "",
+  "role": "User",
+  "status": 0,
+  "authType": 0,
+  "createdAt": "2026-10-31T08:36:23.133Z"
+ },
+ "statusCode": 200
+}

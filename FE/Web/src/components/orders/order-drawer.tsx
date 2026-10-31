@@ -211,7 +211,7 @@ function Detail({ order, onOrderChange }: { order: AdminOrder; onOrderChange: (o
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
                 <Info label="Bắt đầu giữ" value={formatVnDateTime(escrow.heldAt)} />
                 <Info label="Hạn giữ" value={formatVnDateTime(escrow.releaseAt)} />
-                <Info label="Chuyển chuyên gia" value={formatVnd(escrow.releasedAmount)} mono />
+                <Info label="Chuyển chuyên gia" value={formatVnd(escrow.releasedAmount - escrow.feeAmount)} mono />
                 <Info label="Phí nền tảng" value={formatVnd(escrow.feeAmount)} mono />
               </dl>
               <Button asChild size="sm" variant={order.booking.complaintId ? "warn" : "outline"} className="w-fit">

@@ -5,10 +5,11 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/config/env.dart';
+import '../../../core/config/backend_modules.dart';
 import '../../../core/network/api_endpoints.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/session/mock_persona.dart';
 import '../../../core/session/session_controller.dart';
 import '../../commerce/data/models/order_model.dart';
 import 'mock_booking_repository.dart';
@@ -219,9 +220,9 @@ class RemoteBookingApiService implements BookingApiService {
 }
 
 final bookingApiProvider = Provider<BookingApiService>((ref) {
-  if (Env.useMockData) {
+  if (BackendModules.isMock(BackendModule.bookings)) {
     return MockBookingRepository(
-      currentUserId: () => ref.read(sessionControllerProvider).userId,
+      currentUserId: () => mockPersonaId(ref.read(sessionControllerProvider)),
       currentUserName: () =>
           ref.read(sessionControllerProvider).displayName ?? 'Bạn',
       currentRole: () => ref.read(sessionControllerProvider).role,

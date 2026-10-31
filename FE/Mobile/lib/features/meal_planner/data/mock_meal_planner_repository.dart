@@ -2,21 +2,25 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../core/network/api_exception.dart';
-import '../../../core/session/mock_accounts.dart';
+import '../../../core/session/mock_auth_db.dart';
 import '../../../core/utils/bmi.dart';
 import '../../../core/utils/energy.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/utils/mock_delay.dart';
 import '../../../core/utils/text_search.dart';
+import '../../recipe/data/mock/recipe_mock_data.dart';
 import '../../scanner/domain/vegan_check.dart';
 import '../domain/allergy_match.dart';
+import '../domain/entities/body_measurement.dart';
 import '../domain/entities/health_profile.dart';
 import '../domain/entities/meal_plan.dart';
 import '../domain/entities/plan_adjustment.dart';
 import 'meal_planner_api_service.dart';
+import 'mock/body_measurement_mock_data.dart';
 import 'mock/meal_planner_mock_data.dart';
 import 'mock/mock_plan_adjuster.dart';
 import 'mock/mock_recipe_book.dart';
+import 'models/body_measurement_model.dart';
 import 'models/health_profile_model.dart';
 import 'models/meal_plan_model.dart';
 import 'models/pantry_model.dart';
@@ -34,8 +38,13 @@ import 'pantry_api_service.dart';
 /// registered in this run) starts with neither, like on the server: no
 /// profile (404 → `null`) and no plan until they set one up.
 ///
-/// Mock triggers: saving weight exactly 99.9 kg → 503; `#fail` in a recipe
-/// name or an AI request → 503.
+/// Weigh-ins (`health_metric_logs`): the demo accounts start with seeded
+/// history dated relative to the clock; a profile save that changes the
+/// weight by more than 0,05 kg logs a `profile` row (the first save of a new
+/// account too), "Cập nhật cân nặng" a `check_in` row.
+///
+/// Mock triggers: saving weight exactly 99.9 kg (profile or check-in) → 503;
+/// `#fail` in a recipe name or an AI request → 503.
 class MockMealPlannerRepository implements MealPlannerApiService {
   MockMealPlannerRepository({this.userId, DateTime Function()? clock})
       : _clock = clock ?? DateTime.now;
@@ -57,8 +66,13 @@ class MockMealPlannerRepository implements MealPlannerApiService {
     MockPantryRepository.reset();
   }
 
-  _PlannerStore get _store =>
-      _stores[userId ?? 'guest'] ??= _PlannerStore(_seedProfile(userId));
+  _PlannerStore get _store => _stores[userId ?? 'guest'] ??= _PlannerStore(
+        _seedProfile(userId),
+        measurements: [
+          for (final json in mockBodyMeasurementsFor(userId, _clock()))
+            BodyMeasurementDto.fromJson(json),
+        ],
+      );
 
   /// The demo account's seed profile; `null` for everyone else.
   static HealthProfileDto? _seedProfile(String? userId) =>
@@ -72,25 +86,10 @@ class MockMealPlannerRepository implements MealPlannerApiService {
         null => null,
       };
 
-  /// Allergen id → Vietnamese ingredient words that contain it (whole words,
-  /// so "nấm mèo" is not mistaken for "mè").
-  static const _allergenWords = {
-    'peanut': ['đậu phộng', 'lạc rang'],
-    'soy': ['đậu hũ', 'đậu phụ', 'tàu hũ', 'đậu nành', 'nước tương', 'tempeh'],
-    'gluten': ['bánh mì', 'lúa mì', 'mì căn', 'mì ý'],
-    'sesame': ['mè', 'vừng'],
-    'tree_nut': ['hạt điều', 'hạnh nhân', 'óc chó'],
-  };
-
   /// Allergens the server would infer from a dish name and its ingredients.
   static Set<String> detectAllergens(String name,
-      [Iterable<String> ingredients = const []]) {
-    final words = [name, ...ingredients].map((w) => ' ${w.toLowerCase()} ');
-    return {
-      for (final MapEntry(key: id, value: names) in _allergenWords.entries)
-        if (words.any((w) => names.any((n) => w.contains(' $n ')))) id,
-    };
-  }
+          [Iterable<String> ingredients = const []]) =>
+      detectDishAllergens(name, ingredients);
 
   /// `null` until the member saves one ("Hồ sơ sức khoẻ").
   HealthProfileDto? get _healthProfile => _store.profile;
@@ -140,6 +139,20 @@ class MockMealPlannerRepository implements MealPlannerApiService {
     if (request.mealPattern case final p? when p.isEmpty) {
       throw const ApiException(message: 'Chọn ít nhất 1 bữa.', statusCode: 400);
     }
+    final dto = _saveProfile(request);
+    // Like the server: a weight change (or the first save) is logged.
+    if (saved == null || (saved.weightKg - request.weightKg).abs() > 0.05) {
+      _logMeasurement(dto, source: MeasurementSource.profile);
+    }
+    return dto;
+  }
+
+  /// Stores [request] as the profile with what the server recomputes (BMI
+  /// cached with one decimal, BMR, TDEE; fields left `null` keep their saved
+  /// value) and re-aims the current week at the new target.
+  HealthProfileDto _saveProfile(UpdateHealthProfileRequestDto request) {
+    final saved = _healthProfile;
+    final birthYear = request.birthYear ?? saved?.birthYear;
     final bmi =
         Bmi.calculate(heightCm: request.heightCm, weightKg: request.weightKg);
     final gender = request.gender?.apiValue ?? saved?.gender;
@@ -183,6 +196,87 @@ class MockMealPlannerRepository implements MealPlannerApiService {
           dailyTargets: NutritionDto.fromJson(mockDailyTargetsFor(_dailyKcal)));
     }
     return dto;
+  }
+
+  /// One `health_metric_logs` row at [profile]'s height and BMI.
+  BodyMeasurementDto _logMeasurement(
+    HealthProfileDto profile, {
+    required MeasurementSource source,
+    double? waistCm,
+    double? bodyFatPct,
+  }) {
+    final row = BodyMeasurementDto(
+      id: 'm_${userId ?? 'guest'}_${++_store.measurementSeq}',
+      weightKg: profile.weightKg,
+      heightCm: profile.heightCm,
+      bmi: profile.bmi,
+      waistCm: waistCm,
+      bodyFatPct: bodyFatPct,
+      source: source.apiValue,
+      loggedAt: _clock(),
+    );
+    _store.measurements.insert(0, row);
+    return row;
+  }
+
+  @override
+  Future<List<BodyMeasurementDto>> getBodyMeasurements(
+      {int limit = 100}) async {
+    await mockDelay(500);
+    if (userId == null) {
+      throw const ApiException(
+          message: 'Vui lòng đăng nhập để tiếp tục.', statusCode: 401);
+    }
+    final rows = [..._store.measurements]
+      ..sort((a, b) => b.loggedAt.compareTo(a.loggedAt));
+    return rows.take(limit.clamp(1, 100)).toList();
+  }
+
+  @override
+  Future<LogMeasurementResultDto> logBodyMeasurement(
+      LogMeasurementRequestDto request) async {
+    await mockDelay(700);
+    if (userId == null) {
+      throw const ApiException(
+          message: 'Vui lòng đăng nhập để tiếp tục.', statusCode: 401);
+    }
+    if (request.weightKg == 99.9) {
+      throw const ApiException(
+          message: 'Chưa lưu được cân nặng. Thử lại sau ít phút.',
+          statusCode: 503);
+    }
+    if (request.weightKg < 30 || request.weightKg > 250) {
+      throw const ApiException(
+          message: 'Cân nặng từ 30 đến 250 kg', statusCode: 400);
+    }
+    if (request.waistCm case final w? when w < 40 || w > 200) {
+      throw const ApiException(
+          message: 'Vòng eo từ 40 đến 200 cm', statusCode: 400);
+    }
+    if (request.bodyFatPct case final f? when f < 3 || f > 70) {
+      throw const ApiException(
+          message: 'Tỉ lệ mỡ từ 3 đến 70 %', statusCode: 400);
+    }
+    final saved = _healthProfile;
+    if (saved == null) {
+      throw const ApiException(
+          message: 'Bạn chưa tạo hồ sơ sức khỏe.', statusCode: 404);
+    }
+    // The saved profile with the new weight; everything else is kept.
+    final profile = _saveProfile(UpdateHealthProfileRequestDto(
+      heightCm: saved.heightCm,
+      weightKg: request.weightKg,
+      goal: HealthGoal.fromApi(saved.goal),
+      allergies: saved.allergies,
+      dietaryRestrictions: saved.dietaryRestrictions,
+    ));
+    final row = _logMeasurement(
+      profile,
+      source: MeasurementSource.checkIn,
+      waistCm: request.waistCm,
+      bodyFatPct: request.bodyFatPct,
+    );
+    return LogMeasurementResultDto(measurement: row, profile: profile);
   }
 
   @override
@@ -473,12 +567,7 @@ class MockMealPlannerRepository implements MealPlannerApiService {
 
   // ---------------------------------------------------------------------------
 
-  static String? _accountName(String id) {
-    for (final a in mockAccounts) {
-      if (a.userId == id) return a.displayName;
-    }
-    return null;
-  }
+  static String? _accountName(String id) => MockAuthDb.byId(id)?.fullName;
 
   /// No tagged allergen and no free-text allergy in the name.
   bool _isSafe(RecipeDto r) => allergyConflicts(
@@ -534,7 +623,7 @@ class MockMealPlannerRepository implements MealPlannerApiService {
         }
       }
     }
-    return RecipeDto(
+    final dish = RecipeDto(
       id: manual
           ? 'mn_${DateTime.now().microsecondsSinceEpoch}'
           : chef
@@ -555,6 +644,30 @@ class MockMealPlannerRepository implements MealPlannerApiService {
       source: request.source,
       sourceName: request.sourceName,
     );
+    if (chef) _keepChefDishPage(dish, request);
+    return dish;
+  }
+
+  /// The chef's dish as a recipe page: what the chef wrote, or just its name
+  /// and figures when the plan has no ingredients or steps.
+  static void _keepChefDishPage(RecipeDto dish, AddMealRequestDto request) {
+    final steps = request.instructions?.trim() ?? '';
+    MockRecipeBook.addPlacedDish({
+      'id': dish.id,
+      'name': dish.name,
+      'caloriesCache': request.calories,
+      'proteinG': request.proteinG,
+      'carbsG': request.carbsG,
+      'fatG': request.fatG,
+      'allergens': dish.allergens,
+      'prepMinutes': request.prepMinutes,
+      'servings': 1,
+      'isVegan': true,
+      'createdByName': request.sourceName,
+      'ingredients': request.ingredients,
+      'instructions': steps,
+      'isSnapshot': request.ingredients.isEmpty && steps.isEmpty,
+    });
   }
 
   MealPlanDto _requirePlan(String planId) {
@@ -633,12 +746,20 @@ class MockMealPlannerRepository implements MealPlannerApiService {
     for (final json in all) {
       if (json['id'] == id) return RecipeDto.fromJson(json);
     }
+    // Any other catalogue recipe (e.g. `menu_2`, added from its page).
+    if (mockRecipeDetail(id) case final json?) return RecipeDto.fromJson(json);
     return null;
   }
 
-  /// The seeded current week: the member's slots, one serving each.
+  /// The seeded current week: the member's slots, one serving each. A dish
+  /// with the member's allergen stays, to show the warning, but isn't labelled
+  /// as chosen by AI: AI avoids allergens.
   MealPlanDto _buildWeek(DateTime monday) {
     final pattern = _pattern;
+    Map<String, Object?> seeded(Map<String, Object?> dish) =>
+        _isSafe(RecipeDto.fromJson(dish))
+            ? dish
+            : {...dish, 'source': MealSource.recipe.apiValue};
     final days = List.generate(7, (i) {
       final date = monday.add(Duration(days: i));
       return {
@@ -646,7 +767,7 @@ class MockMealPlannerRepository implements MealPlannerApiService {
         'meals': {
           for (final slot in pattern)
             slot.apiValue:
-                slot.isSnack ? _snackFor(slot, i) : _defaults(slot)[i],
+                seeded(slot.isSnack ? _snackFor(slot, i) : _defaults(slot)[i]),
         },
       };
     });
@@ -753,7 +874,10 @@ class _Proposal {
 }
 
 class _PlannerStore {
-  _PlannerStore(this.profile) : seeded = profile != null;
+  _PlannerStore(this.profile,
+      {List<BodyMeasurementDto> measurements = const []})
+      : seeded = profile != null,
+        measurements = [...measurements];
 
   /// A demo account: starts with a profile and the demo week.
   final bool seeded;
@@ -767,4 +891,8 @@ class _PlannerStore {
 
   /// "Chỉnh thực đơn với AI" proposals by id.
   final Map<String, _Proposal> proposals = {};
+
+  /// Weigh-ins, newest first.
+  final List<BodyMeasurementDto> measurements;
+  int measurementSeq = 0;
 }

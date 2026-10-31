@@ -5,17 +5,20 @@ import '../../../../core/theme/vl_colors.dart';
 import '../../../scanner/domain/vegan_check.dart';
 
 /// "Trứng gà không thuần chay nên không thêm vào tủ." with the reason and
-/// the vegan swaps; tapping a swap adds it instead.
+/// the vegan swaps; tapping a swap adds it instead. [destination] is where the
+/// food was going ("tủ", "thực đơn").
 class NotVeganNotice extends StatelessWidget {
   const NotVeganNotice(
       {super.key,
       required this.name,
       required this.verdict,
-      required this.onPick});
+      required this.onPick,
+      this.destination = 'tủ'});
 
   final String name;
   final VeganVerdict verdict;
   final ValueChanged<String>? onPick;
+  final String destination;
 
   @override
   Widget build(BuildContext context) {
@@ -39,7 +42,7 @@ class NotVeganNotice extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '$name không thuần chay nên không thêm vào tủ.',
+                    '$name không thuần chay nên không thêm vào $destination.',
                     style: context.textStyles.bodyMedium?.copyWith(
                         color: cs.onErrorContainer,
                         fontWeight: FontWeight.w600),
@@ -70,7 +73,8 @@ class NotVeganNotice extends StatelessWidget {
                       ActionChip(
                         avatar: const Icon(Icons.add_rounded, size: 16),
                         label: Text(alternative),
-                        tooltip: 'Thêm ${alternative.toLowerCase()} vào tủ',
+                        tooltip:
+                            'Thêm ${alternative.toLowerCase()} vào $destination',
                         backgroundColor: cs.surface,
                         onPressed:
                             onPick == null ? null : () => onPick!(alternative),

@@ -62,6 +62,7 @@ import {
   planEndDate,
   vnDateOf,
   vnTime,
+  allergenLabel,
 } from "@/types/bookings";
 import type { AdminOrder, OrderResolution, OrderStatus, Payment, PaymentStatus } from "@/types/commerce";
 import type { ISODateString } from "@/types/moderation";
@@ -893,7 +894,7 @@ function buildComplaint(row: BookingRow, c: ComplaintSeed) {
 const scopeOf = (seed: Seed) =>
   `Thiết kế thực đơn chay ${seed.days} ngày (${BOOKING_TYPE_LABEL[seed.type].toLowerCase()}) theo hồ sơ và nhu cầu của thành viên: ` +
   `${seed.pattern.length} bữa mỗi ngày, có định lượng và cách làm từng món` +
-  `${seed.allergies.length ? `, tránh hoàn toàn: ${seed.allergies.join(", ")}` : ""}.`;
+  `${seed.allergies.length ? `, tránh hoàn toàn: ${seed.allergies.map(allergenLabel).join(", ")}` : ""}.`;
 
 function build(seed: Seed): BookingRow {
   const member = MEMBERS[seed.member];
@@ -964,11 +965,12 @@ function build(seed: Seed): BookingRow {
   const accepted = row.offers[row.offers.length - 1];
   const price = accepted.price;
   const acceptor = accepted.proposedBy === "chef" ? member : chef;
-  const paymentDueAt = contractAt + PAYMENT_WINDOW_HOURS * HOUR;
+  const startMs = Date.parse(vnTime(startDate, "00:00"));
+  // The plan's start caps the window, as on mobile: paying after day 1 began would be pointless.
+  const paymentDueAt = Math.min(contractAt + PAYMENT_WINDOW_HOURS * HOUR, Math.max(startMs, contractAt));
   const paid = PAID_STATUSES.includes(seed.status);
   const qrAt = paid ? contractAt + 40 * MIN : (seed.qrAt ?? contractAt + 10 * MIN);
   const paidAt = qrAt + 2 * MIN;
-  const startMs = Date.parse(vnTime(startDate, "00:00"));
   const deliveryDueAt = seed.type === "OneShot" ? Math.max(startMs, (paid ? paidAt : contractAt) + DAY) : Date.parse(vnTime(startDate, "06:00"));
 
   row.contract = {

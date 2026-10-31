@@ -1,0 +1,22 @@
+{
+ "success": true,
+ "message": null,
+ "data": [
+  {
+   "id": "6ae5a8876c01fc07a9257788",
+   "postId": "6ae5a8876c01fc07a925777c",
+   "parentId": null,
+   "author": {
+    "id": "6ae5a8876c01fc07a9257777",
+    "fullName": "FE M1 Hai",
+    "isVerifiedChef": false
+   },
+   "content": "Bình luận số 1",
+   "createdAt": "2026-10-31T08:36:23.637Z",
+   "updatedAt": "2026-10-31T08:36:23.636Z",
+   "replyCount": 0,
+   "replies": []
+  }
+ ],
+ "statusCode": 200
+}

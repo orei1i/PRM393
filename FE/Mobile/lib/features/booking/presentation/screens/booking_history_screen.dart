@@ -2,8 +2,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
+import '../../../../core/navigation/app_nav.dart';
+import '../../../../core/widgets/demo_data_banner.dart';
 import '../../../../core/widgets/state_views.dart';
-import '../../../chef/presentation/screens/chef_directory_screen.dart';
 import '../../../commerce/presentation/widgets/commerce_ui.dart';
 import '../../data/models/booking_models.dart';
 import '../../domain/booking_views.dart';
@@ -17,8 +19,10 @@ import 'booking_detail_screen.dart';
 class BookingHistoryScreen extends ConsumerWidget {
   const BookingHistoryScreen({super.key});
 
-  static Route<void> route() =>
-      MaterialPageRoute<void>(builder: (_) => const BookingHistoryScreen());
+  static Route<void> route() => MaterialPageRoute<void>(
+        settings: const RouteSettings(name: AppRoutes.bookingHistory),
+        builder: (_) => const BookingHistoryScreen(),
+      );
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -32,26 +36,29 @@ class BookingHistoryScreen extends ConsumerWidget {
             tabs: [Tab(text: 'Đang diễn ra'), Tab(text: 'Đã kết thúc')],
           ),
         ),
-        body: switch (async) {
-          AsyncValue(:final value?) => TabBarView(
-              children: [
-                _List(
-                    items: value.where((b) => b.status.isOngoing).toList(),
-                    ongoing: true),
-                _List(
-                    items: value.where((b) => !b.status.isOngoing).toList(),
-                    ongoing: false),
-              ],
-            ),
-          AsyncError(:final error) => Center(
-              child: SingleChildScrollView(
-                child: ErrorStateView(
-                    error: error,
-                    onRetry: () => ref.invalidate(myBookingsProvider)),
+        body: DemoDataBanner.wrap(
+          BackendModule.bookings,
+          child: switch (async) {
+            AsyncValue(valueOrNull: final value?) => TabBarView(
+                children: [
+                  _List(
+                      items: value.where((b) => b.status.isOngoing).toList(),
+                      ongoing: true),
+                  _List(
+                      items: value.where((b) => !b.status.isOngoing).toList(),
+                      ongoing: false),
+                ],
               ),
-            ),
-          _ => const ListSkeleton(height: 120),
-        },
+            AsyncError(:final error) => Center(
+                child: SingleChildScrollView(
+                  child: ErrorStateView(
+                      error: error,
+                      onRetry: () => ref.invalidate(myBookingsProvider)),
+                ),
+              ),
+            _ => const ListSkeleton(height: 120),
+          },
+        ),
       ),
     );
   }
@@ -77,9 +84,10 @@ class _List extends ConsumerWidget {
                 ? 'Nhờ chuyên gia thiết kế thực đơn riêng theo mục tiêu và khẩu vị của bạn.'
                 : 'Các kế hoạch đã hoàn tất, bị huỷ hoặc đã xử lý khiếu nại sẽ nằm ở đây.',
             actionLabel: ongoing ? 'Khám phá chuyên gia' : null,
+            // The Chuyên gia tab itself, not another directory on top.
             onAction: ongoing
-                ? () => Navigator.of(context).push(MaterialPageRoute<void>(
-                    builder: (_) => const ChefDirectoryScreen(pickMode: true)))
+                ? () => AppNav.toShellTab(
+                    Navigator.of(context), ref, ShellTab.chefs)
                 : null,
           ),
         ),
@@ -98,8 +106,8 @@ class _List extends ConsumerWidget {
         itemBuilder: (context, i) => BookingCard(
           booking: items[i],
           needsAction: memberNeedsAction(items[i]),
-          onTap: () => Navigator.of(context)
-              .push(BookingDetailScreen.route(items[i].id)),
+          onTap: () => AppNav.open(
+              Navigator.of(context), BookingDetailScreen.route(items[i].id)),
         ),
       ),
     );

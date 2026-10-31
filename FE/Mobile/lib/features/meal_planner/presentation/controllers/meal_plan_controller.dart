@@ -1,16 +1,22 @@
 // lib/features/meal_planner/presentation/controllers/meal_plan_controller.dart
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/network/api_exception.dart';
+import '../../../../core/utils/backend_ids.dart';
 import '../../../../core/utils/formatters.dart';
+import '../../../recipe/data/recipe_catalog.dart';
+import '../../../scanner/domain/vegan_check.dart';
 import '../../data/meal_planner_api_service.dart';
 import '../../data/models/health_profile_model.dart';
 import '../../data/models/meal_plan_model.dart';
 import '../../domain/entities/health_profile.dart';
 import '../../domain/entities/meal_plan.dart';
 import '../../domain/entities/plan_adjustment.dart';
+import 'body_metrics_controller.dart';
 
 class MealPlannerState {
   const MealPlannerState({
@@ -99,7 +105,7 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
       api.getCurrentMealPlan(),
     ]);
     final profile = (results[0] as HealthProfileDto?)?.toEntity();
-    final plan = (results[1] as MealPlanDto?)?.toEntity();
+    final plan = _aimed(results[1] as MealPlanDto?, profile)?.toEntity();
     return MealPlannerState(
       healthProfile: profile,
       plan: plan,
@@ -125,7 +131,7 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     state = await AsyncValue.guard(() async {
       final dto = await _api.generateMealPlan(
           startDate: startOfWeek(_now()), fromPantry: fromPantry);
-      final plan = dto.toEntity();
+      final plan = _aimed(dto, previous.healthProfile)!.toEntity();
       return previous.copyWith(
           plan: plan, selectedDate: _initialDate(plan, _now()));
     });
@@ -139,7 +145,7 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     state = await AsyncValue.guard(() async {
       final dto =
           await _api.createEmptyMealPlan(startDate: startOfWeek(_now()));
-      final plan = dto.toEntity();
+      final plan = _aimed(dto, previous.healthProfile)!.toEntity();
       return previous.copyWith(
           plan: plan, selectedDate: _initialDate(plan, _now()));
     });
@@ -181,7 +187,14 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     } else {
       ref.invalidateSelf();
     }
-    ref.invalidate(userAllergiesProvider);
+    ref
+      ..invalidate(userAllergiesProvider)
+      // A weight change logs a weigh-in ("Từ Hồ sơ sức khoẻ").
+      ..invalidate(bodyMeasurementsProvider);
+    // The BE's catalogue leaves out what the member is allergic to.
+    if (BackendModules.isReal(BackendModule.planner)) {
+      ref.read(recipeCatalogProvider).invalidate();
+    }
     final patternChanged = before != null &&
         (before.length != saved.mealPattern.length ||
             !before.toSet().containsAll(saved.mealPattern));
@@ -193,12 +206,27 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     return saved;
   }
 
+  /// A profile the server recomputed elsewhere ("Cập nhật cân nặng"): the
+  /// header shows it at once and, when there is a week, its day cards follow
+  /// the new daily target (completes once they did; keeps the old week if
+  /// that reload fails).
+  Future<void> applySavedProfile(HealthProfile profile) async {
+    final current = state.valueOrNull;
+    if (current == null) {
+      ref.invalidateSelf();
+      return;
+    }
+    state = AsyncData(current.copyWith(healthProfile: profile));
+    if (current.plan != null) await _reloadTargets();
+  }
+
   /// After a profile save the server re-aims the week at the new daily
   /// target; the day cards follow it. Keeps the old week if that fails.
   Future<void> _reloadTargets() async {
     try {
-      final plan = (await _api.getCurrentMealPlan())?.toEntity();
+      final dto = await _api.getCurrentMealPlan();
       final current = state.valueOrNull;
+      final plan = _aimed(dto, current?.healthProfile)?.toEntity();
       if (plan != null && current != null) {
         state = AsyncData(current.copyWith(plan: plan));
       }
@@ -236,11 +264,27 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     if (plan == null) return const [];
     final dtos = await _api.getSwapSuggestions(
         planId: plan.id, date: s.selectedDate, slot: slot);
-    return dtos
-        .map((d) => d.toEntity())
-        .where((r) => r.allergenConflicts(s.profile.allergies).isEmpty)
-        .toList();
+    return swapChoices(
+      dtos.map((d) => d.toEntity()),
+      current: s.selectedDay?.meals[slot],
+      allergies: s.profile.allergies,
+    );
   }
+
+  /// What to offer instead of [current]: never the dish already in the slot
+  /// (the real BE suggests it, with "±0") nor one the member is allergic to.
+  /// At most 3, so the service asks the BE for one more.
+  @visibleForTesting
+  static List<Recipe> swapChoices(
+    Iterable<Recipe> suggestions, {
+    required Recipe? current,
+    required Iterable<String> allergies,
+  }) =>
+      suggestions
+          .where((r) => r.id != current?.id)
+          .where((r) => r.allergenConflicts(allergies).isEmpty)
+          .take(3)
+          .toList();
 
   /// Puts [replacement] (AI suggestion, own recipe, chef suggestion, or the
   /// recipe being restored by Undo) in the selected day's [slot], keeping its
@@ -259,16 +303,8 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     ));
 
     try {
-      final serverDay = await _api.swapMeal(
-        planId: plan.id,
-        request: SwapMealRequestDto(
-          date: day.date,
-          slot: slot,
-          recipeId: replacement.id,
-          source: replacement.source,
-          portion: replacement.portion,
-        ),
-      );
+      final serverDay = await _place(plan.id,
+          date: day.date, slot: slot, recipe: replacement);
       _applyServerDay(serverDay.toEntity());
       return previous;
     } catch (_) {
@@ -329,19 +365,31 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
       );
     }
 
-    final serverDay = (await _api.addMealToCurrentPlan(
-      AddMealRequestDto(
-        date: today,
-        slot: slot,
-        name: name,
-        calories: calories,
-        prepMinutes: prepMinutes,
-        ingredients: ingredients,
-        allergens: allergens,
-        sourceId: sourceId,
-      ),
-    ))
-        .toEntity();
+    // A real recipe goes by id, which keeps its macros (D10).
+    final serverDay =
+        (BackendModules.isReal(BackendModule.planner) && isBackendId(sourceId)
+                ? await _api.swapMeal(
+                    planId: s.plan!.id,
+                    request: SwapMealRequestDto(
+                      date: today,
+                      slot: slot,
+                      recipeId: sourceId!,
+                      source: MealSource.fridgeScan,
+                    ),
+                  )
+                : await _api.addMealToCurrentPlan(
+                    AddMealRequestDto(
+                      date: today,
+                      slot: slot,
+                      name: name,
+                      calories: calories,
+                      prepMinutes: prepMinutes,
+                      ingredients: ingredients,
+                      allergens: allergens,
+                      sourceId: sourceId,
+                    ),
+                  ))
+            .toEntity();
 
     final latest = state.valueOrNull ?? s;
     final plan = latest.plan ?? s.plan!;
@@ -389,21 +437,14 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     final serverDay = replaced == null
         ? await _api.removeMeal(
             planId: plan.id, date: added.date, slot: added.slot)
-        : await _api.swapMeal(
-            planId: plan.id,
-            request: SwapMealRequestDto(
-              date: added.date,
-              slot: added.slot,
-              recipeId: replaced.id,
-              source: replaced.source,
-              portion: replaced.portion,
-            ),
-          );
+        : await _place(plan.id,
+            date: added.date, slot: added.slot, recipe: replaced);
     _applyServerDay(serverDay.toEntity());
   }
 
   /// "Tự nhập món": a dish typed in for the selected day's [slot]. kcal and
-  /// macros are optional; the server flags allergens found in the name.
+  /// macros are optional; allergens found in the name are flagged. A dish that
+  /// isn't vegan is refused (422 `not_vegan`, nothing sent), like the fridge.
   Future<AddedMeal> addManualMeal({
     required MealSlot slot,
     required String name,
@@ -412,6 +453,13 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     double? carbsG,
     double? fatG,
   }) async {
+    if (!classifyVegan(name).isVegan) {
+      throw ApiException(
+        message: '${name.trim()} không thuần chay nên không thêm vào thực đơn.',
+        statusCode: 422,
+        code: 'not_vegan',
+      );
+    }
     final s = state.requireValue;
     final day = s.selectedDay;
     if (s.plan == null || day == null) {
@@ -477,6 +525,68 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
       (await _api.getChefSuggestions()).map((s) => s.toEntity()).toList();
 
   // ---------------------------------------------------------------- helpers --
+
+  /// Puts [recipe] in a slot. On the real BE only a real recipe can go by id;
+  /// a mock recipe or a dish without one (typed in, delivered by a chef) goes
+  /// as a dish, which loses its macros (D10).
+  Future<MealPlanDayDto> _place(
+    String planId, {
+    required DateTime date,
+    required MealSlot slot,
+    required Recipe recipe,
+  }) {
+    if (BackendModules.isReal(BackendModule.planner) &&
+        !isBackendId(recipe.id)) {
+      return _api.addMealToCurrentPlan(AddMealRequestDto(
+        date: date,
+        slot: slot,
+        name: recipe.name,
+        calories: recipe.hasNutrition ? recipe.nutrition.calories : null,
+        proteinG: recipe.nutrition.proteinG,
+        carbsG: recipe.nutrition.carbsG,
+        fatG: recipe.nutrition.fatG,
+        prepMinutes: recipe.prepMinutes,
+        allergens: recipe.allergens,
+        source: recipe.source.apiValue,
+        sourceId: isBackendPlanItemId(recipe.id) ? null : recipe.id,
+        sourceName: recipe.sourceName,
+      ));
+    }
+    return _api.swapMeal(
+      planId: planId,
+      request: SwapMealRequestDto(
+        date: date,
+        slot: slot,
+        recipeId: recipe.id,
+        source: recipe.source,
+        portion: recipe.portion,
+      ),
+    );
+  }
+
+  /// The BE doesn't re-aim a week when the profile changes (B8), so the week
+  /// shown follows the profile's target, with the BE's macro split.
+  MealPlanDto? _aimed(MealPlanDto? plan, HealthProfile? profile) {
+    final target = profile?.targetCalories;
+    if (plan == null ||
+        target == null ||
+        target == plan.dailyTargets.calories ||
+        BackendModules.isMock(BackendModule.planner)) {
+      return plan;
+    }
+    double grams(double share, int kcalPerGram) =>
+        (target * share / kcalPerGram * 10).roundToDouble() / 10;
+    return plan.withTargets(
+      goal: profile!.goal.apiValue,
+      dailyTargets: NutritionDto(
+        calories: target,
+        proteinG: grams(0.15, 4),
+        carbsG: grams(0.55, 4),
+        fatG: grams(0.30, 9),
+        fiberG: 30,
+      ),
+    );
+  }
 
   void _applyServerDay(MealPlanDay day) {
     final latest = state.requireValue;

@@ -2,10 +2,11 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/config/env.dart';
+import '../../../core/config/backend_modules.dart';
 import '../../../core/network/api_endpoints.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/session/mock_persona.dart';
 import '../../../core/session/session_controller.dart';
 import 'mock_commerce_repository.dart';
 import 'models/order_model.dart';
@@ -66,9 +67,9 @@ class RemoteCommerceApiService implements CommerceApiService {
 }
 
 final commerceApiProvider = Provider<CommerceApiService>((ref) {
-  if (Env.useMockData) {
+  if (BackendModules.isMock(BackendModule.commerce)) {
     return MockCommerceRepository(
-      currentUserId: () => ref.read(sessionControllerProvider).userId,
+      currentUserId: () => mockPersonaId(ref.read(sessionControllerProvider)),
     );
   }
   return RemoteCommerceApiService(ref.watch(dioProvider));

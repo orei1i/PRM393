@@ -6,12 +6,16 @@ import { Flag } from "lucide-react";
 import { InitialsAvatar } from "@/components/admin/initials-avatar";
 import { Skeleton } from "@/components/ui/form-controls";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { isMock } from "@/lib/backend_modules";
 import { formatNumber } from "@/lib/utils";
 import type { AdminUser } from "@/types/admin";
 
 import { UserRoleBadges, UserStatusBadge } from "./status-badge";
 
 const dateVi = new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+
+/** The backend's UserResponse has no post or report counts: "—", never a made-up 0. */
+const COUNTS_KNOWN = isMock("users");
 
 export function UserTable({
   users,
@@ -79,9 +83,11 @@ export function UserTable({
                   <UserStatusBadge status={u.status} />
                 </TableCell>
                 <TableCell className="text-muted-foreground">{u.authType === "Google" ? "Google" : "Email"}</TableCell>
-                <TableCell className="text-right font-mono tabular">{formatNumber(u.postCount)}</TableCell>
+                <TableCell className="text-right font-mono tabular">{COUNTS_KNOWN ? formatNumber(u.postCount) : "—"}</TableCell>
                 <TableCell className="text-right">
-                  {u.reportCount > 0 ? (
+                  {!COUNTS_KNOWN ? (
+                    <span className="font-mono text-muted-foreground tabular">—</span>
+                  ) : u.reportCount > 0 ? (
                     <span className="inline-flex items-center gap-1 font-mono font-semibold text-ochre-text tabular">
                       <Flag className="size-3.5" aria-hidden />
                       {u.reportCount}

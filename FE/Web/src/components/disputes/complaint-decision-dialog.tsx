@@ -57,7 +57,7 @@ export function ComplaintDecisionDialog({
   const refundAmount = decision === "Split" ? parseAmount(amountText) : undefined;
   const errors = decisionErrors({ decision, refundAmount, note }, price);
   const valid = Object.keys(errors).length === 0;
-  const out = decision ? decisionOutcome(price, decision, refundAmount) : null;
+  const out = decision && (decision !== "Split" || refundAmount !== undefined) ? decisionOutcome(price, decision, refundAmount) : null;
   const requestedPartial = complaint.requestedOutcome === "PartialRefund" && complaint.requestedAmount < price;
 
   function reset() {
@@ -169,7 +169,7 @@ export function ComplaintDecisionDialog({
                 inputMode="numeric"
                 autoComplete="off"
                 value={amountText}
-                onChange={(e) => setAmountText(e.target.value)}
+                onChange={(e) => setAmountText(e.target.value.replace(/\D/g, ""))}
                 placeholder="VD: 300000"
                 className="font-mono"
                 aria-invalid={amountError ? true : undefined}

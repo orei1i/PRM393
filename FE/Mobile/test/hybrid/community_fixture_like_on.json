@@ -1,0 +1,9 @@
+{
+ "success": true,
+ "message": "Đã thích bài viết.",
+ "data": {
+  "liked": true,
+  "likeCount": 1
+ },
+ "statusCode": 200
+}

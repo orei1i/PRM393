@@ -2,10 +2,11 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/config/env.dart';
+import '../../../core/config/backend_modules.dart';
 import '../../../core/network/api_endpoints.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/session/mock_persona.dart';
 import '../../../core/session/session_controller.dart';
 import 'mock_chef_studio_repository.dart';
 import 'models/chef_studio_models.dart';
@@ -68,9 +69,9 @@ class RemoteChefStudioApiService implements ChefStudioApiService {
 }
 
 final chefStudioApiProvider = Provider<ChefStudioApiService>((ref) {
-  if (Env.useMockData) {
+  if (BackendModules.isMock(BackendModule.chefStudio)) {
     return MockChefStudioRepository(
-      currentUserId: () => ref.read(sessionControllerProvider).userId,
+      currentUserId: () => mockPersonaId(ref.read(sessionControllerProvider)),
       currentUserName: () =>
           ref.read(sessionControllerProvider).displayName ?? 'Chuyên gia',
       currentRole: () => ref.read(sessionControllerProvider).role,

@@ -4,7 +4,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/theme/vl_colors.dart';
+import '../../../../core/widgets/demo_data_banner.dart';
 import '../../../../core/widgets/sign_in_sheet.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../ads/data/models/ad_feed_item.dart';
@@ -22,7 +24,7 @@ import 'submit_restaurant_screen.dart';
 
 /// "Quán chay gần bạn": a compact header (location chip → "Chọn vị trí",
 /// search, "Bộ lọc" with a count badge, removable filter chips), then the
-/// list (one "Được tài trợ" row first) or the map ("Xem bản đồ" /
+/// list (one "Được tài trợ" row first, if it fits the filters) or the map ("Xem bản đồ" /
 /// "Xem danh sách"). Guests can browse; suggesting a place needs sign-in.
 class RestaurantNearbyScreen extends ConsumerStatefulWidget {
   const RestaurantNearbyScreen({super.key, this.initialQuery});
@@ -138,64 +140,71 @@ class _RestaurantNearbyScreenState
         icon: const Icon(Icons.add_business_outlined),
         label: const Text('Gợi ý quán mới'),
       ),
-      body: _mapMode
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                header,
-                Expanded(
-                  child: async.when(
-                    skipLoadingOnReload: true,
-                    data: (state) => RestaurantMapView(
-                      state: state,
-                      sponsoredRestaurantId: ad?.restaurantId,
-                      onOpen: _open,
-                      onDirections: _directions,
-                      onSearchArea: (area) => _list.searchArea(area),
-                    ),
-                    error: (error, _) => Center(
-                      child: SingleChildScrollView(
-                        child: ErrorStateView(
-                            error: error, onRetry: () => _list.refresh()),
+      body: DemoDataBanner.wrap(
+        BackendModule.restaurants,
+        child: _mapMode
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  header,
+                  Expanded(
+                    child: async.when(
+                      skipLoadingOnReload: true,
+                      data: (state) => RestaurantMapView(
+                        state: state,
+                        sponsoredRestaurantId: ad?.restaurantId,
+                        onOpen: _open,
+                        onDirections: _directions,
+                        onSearchArea: (area) => _list.searchArea(area),
                       ),
-                    ),
-                    loading: () =>
-                        const Center(child: CircularProgressIndicator()),
-                  ),
-                ),
-              ],
-            )
-          : RefreshIndicator(
-              onRefresh: () => _list.refresh(),
-              child: CustomScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                slivers: [
-                  SliverToBoxAdapter(child: header),
-                  ...async.when(
-                    data: (state) => _content(state, ad),
-                    error: (error, _) => [
-                      SliverFillRemaining(
-                        hasScrollBody: false,
-                        child: Padding(
-                          padding: const EdgeInsets.only(bottom: 88),
-                          child: Center(
-                            child: ErrorStateView(
-                                error: error, onRetry: () => _list.refresh()),
-                          ),
+                      error: (error, _) => Center(
+                        child: SingleChildScrollView(
+                          child: ErrorStateView(
+                              error: error, onRetry: () => _list.refresh()),
                         ),
                       ),
-                    ],
-                    loading: () => [
-                      const SliverToBoxAdapter(child: RestaurantListSkeleton()),
-                    ],
+                      loading: () =>
+                          const Center(child: CircularProgressIndicator()),
+                    ),
                   ),
                 ],
+              )
+            : RefreshIndicator(
+                onRefresh: () => _list.refresh(),
+                child: CustomScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    SliverToBoxAdapter(child: header),
+                    ...async.when(
+                      data: (state) => _content(state, ad),
+                      error: (error, _) => [
+                        SliverFillRemaining(
+                          hasScrollBody: false,
+                          child: Padding(
+                            padding: const EdgeInsets.only(bottom: 88),
+                            child: Center(
+                              child: ErrorStateView(
+                                  error: error, onRetry: () => _list.refresh()),
+                            ),
+                          ),
+                        ),
+                      ],
+                      loading: () => [
+                        const SliverToBoxAdapter(
+                            child: RestaurantListSkeleton()),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
+      ),
     );
   }
 
-  List<Widget> _content(RestaurantListState state, AdFeedItemDto? ad) {
+  List<Widget> _content(RestaurantListState state, AdFeedItemDto? campaign) {
+    final ad = campaign != null && state.admits(adRestaurant(campaign))
+        ? campaign
+        : null;
     final sponsored = ad == null
         ? null
         : SponsoredRestaurantRow(
@@ -227,7 +236,14 @@ class _RestaurantNearbyScreenState
         ),
       ];
     }
-    final list = state.restaurants;
+    // The sponsored row stands for the place, so the list doesn't repeat it.
+    // The summary still counts it.
+    final list = ad == null
+        ? state.restaurants
+        : [
+            for (final r in state.restaurants)
+              if (r.id != ad.restaurantId) r,
+          ];
     return [
       SliverToBoxAdapter(
         child: Padding(

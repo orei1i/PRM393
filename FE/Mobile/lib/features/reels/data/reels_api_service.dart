@@ -1,7 +1,7 @@
 // lib/features/reels/data/reels_api_service.dart
 //
-// GET /posts?mediaType=Video&limit=20   → FeedPage of posts (same wire as
-// the feed), each with the playable file:
+// GET /posts?mediaType=Video&pageSize=20   → page of posts (same wire as the
+// feed), each with the playable file:
 // { …post…, "mediaType": "Video", "mediaUrl": "https://…mp4" | null,
 //   "durationSeconds": 42,                       // proposed posts.duration_seconds
 //   "video": { "id": "vid_x", "durationSeconds": 724, "aiStatus": "ready",
@@ -9,11 +9,12 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/config/env.dart';
+import '../../../core/config/backend_modules.dart';
 import '../../../core/network/api_endpoints.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/utils/json_helpers.dart';
+import '../../community/data/backend_posts.dart';
 import '../../community/data/community_api_service.dart';
 import '../../community/data/models/post_model.dart';
 import '../../community/domain/entities/post.dart';
@@ -61,22 +62,26 @@ abstract interface class ReelsApiService {
 }
 
 class RemoteReelsApiService implements ReelsApiService {
-  RemoteReelsApiService(this._dio);
+  RemoteReelsApiService(this._dio, {SavedPostsStore? saved}) : _saved = saved;
 
   final Dio _dio;
+  final SavedPostsStore? _saved;
 
   @override
   Future<List<ReelDto>> getReels({int limit = 20}) => guardApi(() async {
         final res = await _dio
             .get<Map<String, dynamic>>(ApiEndpoints.feed, queryParameters: {
           'mediaType': PostMediaType.video.apiValue,
-          'limit': limit,
+          'page': 1,
+          'pageSize': limit.clamp(1, backendMaxPageSize),
         });
         final items = res.data?['items'];
         return items is List<Object?>
             ? items
                 .whereType<Map<String, dynamic>>()
-                .map(ReelDto.fromJson)
+                .map((json) => ReelDto.fromJson(adaptBackendPost(json, _saved)))
+                // A video post without its file has nothing to play.
+                .where((reel) => reel.videoUrl != null)
                 .toList()
             : const [];
       });
@@ -109,8 +114,9 @@ class MockReelsRepository implements ReelsApiService {
 }
 
 final reelsApiProvider = Provider<ReelsApiService>((ref) {
-  if (Env.useMockData) {
+  if (BackendModules.isMock(BackendModule.reels)) {
     return MockReelsRepository(ref.watch(communityApiProvider));
   }
-  return RemoteReelsApiService(ref.watch(dioProvider));
+  return RemoteReelsApiService(ref.watch(dioProvider),
+      saved: ref.watch(savedPostsStoreProvider));
 });

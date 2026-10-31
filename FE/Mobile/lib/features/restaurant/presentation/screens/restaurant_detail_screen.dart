@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/navigation/app_routes.dart';
 import '../../../../core/network/api_exception.dart';
+import '../../../../core/session/mock_persona.dart';
 import '../../../../core/session/session_controller.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
@@ -36,6 +38,7 @@ class RestaurantDetailScreen extends ConsumerWidget {
 
   static Route<void> route(String restaurantId, {String? name}) =>
       MaterialPageRoute<void>(
+        settings: RouteSettings(name: AppRoutes.restaurant(restaurantId)),
         builder: (_) =>
             RestaurantDetailScreen(restaurantId: restaurantId, name: name),
       );
@@ -87,7 +90,7 @@ class _DetailBody extends ConsumerWidget {
     }
     if (!context.mounted) return;
     final id = state.restaurant.id;
-    final userId = ref.read(sessionControllerProvider).userId;
+    final userId = mockPersonaId(ref.read(sessionControllerProvider));
     final mine =
         ref.read(restaurantDetailProvider(id)).valueOrNull?.reviewBy(userId);
     var replaced = false;
@@ -113,8 +116,7 @@ class _DetailBody extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final r = state.restaurant;
-    final userId = ref.watch(
-        sessionControllerProvider.select((s) => s.isGuest ? null : s.userId));
+    final userId = ref.watch(sessionControllerProvider.select(mockPersonaId));
     final mine = state.reviewBy(userId);
     // The member's own review first, then everyone else's, newest first.
     final reviews = [

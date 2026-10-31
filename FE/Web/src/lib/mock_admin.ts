@@ -97,11 +97,12 @@ function buildUsers(): AdminUser[] {
     id,
     email,
     fullName,
-    phone: `09${String(10000000 + i * 7919).slice(0, 8)}`,
+    // Minh Anh is the same account as in the mobile mock (mock_accounts.dart).
+    phone: id === "u_me" ? "0912345678" : `09${String(10000000 + i * 7919).slice(0, 8)}`,
     role,
     status,
-    authType: email.endsWith("@veganlife.vn") ? "System" : "Google",
-    createdAt: daysAgo(joined),
+    authType: "System", // the apps only offer email + password
+    createdAt: id === "u_me" ? "2026-07-02T08:15:00Z" : daysAgo(joined),
     isVerifiedChef: chef,
     postCount: posts,
     reportCount: reports,
@@ -116,7 +117,7 @@ function buildUsers(): AdminUser[] {
       phone: `03${String(20000000 + i * 104729).slice(0, 8)}`,
       role: "User",
       status: i % 17 === 5 ? "Locked" : "Active",
-      authType: i % 4 === 0 ? "System" : "Google",
+      authType: "System",
       createdAt: daysAgo(2 + ((i * 13) % 200)),
       isVerifiedChef: false,
       postCount: (i * 5) % 14,
@@ -562,11 +563,14 @@ const comments: StoredComment[] = COMMENT_SEED.map(([id, postId, authorId, fullN
 
 function toAdminComment(c: StoredComment): AdminComment {
   const parent = c.parentId ? comments.find((x) => x.id === c.parentId) : undefined;
+  // A reply to a reply keeps the same parent; the "@Tên " prefix says who it answers.
+  const mentioned = parent && comments.find((x) => (x.id === parent.id || x.parentId === parent.id) && x.id !== c.id && c.content.startsWith(`@${x.author.fullName} `));
+  const target = mentioned ?? parent;
   return {
     ...c,
     author: { ...c.author },
     postTitle: content.find((p) => p.id === c.postId)?.title ?? "(Bài viết đã bị xoá)",
-    replyTo: parent ? { id: parent.id, authorName: parent.author.fullName } : null,
+    replyTo: target ? { id: target.id, authorName: target.author.fullName } : null,
     replyCount: c.parentId ? 0 : comments.filter((x) => x.parentId === c.id).length,
   };
 }

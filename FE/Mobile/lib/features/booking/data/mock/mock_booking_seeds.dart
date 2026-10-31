@@ -599,7 +599,7 @@ void _build(MockBookingDb db, _Seed seed,
   final price = accepted.price;
   final acceptor =
       accepted.proposedBy == BookingParty.chef ? memberName : chef.fullName;
-  final paymentDueAt = contractAt.add(BookingRules.paymentWindow);
+  final paymentDueAt = paymentDeadline(contractAt, accepted.startDate);
   final qrAt = contractAt.add(minute * 40);
   final paidAt = qrAt.add(minute * 2);
   db._contract(row, accepted, contractAt, paymentDueAt);

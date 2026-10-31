@@ -246,7 +246,8 @@ class _SeasonalChip extends StatelessWidget {
   }
 }
 
-/// Where the dish came from: AI, typed in, own recipe, a chef, the fridge.
+/// Where the dish came from: AI, typed in, own recipe, a chef, the fridge,
+/// a recipe page.
 class MealSourceBadge extends StatelessWidget {
   const MealSourceBadge({super.key, required this.recipe});
 
@@ -287,6 +288,12 @@ class MealSourceBadge extends StatelessWidget {
       MealSource.fridgeScan => (
           Icons.kitchen_outlined,
           MealSource.fridgeScan.label,
+          cs.surfaceContainer,
+          cs.onSurfaceVariant
+        ),
+      MealSource.recipe => (
+          Icons.restaurant_menu_outlined,
+          MealSource.recipe.label,
           cs.surfaceContainer,
           cs.onSurfaceVariant
         ),

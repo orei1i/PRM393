@@ -55,6 +55,15 @@ DateTime escrowReleaseAt(DateTime endDate,
         {int holdDays = BookingRules.holdDays}) =>
     vnTime(addDays(endDate, holdDays), 23, 59);
 
+/// The member pays within [window] of accepting an offer, and before the plan
+/// starts: min(acceptedAt + window, startDate 00:00 VN).
+DateTime paymentDeadline(DateTime acceptedAt, DateTime startDate,
+    {Duration window = BookingRules.paymentWindow}) {
+  final afterWindow = acceptedAt.toUtc().add(window);
+  final start = vnTime(startDate, 0, 0);
+  return afterWindow.isAfter(start) ? start : afterWindow;
+}
+
 /// OneShot: max(startDate 00:00, paidAt + 24 h). DailyFeedback: day 1 is due
 /// at the daily send cutoff (06:00) of the start date.
 DateTime deliveryDueAt(BookingType type, DateTime startDate, DateTime paidAt) {
@@ -70,6 +79,14 @@ DateTime deliveryDueAt(BookingType type, DateTime startDate, DateTime paidAt) {
 /// that day.
 DateTime dailySendDeadline(DateTime startDate, int dayIndex) =>
     vnTime(addDays(startDate, dayIndex - 1), BookingRules.sendCutoffHour, 0);
+
+/// Day [dayIndex] of a DailyFeedback plan is past its send deadline.
+bool dailySendOverdue(DateTime startDate, int dayIndex, DateTime now) =>
+    now.isAfter(dailySendDeadline(startDate, dayIndex));
+
+/// A plan day the member can give feedback on: it has started (VN calendar).
+bool planDayStarted(DateTime date, DateTime now) =>
+    !dateOnly(date).isAfter(vnDateOf(now));
 
 /// "Thực đơn 10 ngày · Có phản hồi mỗi ngày" (wallet rows, cards).
 String planTitle(int planDays, BookingType type) =>
@@ -123,8 +140,8 @@ abstract final class BookingRules {
   /// Smallest partial refund; it must also stay below the contract price.
   static const minPartialRefund = 1000;
 
-  /// The member pays within this window after accepting an offer,
-  /// otherwise the booking expires.
+  /// The member pays within this window after accepting an offer (and before
+  /// the plan starts, see [paymentDeadline]), otherwise the booking expires.
   static const paymentWindow = Duration(hours: 48);
 
   /// `#expire` in the needs (mock): the payment window is 30 s.

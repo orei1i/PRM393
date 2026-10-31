@@ -15,7 +15,8 @@
 // POST /auth/forgot-password   { "email" }                → 204 (always)
 // POST /auth/verify-reset-code { "email", "code" }        → { "resetToken" }
 // POST /auth/reset-password    { "resetToken", "newPassword" } → 204
-// errors: 400 invalid_code / code_expired
+// errors: 400 invalid_code / code_expired (the real BE sends these in
+//         `message`, with no `code` field)
 //
 // Register always creates role `User`: a chef is approved later by an admin
 // (chef application). Guest data is merged through the `X-Guest-Token`
@@ -23,7 +24,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../config/env.dart';
+import '../config/backend_modules.dart';
 import '../network/api_endpoints.dart';
 import '../network/api_exception.dart';
 import '../network/dio_client.dart';
@@ -103,24 +104,40 @@ abstract final class AuthErrors {
       'Email này đã có tài khoản. Đăng nhập hoặc dùng email khác.';
   static const invalidCode = 'Mã xác minh không đúng.';
   static const codeExpired = 'Mã đã hết hiệu lực, hãy gửi lại mã';
+  static const sessionExpired =
+      'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
 
-  /// Maps a server error of an auth endpoint to the message above (by
-  /// `code`, else by status); other errors are returned unchanged.
+  /// Maps a server error of an auth endpoint to the message above (by `code`,
+  /// or a code sent as `message`, else by status); other errors are returned
+  /// unchanged. A code found in `message` becomes the result's `code`.
   static ApiException localize(ApiException e) {
-    final message = switch ((e.code, e.statusCode)) {
-      ('invalid_credentials', _) || (null, 401) => invalidCredentials,
-      ('admin_web_only', _) || (null, 403) => adminWebOnly,
-      ('account_locked', _) || (null, 423) => accountLocked,
-      ('too_many_attempts', _) || (null, 429) => tooManyAttempts,
-      ('email_taken', _) || (null, 409) => emailTaken,
-      ('code_expired', _) => codeExpired,
-      ('invalid_code', _) => invalidCode,
+    final key = e.code ?? e.message;
+    final byCode = switch (key) {
+      'invalid_credentials' => invalidCredentials,
+      'admin_web_only' => adminWebOnly,
+      'account_locked' => accountLocked,
+      'too_many_attempts' => tooManyAttempts,
+      'email_taken' => emailTaken,
+      'code_expired' => codeExpired,
+      'invalid_code' => invalidCode,
       _ => null,
     };
-    return message == null
+    if (byCode != null) {
+      return ApiException(message: byCode, statusCode: e.statusCode, code: key);
+    }
+    final byStatus = e.code != null
+        ? null
+        : switch (e.statusCode) {
+            401 => invalidCredentials,
+            403 => adminWebOnly,
+            423 => accountLocked,
+            429 => tooManyAttempts,
+            409 => emailTaken,
+            _ => null,
+          };
+    return byStatus == null
         ? e
-        : ApiException(
-            message: message, statusCode: e.statusCode, code: e.code);
+        : ApiException(message: byStatus, statusCode: e.statusCode);
   }
 }
 
@@ -245,6 +262,6 @@ class MockAuthApiService implements AuthApiService {
 }
 
 final authApiProvider = Provider<AuthApiService>((ref) {
-  if (Env.useMockData) return MockAuthApiService();
+  if (BackendModules.isMock(BackendModule.auth)) return MockAuthApiService();
   return RemoteAuthApiService(ref.watch(dioProvider));
 });

@@ -2,6 +2,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/utils/text_search.dart';
+import '../../../ingredient/data/ingredient_api_service.dart';
 import '../../../scanner/domain/vegan_check.dart';
 import '../../data/models/pantry_model.dart';
 import '../../data/pantry_api_service.dart';
@@ -29,6 +30,23 @@ class PantryController extends AsyncNotifier<List<PantryItem>> {
   static List<PantryItem> _entities(List<PantryItemDto> dtos) =>
       dtos.map((d) => d.toEntity()).toList();
 
+  /// A name typed without accents ("ca chua") is saved as the nutrition DB
+  /// spells it ("Cà chua"), when it is exactly that food. Anything else, or a
+  /// failed lookup, keeps what was typed.
+  Future<String> _catalogName(String name) async {
+    final key = foldVietnamese(name);
+    if (key != name.toLowerCase()) return name;
+    try {
+      final rows = await ref.read(ingredientApiProvider).search(name);
+      for (final row in rows) {
+        if (foldVietnamese(row.name) == key) return row.name;
+      }
+    } catch (_) {
+      // Saving doesn't depend on the lookup.
+    }
+    return name;
+  }
+
   /// Waits for the first load so a later result can't overwrite a change.
   Future<void> _loaded() async {
     try {
@@ -49,7 +67,9 @@ class PantryController extends AsyncNotifier<List<PantryItem>> {
       for (final item in items)
         if (item.isVegan && item.name.trim().isNotEmpty)
           AddPantryItemDto(
-            ingredient: item.name.trim(),
+            ingredient: item.source == PantrySource.scan
+                ? item.name.trim()
+                : await _catalogName(item.name.trim()),
             scannedAt: item.source == PantrySource.scan ? now : null,
           ),
     ];
@@ -68,8 +88,9 @@ class PantryController extends AsyncNotifier<List<PantryItem>> {
     final verdict = classifyVegan(trimmed);
     if (!verdict.isVegan) return verdict;
     await _loaded();
+    final ingredient = await _catalogName(trimmed);
     state = AsyncData(_entities(
-        await _api.addItems([AddPantryItemDto(ingredient: trimmed)])));
+        await _api.addItems([AddPantryItemDto(ingredient: ingredient)])));
     return verdict;
   }
 
@@ -109,7 +130,12 @@ class PantryController extends AsyncNotifier<List<PantryItem>> {
     final index = removed?.index ?? 0;
     final list = _entities(await _api.restoreItem(
         AddPantryItemDto(
-            ingredient: item.ingredient, scannedAt: item.scannedAt),
+          ingredient: item.ingredient,
+          scannedAt: item.scannedAt,
+          quantity: item.quantity,
+          unit: item.unit,
+          expiryDate: item.expiryDate,
+        ),
         index: index));
     state = AsyncData(_placed(list, item.ingredient, index));
   }
@@ -123,6 +149,20 @@ class PantryController extends AsyncNotifier<List<PantryItem>> {
     if (at < 0 || at == index) return list;
     final row = list.removeAt(at);
     return list..insert(index.clamp(0, list.length), row);
+  }
+
+  /// "Sửa số lượng & hạn dùng". Throws on failure (the sheet keeps the input).
+  Future<void> updateItem(PantryItem item,
+      {required double quantity,
+      required String unit,
+      DateTime? expiryDate}) async {
+    final saved = (await _api.updateItem(
+            item.id,
+            UpdatePantryItemDto(
+                quantity: quantity, unit: unit, expiryDate: expiryDate)))
+        .toEntity();
+    final list = state.valueOrNull ?? const <PantryItem>[];
+    state = AsyncData([for (final i in list) i.id == saved.id ? saved : i]);
   }
 
   Future<void> clear() async {

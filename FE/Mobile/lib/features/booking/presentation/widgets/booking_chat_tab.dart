@@ -111,7 +111,7 @@ class _BookingChatTabState extends ConsumerState<BookingChatTab> {
       final uploaded = await ref.read(mediaApiProvider).uploadImage(picked);
       if (!mounted) return;
       setState(() => _sending = false);
-      await _send(attachmentUrl: uploaded.mediaUrl);
+      await _send(attachmentUrl: uploaded.absoluteUrl);
     } catch (e) {
       if (mounted) {
         setState(() => _sending = false);
@@ -153,7 +153,7 @@ class _BookingChatTabState extends ConsumerState<BookingChatTab> {
           ),
         Expanded(
           child: switch (async) {
-            AsyncValue(:final value?) => value.isEmpty
+            AsyncValue(valueOrNull: final value?) => value.isEmpty
                 ? Center(
                     child: Text('Chưa có tin nhắn.',
                         style: context.textStyles.bodyMedium

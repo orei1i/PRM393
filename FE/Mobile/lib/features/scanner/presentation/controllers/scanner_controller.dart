@@ -31,6 +31,10 @@ class ScannerState {
   final List<MenuSuggestion> menu;
   final String? menuError;
 
+  /// "Gợi ý món" with nothing to cook from; gone once there is something.
+  static const noSavableItems =
+      'Hãy xác nhận hoặc thêm ít nhất 1 nguyên liệu thuần chay.';
+
   List<DetectedIngredient> get confirmedItems =>
       items.where((i) => i.confirmed).toList();
 
@@ -68,13 +72,17 @@ class ScannerState {
     String? menuError,
     bool clearMenuError = false,
   }) {
+    final nextItems = items ?? this.items;
+    final nextError = clearMenuError ? null : (menuError ?? this.menuError);
+    final answered =
+        nextError == noSavableItems && nextItems.any((i) => i.savable);
     return ScannerState(
       status: status ?? this.status,
-      items: items ?? this.items,
+      items: nextItems,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
-      menuStatus: menuStatus ?? this.menuStatus,
+      menuStatus: answered ? MenuStatus.idle : (menuStatus ?? this.menuStatus),
       menu: menu ?? this.menu,
-      menuError: clearMenuError ? null : (menuError ?? this.menuError),
+      menuError: answered ? null : nextError,
     );
   }
 }
@@ -182,7 +190,7 @@ class ScannerController extends Notifier<ScannerState> {
     if (ingredients.isEmpty) {
       state = state.copyWith(
         menuStatus: MenuStatus.error,
-        menuError: 'Hãy xác nhận hoặc thêm ít nhất 1 nguyên liệu thuần chay.',
+        menuError: ScannerState.noSavableItems,
       );
       return;
     }

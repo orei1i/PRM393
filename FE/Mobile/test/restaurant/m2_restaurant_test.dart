@@ -559,13 +559,9 @@ void main() {
       expect(find.text('3'), findsOneWidget);
       expect(find.widgetWithText(InputChip, 'Đã chứng nhận'), findsOneWidget);
       expect(find.widgetWithText(InputChip, 'Trong 5 km'), findsOneWidget);
-      final top = tester
-          .getTopLeft(find
-              .descendant(
-                  of: find.byType(SliverList),
-                  matching: find.text('Bún Riêu Chay Hạnh Tâm'))
-              .first)
-          .dy;
+      // 4,75★ is also the sponsored row, which fits these filters: on top,
+      // and not repeated in the list.
+      final top = tester.getTopLeft(find.text('Bún Riêu Chay Hạnh Tâm')).dy;
       final next = tester.getTopLeft(find.text('Bếp Chay Sen Hồng')).dy;
       expect(top, lessThan(next), reason: '4,75★ first');
 
@@ -593,8 +589,8 @@ void main() {
       await _wait(tester);
       expect(find.text('2 quán · gần nhất trước'), findsOneWidget);
       expect(find.text('Quán Chay An Lạc'), findsOneWidget);
-      // Organic row + the sponsored row on top.
-      expect(find.text('Bún Riêu Chay Hạnh Tâm'), findsNWidgets(2));
+      // The sponsored row on top stands for its place: no second row.
+      expect(find.text('Bún Riêu Chay Hạnh Tâm'), findsOneWidget);
       expect(find.text('Được tài trợ'), findsOneWidget);
 
       await tester.enterText(find.byType(TextField), 'xyzxyz');

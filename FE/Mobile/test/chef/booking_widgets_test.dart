@@ -575,6 +575,13 @@ void main() {
         reason: 'one-shot plans have no daily feedback');
     expect(find.text('Khiếu nại'), findsOneWidget, reason: 'header action');
     await tester.tap(find.text('Áp dụng kế hoạch vào Thực đơn'));
+    // The seeded week holds other dishes: replacing them is confirmed first.
+    for (var i = 0;
+        i < 16 && find.byType(AlertDialog).evaluate().isEmpty;
+        i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+    await tester.tap(find.text('Thay và áp dụng'));
     // The planner loads, then all 28 meals go in one batched request: done
     // within 8 s of mock latency (one request per meal took ~25 s).
     for (var i = 0; i < 32 && find.byType(SnackBar).evaluate().isEmpty; i++) {

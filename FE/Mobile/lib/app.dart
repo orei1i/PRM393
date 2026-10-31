@@ -13,6 +13,8 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'core/navigation/app_route_stack.dart';
+import 'core/navigation/shell_tab.dart';
 import 'core/session/onboarding_controller.dart';
 import 'core/session/session_controller.dart';
 import 'core/settings/theme_mode_controller.dart';
@@ -43,6 +45,8 @@ class VeganLifeApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp(
       title: 'VeganLife',
+      scaffoldMessengerKey: rootScaffoldMessengerKey,
+      navigatorKey: rootNavigatorKey,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
@@ -50,12 +54,17 @@ class VeganLifeApp extends ConsumerWidget {
       locale: const Locale('vi'),
       supportedLocales: const [Locale('vi'), Locale('en')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      // Lets the "Hỏi AI" bubble follow the screens pushed over the tabs.
-      navigatorObservers: [askAiRouteObserver],
+      // Lets the "Hỏi AI" bubble follow the screens pushed over the tabs,
+      // and `AppNav` find a page that is already open.
+      navigatorObservers: [askAiRouteObserver, _appRouteStack],
       home: const AppEntry(),
     );
   }
 }
+
+/// The app navigator's routes, for `AppNav` (found through the navigator's
+/// observers).
+final _appRouteStack = AppRouteStack();
 
 /// First launch as a guest (`vl.onboarded` unset): the Welcome screen.
 /// Otherwise — and as soon as the user signs in or chooses to look around
@@ -79,6 +88,10 @@ class AppEntry extends ConsumerWidget {
 /// the full-screen scanner instead of a tab (tap: the remembered mode, long
 /// press: pick Chụp hình / Chọn ảnh / Nhập tay).
 ///
+/// The selected tab is [shellTabProvider], so pushed screens can switch it
+/// (`AppNav.toShellTab`). Android Back on another tab goes to Trang chủ;
+/// on Trang chủ it leaves the app.
+///
 /// The bar is a floating capsule (see [_ShellBottomBar]); the tabs scroll
 /// behind it and end their lists with `floatingBarClearance` so the last
 /// item still clears it.
@@ -95,13 +108,8 @@ class AppShell extends ConsumerStatefulWidget {
 }
 
 class _AppShellState extends ConsumerState<AppShell> {
-  static const _plannerTab = 1;
-
   /// Quiet time after the last scroll update before the bubble comes back.
   static const _scrollSettle = Duration(milliseconds: 450);
-
-  /// Index into the 4 tab pages.
-  int _page = 0;
 
   final _barKey = GlobalKey();
 
@@ -143,17 +151,23 @@ class _AppShellState extends ConsumerState<AppShell> {
     super.dispose();
   }
 
-  void _onDestination(int index) {
+  /// A tab was shown (from the bar or from anywhere else): its list is not
+  /// scrolling, whatever the previous tab was doing.
+  void _resetScrolling() {
     _scrollIdle?.cancel();
     _scrolling.value = false;
-    setState(() => _page = index);
+  }
+
+  void _onDestination(ShellTab tab) {
+    _resetScrolling();
+    ref.read(shellTabProvider.notifier).select(tab);
   }
 
   Future<void> _scan(ScanMode mode) async {
     final exit = await Navigator.of(context)
         .push(IngredientScannerScreen.route(mode: mode));
     if (!mounted) return;
-    if (exit == ScannerExit.openPlanner) _onDestination(_plannerTab);
+    if (exit == ScannerExit.openPlanner) _onDestination(ShellTab.planner);
   }
 
   bool _onScroll(ScrollUpdateNotification n) {
@@ -181,8 +195,10 @@ class _AppShellState extends ConsumerState<AppShell> {
     // Signed out (from Tôi or an account menu): back to Trang chủ.
     ref.listen(sessionControllerProvider.select((s) => s.isGuest),
         (wasGuest, isGuest) {
-      if (wasGuest == false && isGuest) _onDestination(0);
+      if (wasGuest == false && isGuest) _onDestination(ShellTab.home);
     });
+    ref.listen(shellTabProvider, (_, __) => _resetScrolling());
+    final tab = ref.watch(shellTabProvider);
     final onTop = ModalRoute.of(context)?.isCurrent ?? true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -197,30 +213,38 @@ class _AppShellState extends ConsumerState<AppShell> {
       ProfileScreen(),
     ];
 
-    return Scaffold(
-      // The tabs run behind the floating bar and see its height as their
-      // bottom padding (`floatingBarClearance`); snackbars still sit above
-      // it (the Scaffold places them above `bottomNavigationBar`).
-      extendBody: true,
-      body: NotificationListener<ScrollUpdateNotification>(
-        onNotification: _onScroll,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            IndexedStack(index: _page, children: pages),
-            // Over the tabs: a floating app bar (Trang chủ, Chuyên gia)
-            // scrolls away and the list would run under the clock.
-            const _StatusBarScrim(),
-          ],
+    // Android Back with nothing pushed: another tab → Trang chủ; on Trang
+    // chủ the route bubbles up and the app closes.
+    return PopScope<Object?>(
+      canPop: tab == ShellTab.home,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _onDestination(ShellTab.home);
+      },
+      child: Scaffold(
+        // The tabs run behind the floating bar and see its height as their
+        // bottom padding (`floatingBarClearance`); snackbars still sit above
+        // it (the Scaffold places them above `bottomNavigationBar`).
+        extendBody: true,
+        body: NotificationListener<ScrollUpdateNotification>(
+          onNotification: _onScroll,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              IndexedStack(index: tab.index, children: pages),
+              // Over the tabs: a floating app bar (Trang chủ, Chuyên gia)
+              // scrolls away and the list would run under the clock.
+              const _StatusBarScrim(),
+            ],
+          ),
         ),
-      ),
-      bottomNavigationBar: KeyedSubtree(
-        key: _barKey,
-        child: _ShellBottomBar(
-          key: const ValueKey('shell-nav'),
-          selected: _page,
-          onSelected: _onDestination,
-          onScan: _scan,
+        bottomNavigationBar: KeyedSubtree(
+          key: _barKey,
+          child: _ShellBottomBar(
+            key: const ValueKey('shell-nav'),
+            selected: tab.index,
+            onSelected: (index) => _onDestination(ShellTab.values[index]),
+            onScan: _scan,
+          ),
         ),
       ),
     );
@@ -569,13 +593,19 @@ class _NavItem extends StatelessWidget {
                       Icon(selected ? selectedIcon : icon,
                           size: 24, color: color),
                       const SizedBox(height: 2),
-                      Text(
-                        label,
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: labelStyle(context, selected: selected)
-                            ?.copyWith(color: color),
+                      // Large text sizes shrink the label to its slot rather
+                      // than cut it ("Trang c…").
+                      Flexible(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            label,
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            style: labelStyle(context, selected: selected)
+                                ?.copyWith(color: color),
+                          ),
+                        ),
                       ),
                     ],
                   );

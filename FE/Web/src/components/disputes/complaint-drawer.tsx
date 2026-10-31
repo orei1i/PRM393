@@ -21,6 +21,7 @@ import {
   COMPLAINT_REASON_LABEL,
   decisionOutcome,
   MEAL_SLOT_LABEL,
+  allergenLabel,
   OFFER_STATUS_LABEL,
   REQUESTED_OUTCOME_LABEL,
   type AdminComplaint,
@@ -264,7 +265,7 @@ function Detail({ complaintId, initial }: { complaintId: string; initial: AdminC
                 <summary className="cursor-pointer font-semibold text-muted-foreground">Nhu cầu ban đầu của thành viên</summary>
                 <p className="mt-1 whitespace-pre-wrap break-words leading-relaxed">{booking.needs}</p>
                 <p className="mt-1 text-muted-foreground">
-                  Dị ứng: {booking.allergies.length ? booking.allergies.join(", ") : "không"} · Bữa:{" "}
+                  Dị ứng: {booking.allergies.length ? booking.allergies.map(allergenLabel).join(", ") : "không"} · Bữa:{" "}
                   {booking.mealPattern.map((s) => MEAL_SLOT_LABEL[s]).join(", ")}
                   {booking.budgetPerDay ? ` · Ngân sách đi chợ ${formatVnd(booking.budgetPerDay)}/ngày` : ""}
                 </p>

@@ -3,13 +3,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
+import '../../../../core/utils/formatters.dart';
+import '../../../../core/utils/labels.dart';
 import '../../../../core/widgets/guest_gate.dart';
 import '../../../../core/widgets/shimmer.dart';
+import '../../../../core/widgets/vl_card.dart';
+import '../../../meal_planner/data/meal_planner_api_service.dart';
+import '../../../meal_planner/data/mock_meal_planner_repository.dart';
+import '../../../meal_planner/domain/allergy_match.dart';
 import '../../../meal_planner/domain/entities/meal_plan.dart';
 import '../../../meal_planner/presentation/controllers/meal_plan_controller.dart';
 import '../../../meal_planner/presentation/controllers/pantry_controller.dart';
+import '../../../recipe/domain/entities/recipe_detail.dart';
 import '../../../scanner/domain/scan_mode.dart';
 import '../../../scanner/domain/vegan_check.dart';
 import '../../../scanner/presentation/screens/ingredient_scanner_screen.dart';
@@ -17,6 +25,7 @@ import '../../data/ingredient_api_service.dart';
 import '../../domain/entities/ingredient.dart';
 import '../widgets/ingredient_avatar.dart';
 import '../widgets/not_vegan_notice.dart';
+import '../widgets/pantry_item_sheet.dart';
 import 'ingredient_detail_screen.dart';
 
 /// "Nguyên liệu trong tủ": the vegan foods the member has at home (saved
@@ -227,6 +236,22 @@ class _PantryScreenState extends ConsumerState<PantryScreen> {
     );
   }
 
+  /// The server's warning, else the app's own check: the BE misses most of
+  /// them, because it doesn't compare the item's allergen tags.
+  static String? _allergyWarning(PantryItem item, List<String> allergies) {
+    if (item.allergyWarning case final warning?) return warning;
+    final conflicts = allergyConflicts(
+      tags:
+          MockMealPlannerRepository.detectAllergens(item.ingredient, const []),
+      texts: [item.ingredient],
+      userAllergies: allergies,
+    );
+    if (conflicts.isEmpty) return null;
+    final names =
+        conflicts.map((a) => allergenLabel(a).toLowerCase()).join(', ');
+    return 'Bạn đã khai báo dị ứng với $names';
+  }
+
   Widget _body(BuildContext context, List<PantryItem> items) {
     final vl = context.vl;
     final async = ref.watch(pantryControllerProvider);
@@ -234,6 +259,11 @@ class _PantryScreenState extends ConsumerState<PantryScreen> {
     final index = ref.watch(ingredientIndexProvider).valueOrNull ??
         const <IngredientSummary>[];
     final refused = _refused;
+    final real = BackendModules.isReal(BackendModule.pantry);
+    final allergies = real
+        ? ref.watch(userAllergiesProvider).valueOrNull ?? const <String>[]
+        : const <String>[];
+    final now = ref.watch(plannerClockProvider)();
     IngredientSummary? match(PantryItem i) =>
         findIngredient(index, id: i.ingredientId, name: i.ingredient);
     IngredientCategory? categoryOf(PantryItem i) =>
@@ -353,6 +383,10 @@ class _PantryScreenState extends ConsumerState<PantryScreen> {
                     item: item,
                     match: match(item),
                     category: categoryOf(item),
+                    allergyWarning: _allergyWarning(item, allergies),
+                    expiresSoon: item.expiresSoon(now),
+                    onEdit:
+                        real ? () => PantryItemSheet.show(context, item) : null,
                     onDelete: () => _remove(item),
                     onOpen: () => Navigator.of(context).push(
                         IngredientDetailScreen.route(
@@ -425,6 +459,9 @@ class _PantryRow extends StatelessWidget {
     required this.category,
     required this.onDelete,
     required this.onOpen,
+    this.allergyWarning,
+    this.expiresSoon = false,
+    this.onEdit,
   });
 
   final PantryItem item;
@@ -432,6 +469,24 @@ class _PantryRow extends StatelessWidget {
   final IngredientCategory? category;
   final VoidCallback onDelete;
   final VoidCallback onOpen;
+  final String? allergyWarning;
+
+  /// "Sắp hết hạn".
+  final bool expiresSoon;
+
+  /// "Sửa số lượng & hạn dùng"; `null` hides it.
+  final VoidCallback? onEdit;
+
+  /// "200 g · HSD 05/11"; `null` when there is only the default amount.
+  String? get _amountLine {
+    final quantity = item.quantity ?? 1;
+    final unit = item.unit ?? 'phần';
+    final expiry = item.expiryDate;
+    return [
+      if (quantity != 1 || unit != 'phần') formatAmount(quantity, unit),
+      if (expiry != null) 'HSD ${formatDayMonth(expiry.toLocal())}',
+    ].join(' · ').nullIfEmpty;
+  }
 
   String get _energy {
     if (match case final m?) return m.energyLine;
@@ -500,9 +555,29 @@ class _PantryRow extends StatelessWidget {
                           Text(_energy,
                               style: context.textStyles.bodySmall
                                   ?.copyWith(color: vl.muted)),
+                          if (_amountLine case final amount?)
+                            Text(amount,
+                                style: context.textStyles.bodySmall
+                                    ?.copyWith(color: vl.muted)),
+                          if (expiresSoon) ...[
+                            const SizedBox(height: 4),
+                            VLTag.caution(context, 'Sắp hết hạn'),
+                          ],
+                          if (allergyWarning case final warning?) ...[
+                            const SizedBox(height: 4),
+                            Text(warning,
+                                style: context.textStyles.bodySmall
+                                    ?.copyWith(color: vl.onCautionContainer)),
+                          ],
                         ],
                       ),
                     ),
+                    if (onEdit case final edit?)
+                      IconButton(
+                        tooltip: 'Sửa số lượng & hạn dùng',
+                        onPressed: edit,
+                        icon: Icon(Icons.edit_note_rounded, color: vl.muted),
+                      ),
                     Tooltip(
                       message: item.source.label,
                       child: Icon(
@@ -525,6 +600,10 @@ class _PantryRow extends StatelessWidget {
       ),
     );
   }
+}
+
+extension on String {
+  String? get nullIfEmpty => isEmpty ? null : this;
 }
 
 class _RowsSkeleton extends StatelessWidget {

@@ -5,7 +5,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/config/env.dart';
+import '../../../core/config/backend_modules.dart';
 import '../../../core/network/api_endpoints.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
@@ -96,7 +96,7 @@ class RemoteChatApiService implements ChatApiService {
 }
 
 final chatApiProvider = Provider<ChatApiService>((ref) {
-  if (Env.useMockData) {
+  if (BackendModules.isMock(BackendModule.chatbot)) {
     return MockChatRepository(
       prefs: ref.watch(sharedPreferencesProvider),
       readSession: () => ref.read(sessionControllerProvider),

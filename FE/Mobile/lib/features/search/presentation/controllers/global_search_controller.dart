@@ -191,13 +191,15 @@ final recentSearchesProvider =
         RecentSearchesController.new);
 
 class RecentSearchesController extends Notifier<List<String>> {
-  static const prefsKey = 'vl.recent_searches';
+  static const prefsKey = UserDataKeys.recentSearches;
   static const max = 8;
 
   @override
-  List<String> build() =>
-      ref.read(sharedPreferencesProvider).getStringList(prefsKey) ??
-      const <String>[];
+  List<String> build() {
+    ref.watch(sessionEndCountProvider);
+    return ref.read(sharedPreferencesProvider).getStringList(prefsKey) ??
+        const <String>[];
+  }
 
   Future<void> _save(List<String> next) async {
     state = next;
@@ -234,11 +236,12 @@ final recentViewsProvider =
         RecentViewsController.new);
 
 class RecentViewsController extends Notifier<List<RecentView>> {
-  static const prefsKey = 'vl.recent_views';
+  static const prefsKey = UserDataKeys.recentViews;
   static const max = 10;
 
   @override
   List<RecentView> build() {
+    ref.watch(sessionEndCountProvider);
     final raw =
         ref.read(sharedPreferencesProvider).getStringList(prefsKey) ?? const [];
     return [

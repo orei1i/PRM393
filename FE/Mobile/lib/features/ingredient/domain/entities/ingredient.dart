@@ -28,6 +28,8 @@ enum IngredientCategory {
   final String label;
 
   static IngredientCategory? fromApi(String? value) {
+    // The real BE's name for it.
+    if (value == 'vegetable') return veg;
     for (final c in values) {
       if (c.apiValue == value) return c;
     }

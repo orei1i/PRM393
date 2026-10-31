@@ -1,0 +1,10 @@
+{
+ "success": true,
+ "message": "Tải video lên thành công.",
+ "data": {
+  "mediaUrl": "/uploads/videos/347a57688ff142538c6ce2546b6220a1.mp4",
+  "durationSeconds": 15,
+  "sizeBytes": 2072
+ },
+ "statusCode": 200
+}

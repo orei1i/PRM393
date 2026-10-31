@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../data/models/meal_plan_model.dart';
@@ -89,7 +90,9 @@ class _UserRecipeFormScreenState extends ConsumerState<UserRecipeFormScreen> {
                   name: _name.text.trim(),
                   calories: int.parse(_kcal.text.trim()),
                   prepMinutes: int.tryParse(_minutes.text.trim()),
-                  servings: int.tryParse(_servings.text.trim()),
+                  servings: BackendModules.recipeServings
+                      ? int.tryParse(_servings.text.trim())
+                      : null,
                   ingredients: [
                     for (final row in _ingredients)
                       RecipeIngredientInput(
@@ -189,26 +192,31 @@ class _UserRecipeFormScreenState extends ConsumerState<UserRecipeFormScreen> {
                     ),
                   ),
                 ),
-                SizedBox(
-                  width: 140,
-                  child: TextFormField(
-                    controller: _servings,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    validator: (v) =>
-                        _range(v, 1, 20, '1–20 phần', optional: true),
-                    decoration: const InputDecoration(
-                      labelText: 'Số phần ăn',
-                      border: OutlineInputBorder(),
+                // The BE has no such field: it would be dropped silently.
+                if (BackendModules.recipeServings)
+                  SizedBox(
+                    width: 140,
+                    child: TextFormField(
+                      controller: _servings,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      validator: (v) =>
+                          _range(v, 1, 20, '1–20 phần', optional: true),
+                      decoration: const InputDecoration(
+                        labelText: 'Số phần ăn',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
                   ),
-                ),
               ],
             ),
             const SizedBox(height: 20),
             Text('Nguyên liệu', style: context.textStyles.titleMedium),
             const SizedBox(height: 4),
-            Text('Ghi định lượng cho số phần ở trên, VD: 200 g, 2 quả.',
+            Text(
+                BackendModules.recipeServings
+                    ? 'Ghi định lượng cho số phần ở trên, VD: 200 g, 2 quả.'
+                    : 'Ghi định lượng cho cả công thức, VD: 200 g, 2 quả. Máy chủ chưa lưu số phần ăn.',
                 style: muted),
             const SizedBox(height: 10),
             for (final (i, row) in _ingredients.indexed)

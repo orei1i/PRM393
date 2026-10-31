@@ -18,9 +18,14 @@ enum HealthGoal {
   /// Applied to the TDEE for the daily kcal target (−15 % / 0 / +5 % / +10 %).
   final double energyAdjustment;
 
-  static HealthGoal fromApi(String? value) =>
-      values.firstWhere((g) => g.apiValue == value,
-          orElse: () => HealthGoal.maintain);
+  /// Also reads the server's short values (`lose`, `gain`) so both sides
+  /// aim at the same calorie target; anything unknown → [maintain].
+  static HealthGoal fromApi(String? value) => switch (value?.trim()) {
+        'lose' => HealthGoal.loseWeight,
+        'gain' => HealthGoal.gainWeight,
+        final v => values.firstWhere((g) => g.apiValue == v,
+            orElse: () => HealthGoal.maintain),
+      };
 }
 
 enum HealthSyncProvider {
@@ -77,6 +82,7 @@ class HealthProfile {
     this.mealPattern = MealPattern.standard,
     double? bmr,
     double? tdee,
+    this.targetCalories,
   })  : _bmr = bmr,
         _tdee = tdee;
 
@@ -114,6 +120,9 @@ class HealthProfile {
   final double? _bmr;
   final double? _tdee;
 
+  /// kcal/day computed by the real BE; `null` from the mock and in the editor.
+  final int? targetCalories;
+
   /// "29 tuổi" this calendar year.
   int? get age => birthYear == null ? null : Energy.ageFrom(birthYear!);
 
@@ -137,9 +146,10 @@ class HealthProfile {
   double? get tdee =>
       hasEnergyInputs ? Energy.tdee(bmr!, activityLevel) : _tdee;
 
-  /// kcal/day the planner aims at: [tdee] adjusted for the [goal], to the
-  /// nearest 10 kcal.
+  /// kcal/day the planner aims at: the server's [targetCalories], else [tdee]
+  /// adjusted for the [goal], to the nearest 10 kcal.
   int? get dailyKcalTarget {
+    if (targetCalories case final target?) return target;
     final t = tdee;
     return t == null ? null : Energy.dailyTarget(t, goal.energyAdjustment);
   }

@@ -12,16 +12,37 @@ npm install
 npm run dev        # http://localhost:3000 → /login → /overview
 ```
 
-Khi dùng dữ liệu mô phỏng, đăng nhập bằng `admin@veganlife.vn` / `admin123`. Thử `minhanh.nguyen@gmail.com` (mật khẩu bất kỳ, ≥ 6 ký tự) để xem màn hình chặn tài khoản thành viên.
+Khi dùng dữ liệu mô phỏng (mặc định), đăng nhập bằng `admin@veganlife.vn` / `admin123`. Thử `minhanh.nguyen@gmail.com` (mật khẩu bất kỳ, ≥ 6 ký tự) để xem màn hình chặn tài khoản thành viên.
 
 `npm run build` chạy luôn type-check và lint. Font tự host (`@fontsource-variable/*`).
 
 ## Cấu hình (`.env.local`)
 
 ```bash
-NEXT_PUBLIC_USE_MOCK_DATA=true                       # false → gọi API ASP.NET Core
+NEXT_PUBLIC_USE_MOCK_DATA=true                       # false → chế độ kết hợp, xem bên dưới
 NEXT_PUBLIC_API_BASE_URL=http://localhost:5001/api/v1  # cổng trong BE launchSettings.json
+NEXT_PUBLIC_REAL_MODULES=                            # thêm module thật, ví dụ comments,ads
+NEXT_PUBLIC_MOCK_MODULES=                            # đưa module về mock, ví dụ content
 ```
+
+Biến `NEXT_PUBLIC_*` được gắn vào bản build, nên đổi giá trị phải build lại (biến môi trường của shell thắng `.env.local`).
+
+## Chế độ kết hợp (`NEXT_PUBLIC_USE_MOCK_DATA=false`)
+
+Mọi công tắc nằm trong `src/lib/backend_modules.ts` (`isMock("users")`). Tên module: `auth, users, content, comments, chefs, catalog, overview, moderation, telemetry, aiModels, knowledge, commerce, bookings, payouts, restaurants, ads`. Module `auth` là mock thì mọi module đều mock. Nếu một module nằm ở cả hai danh sách thì nó là mock.
+
+| Module | Khi tắt mock | Ghi chú |
+|---|---|---|
+| `auth` | Thật: POST `/auth/login` | **BE đang chặn Admin** (lỗi B2: trả 403 cho mọi tài khoản Admin). Form hiện "Máy chủ chưa cho phép tài khoản quản trị đăng nhập. Hãy báo nhóm BE." Tài khoản thành viên đăng nhập được ở BE nhưng bị console từ chối |
+| `users` | Thật: GET `/users`, DELETE `/users/{id}` | Lọc và tìm ở phía client. Nút đổi vai trò và trạng thái bị khoá ("Máy chủ chưa hỗ trợ thao tác này."). BE không có số bài viết, số báo cáo, hoạt động gần nhất nên hiện "—" |
+| `content` | Thật: GET `/posts?page&pageSize=50` (lặp đến hết `totalPages`), DELETE `/posts/{id}` | BE chỉ trả bài đã đăng, nên các tab Chờ duyệt, Bị báo cáo, Đã ẩn, Bị từ chối luôn trống. Ẩn, ghim, duyệt, chạy lại AI bị khoá. Drawer có liên kết "Xem tệp đính kèm" (URL tương đối được ghép origin của API) |
+| Các module còn lại | Vẫn mock, hoạt động như cũ | BE chưa có route `/admin/*` tương ứng. Liên kết từ trang mock sang bài mock (`/content?open=p_…`) sẽ báo "Không tìm thấy bài viết" |
+
+Nhãn ở header: "Dữ liệu mô phỏng" (toàn mock), "Kết hợp: máy chủ + mô phỏng" (một phần thật), "Production" (toàn bộ thật).
+
+Lỗi từ BE luôn hiện tiếng Việt: dùng `message` của envelope, rồi `errors` của ProblemDetails, rồi thông báo theo mã HTTP. `title` của ProblemDetails là tiếng Anh nên không hiển thị.
+
+**Chưa thử được với BE thật:** danh sách và xoá của `users`, `content` khi đăng nhập admin, vì B2 chặn admin. Sau khi BE thêm `POST /auth/admin/login`, đổi đường dẫn trong `authApi.login` (`src/lib/admin_api.ts`), đặt role Admin cho một tài khoản thử trên DB thử rồi kiểm tra lại hai module này.
 
 ## Màn hình
 
@@ -62,11 +83,11 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:5001/api/v1  # cổng trong BE launchS
 - ID: sơ đồ SQL dùng `INT`, FE luôn giữ id dạng chuỗi (`readId`) và gửi lại dạng số khi là số (`apiId` trong `src/lib/ids.ts`).
 - Tên trường JSON = camelCase của tên cột SQL (`media_type` → `mediaType`, `transaction_ref` → `transactionRef`…).
 
-BE hiện mới có `UsersController` (`GET/PUT/DELETE /api/v1/users`). **Chưa có `POST /auth/login`** nên khi tắt mock sẽ không đăng nhập được. Mọi endpoint còn lại BE cần thêm:
+Danh sách dưới đây là hợp đồng đầy đủ mà console cần. BE hiện chỉ có phần nêu ở mục "Chế độ kết hợp"; mọi endpoint còn lại BE cần thêm:
 
 | Nhóm | Endpoint (dưới `/api/v1`) | File mô tả |
 |---|---|---|
-| Đăng nhập | POST `/auth/login` | `admin_api.ts` |
+| Đăng nhập | POST `/auth/login` (**đã có**, nhưng chặn Admin) | `admin_api.ts` |
 | Người dùng | GET `/users`, DELETE `/users/{id}` (**đã có**); PATCH `/users/{id}/role`, PATCH `/users/{id}/status` | `admin_api.ts` |
 | Tổng quan, chuyên gia, danh mục | GET `/admin/overview`; `/admin/chef-applications…`; GET/POST/PATCH/DELETE `/admin/catalog` | `admin_api.ts` |
 | Nội dung | GET `/admin/posts?view=&kind=recipe\|discussion&hasVideo=true&search=` (bài có `restaurant` gắn kèm), POST `/admin/posts/{id}/actions`, POST `/admin/posts/{id}/review`, DELETE `/admin/posts/{id}` | `admin_api.ts` |
@@ -104,7 +125,8 @@ src/
 │   ├── overview/ users/ chefs/ content/ comments/ moderation/ restaurants/ catalog/
 │   ├── orders/ disputes/ payouts/ ads/ knowledge/ ai-models/ telemetry/
 ├── lib/
-│   ├── api_client.ts             # request(), envelope, Bearer, moderation/telemetry/AI models API
+│   ├── backend_modules.ts        # công tắc mock/thật theo từng module
+│   ├── api_client.ts             # request(), envelope, Bearer, lỗi tiếng Việt, moderation/telemetry/AI models API
 │   ├── admin_api.ts              # auth, users, chef applications, content, comments, catalog, overview
 │   ├── knowledge_api.ts, commerce_api.ts, bookings_api.ts, payouts_api.ts, restaurants_api.ts, ads_api.ts
 │   ├── ids.ts                    # readId / apiId (INT ↔ chuỗi)
@@ -125,4 +147,4 @@ src/
 - Bài gắn quán trùng mock di động: `p_video_cha_lua` → Quán Chay An Lạc (`rs_an_lac`), `p_checkin_hanh_tam` → Bún Riêu Chay Hạnh Tâm (`rs_hanh_tam`). Phản hồi bình luận mẫu: `c_02`, `c_26` trả lời `c_01`; `c_07`, `c_27` trả lời `c_06`…
 - Dữ liệu mẫu đáng chú ý: bài chờ duyệt `p_me_pending_celery`, `p_detox_tea`, `p_flan`; tài liệu chờ duyệt `kd_tam_2`, `kd_thu_ha_2`, `kd_chau_1`; yêu cầu rút `wd_tam_3` (5.100.000đ, cần duyệt) và `wd_ha_3` (tự chuyển sau ~3 phút); mô hình quét ảnh mới có 7 nhãn nên hiện "Chưa đủ nhãn".
 - Mở tài khoản của chính bạn ở `/users` để thấy các thao tác nguy hiểm bị khoá.
-- `/catalog`: thêm một mã đã có (ví dụ `main`) sẽ báo trùng; mục đang được dùng thì không xoá được, chỉ tắt.
+- `/catalog`: thêm một mã đã có (ví dụ `main`) sẽ báo trùng; mục đang được dùng thì không xoá được, chỉ tắt (có hộp xác nhận); xoá mục chưa dùng cũng phải xác nhận.

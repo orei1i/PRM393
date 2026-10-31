@@ -1,0 +1,72 @@
+{
+ "success": true,
+ "message": null,
+ "data": {
+  "items": [
+   {
+    "id": "6ae5a8876c01fc07a925777b",
+    "type": "recipe",
+    "author": {
+     "id": "6ae5a8876c01fc07a9257776",
+     "fullName": "FE M1",
+     "isVerifiedChef": false
+    },
+    "title": "Bánh xèo chay giòn rụm",
+    "body": "Xem video để biết cách đổ bánh.",
+    "tags": [],
+    "coverSeed": "6ae5a8876c01fc07a925777b",
+    "likeCount": 0,
+    "commentCount": 0,
+    "likedByMe": false,
+    "savedByMe": false,
+    "isPinned": false,
+    "createdAt": "2026-10-31T08:36:23.431Z",
+    "status": "Published",
+    "mediaType": "Video",
+    "mediaUrl": "/uploads/videos/347a57688ff142538c6ce2546b6220a1.mp4",
+    "video": {
+     "id": "6ae5a8876c01fc07a925777b",
+     "durationSeconds": 0,
+     "aiStatus": "ready"
+    },
+    "restaurant": null,
+    "updatedAt": "2026-10-31T08:36:23.431Z"
+   },
+   {
+    "id": "6ae598a096695f5c139fa9dd",
+    "type": "recipe",
+    "author": {
+     "id": "6ae598a096695f5c139fa9d1",
+     "fullName": "FE Three",
+     "isVerifiedChef": false
+    },
+    "title": "Co video",
+    "body": "Noi dung",
+    "tags": [],
+    "coverSeed": "6ae598a096695f5c139fa9dd",
+    "likeCount": 0,
+    "commentCount": 0,
+    "likedByMe": false,
+    "savedByMe": false,
+    "isPinned": false,
+    "createdAt": "2026-10-31T07:28:32.831Z",
+    "status": "Published",
+    "mediaType": "Video",
+    "mediaUrl": "/uploads/videos/15a292826d8d4b7e92c3391d4f0dd675.mp4",
+    "video": {
+     "id": "6ae598a096695f5c139fa9dd",
+     "durationSeconds": 0,
+     "aiStatus": "ready"
+    },
+    "restaurant": null,
+    "updatedAt": "2026-10-31T07:28:32.831Z"
+   }
+  ],
+  "nextCursor": null,
+  "page": 1,
+  "pageSize": 20,
+  "totalItems": 2,
+  "totalPages": 1
+ },
+ "statusCode": 200
+}

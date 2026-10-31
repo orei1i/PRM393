@@ -2,7 +2,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/config/env.dart';
+import '../../../core/config/backend_modules.dart';
 import '../../../core/network/api_endpoints.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
@@ -15,6 +15,9 @@ import 'models/pantry_model.dart';
 
 /// The member's fridge ("Nguyên liệu trong tủ"), `user_ingredients`: vegan
 /// foods only.
+///
+/// A food that isn't vegan is refused by the app on both sides: the real BE
+/// would store it as vegan.
 abstract interface class PantryApiService {
   Future<List<PantryItemDto>> getPantry();
 
@@ -24,6 +27,9 @@ abstract interface class PantryApiService {
 
   Future<void> removeItem(String id);
 
+  /// "Sửa số lượng & hạn dùng"; returns the updated row.
+  Future<PantryItemDto> updateItem(String id, UpdatePantryItemDto request);
+
   /// "Hoàn tác" after [removeItem]: saves [item] again (same name and scan
   /// time) and returns the whole list. [index] is where the member saw it
   /// in that list, so it comes back there rather than on top like a new
@@ -32,6 +38,20 @@ abstract interface class PantryApiService {
       {required int index});
 
   Future<void> clear();
+}
+
+/// Same check and same message as the scanner, on both sides.
+void _refuseNonVegan(List<AddPantryItemDto> items) {
+  for (final item in items) {
+    if (!classifyVegan(item.ingredient).isVegan) {
+      throw ApiException(
+        message:
+            '${item.ingredient.trim()} không thuần chay nên không lưu vào tủ.',
+        statusCode: 422,
+        code: 'not_vegan',
+      );
+    }
+  }
 }
 
 class RemotePantryApiService implements PantryApiService {
@@ -52,17 +72,29 @@ class RemotePantryApiService implements PantryApiService {
         return _items(res.data);
       });
 
+  /// The BE answers with the touched rows only, so the list is read again.
   @override
   Future<List<PantryItemDto>> addItems(List<AddPantryItemDto> items) =>
       guardApi(() async {
-        final res = await _dio.post<List<dynamic>>(ApiEndpoints.myIngredients,
+        _refuseNonVegan(items);
+        await _dio.post<List<dynamic>>(ApiEndpoints.myIngredients,
             data: {'items': items.map((i) => i.toJson()).toList()});
+        final res = await _dio.get<List<dynamic>>(ApiEndpoints.myIngredients);
         return _items(res.data);
       });
 
   @override
   Future<void> removeItem(String id) => guardApi(() async {
         await _dio.delete<void>(ApiEndpoints.myIngredient(id));
+      });
+
+  @override
+  Future<PantryItemDto> updateItem(String id, UpdatePantryItemDto request) =>
+      guardApi(() async {
+        final res = await _dio.put<Map<String, dynamic>>(
+            ApiEndpoints.myIngredient(id),
+            data: request.toJson());
+        return PantryItemDto.fromJson(res.data!);
       });
 
   /// Same request as [addItems]: the API lists the fridge in its own order,
@@ -143,16 +175,7 @@ class MockPantryRepository implements PantryApiService {
       throw const ApiException(
           message: 'Chưa lưu được vào tủ lạnh. Thử lại nhé.', statusCode: 503);
     }
-    for (final item in items) {
-      if (!classifyVegan(item.ingredient).isVegan) {
-        throw ApiException(
-          message:
-              '${item.ingredient.trim()} không thuần chay nên không lưu vào tủ.',
-          statusCode: 422,
-          code: 'not_vegan',
-        );
-      }
-    }
+    _refuseNonVegan(items);
   }
 
   static String _newId() =>
@@ -190,6 +213,31 @@ class MockPantryRepository implements PantryApiService {
     _pantryOf(userId).removeWhere((p) => p.id == id);
   }
 
+  @override
+  Future<PantryItemDto> updateItem(
+      String id, UpdatePantryItemDto request) async {
+    await mockDelay(300);
+    _requireMember();
+    final pantry = _pantryOf(userId);
+    final i = pantry.indexWhere((p) => p.id == id);
+    if (i < 0) {
+      throw const ApiException(
+          message: 'Không tìm thấy nguyên liệu.', statusCode: 404);
+    }
+    final old = pantry[i];
+    return pantry[i] = PantryItemDto(
+      id: old.id,
+      ingredient: old.ingredient,
+      scannedAt: old.scannedAt,
+      ingredientId: old.ingredientId,
+      category: old.category,
+      caloriesPer100g: old.caloriesPer100g,
+      quantity: request.quantity,
+      unit: request.unit,
+      expiryDate: request.expiryDate ?? old.expiryDate,
+    );
+  }
+
   /// Back at [index] (clamped). Already there again (scanned or typed in
   /// meanwhile) → that row stays where it is.
   @override
@@ -218,7 +266,9 @@ class MockPantryRepository implements PantryApiService {
 }
 
 final pantryApiProvider = Provider<PantryApiService>((ref) {
-  final userId = ref.watch(plannerUserIdProvider);
-  if (Env.useMockData) return MockPantryRepository(userId: userId);
+  final userId = ref.watch(plannerPersonaIdProvider);
+  if (BackendModules.isMock(BackendModule.pantry)) {
+    return MockPantryRepository(userId: userId);
+  }
   return RemotePantryApiService(ref.watch(dioProvider));
 });
