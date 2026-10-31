@@ -38,6 +38,7 @@ namespace InfrastructureLayer.Repository
 
         public async Task DeleteAsync(string id)
         {
+            if (string.IsNullOrWhiteSpace(id) || !MongoDB.Bson.ObjectId.TryParse(id, out _)) return;
             await _collection.DeleteOneAsync(x => x.Id == id);
         }
 
@@ -48,6 +49,7 @@ namespace InfrastructureLayer.Repository
 
         public async Task<T?> FindByIdAsync(string id)
         {
+            if (string.IsNullOrWhiteSpace(id) || !MongoDB.Bson.ObjectId.TryParse(id, out _)) return null;
             return await _collection.Find(x => x.Id == id).FirstOrDefaultAsync();
         }
 
@@ -63,6 +65,7 @@ namespace InfrastructureLayer.Repository
 
         public async Task UpdateAsync(string id, T entity)
         {
+            if (string.IsNullOrWhiteSpace(id) || !MongoDB.Bson.ObjectId.TryParse(id, out _)) return;
             await _collection.ReplaceOneAsync(x => x.Id == id, entity);
         }
 

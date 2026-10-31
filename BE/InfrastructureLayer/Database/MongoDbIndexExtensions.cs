@@ -82,6 +82,14 @@ namespace InfrastructureLayer.Database
                     new CreateIndexOptions { Unique = true });
                 await context.MealPlans.Indexes.CreateOneAsync(mealPlanUserWeekIndex);
 
+                // 12. AiLogs
+                var aiLogTaskIndex = new CreateIndexModel<AiLog>(
+                    Builders<AiLog>.IndexKeys.Ascending(a => a.TaskType).Descending(a => a.CreatedAt));
+                var aiLogScanIndex = new CreateIndexModel<AiLog>(
+                    Builders<AiLog>.IndexKeys.Ascending(a => a.ScanId),
+                    new CreateIndexOptions { Sparse = true });
+                await context.AiLogs.Indexes.CreateManyAsync(new[] { aiLogTaskIndex, aiLogScanIndex });
+
                 logger?.LogInformation("Đã khởi tạo thành công tất cả chỉ mục MongoDB.");
             }
             catch (Exception ex)

@@ -127,23 +127,32 @@ namespace ApplicationLayer.Services
                 throw new NotFoundException($"Không tìm thấy bài viết với id: {postId}");
             }
 
-            if (!string.IsNullOrEmpty(request.ParentId))
+            string? validParentId = null;
+            var rawParentId = request.ParentId?.Trim();
+            if (!string.IsNullOrWhiteSpace(rawParentId)
+                && !rawParentId.Equals("string", StringComparison.OrdinalIgnoreCase)
+                && MongoDB.Bson.ObjectId.TryParse(rawParentId, out _))
             {
-                var parentComment = await _commentRepo.FindByIdAsync(request.ParentId);
+                validParentId = rawParentId;
+            }
+
+            if (!string.IsNullOrEmpty(validParentId))
+            {
+                var parentComment = await _commentRepo.FindByIdAsync(validParentId);
                 if (parentComment == null || parentComment.IsDeleted)
                 {
                     throw new NotFoundException("Không tìm thấy bình luận gốc để phản hồi.");
                 }
 
                 // Tăng reply count cho bình luận gốc
-                await _commentRepo.IncrementFieldAsync(request.ParentId, c => c.ReplyCount, 1);
+                await _commentRepo.IncrementFieldAsync(validParentId, c => c.ReplyCount, 1);
             }
 
             var comment = new Comment
             {
                 PostId = postId,
                 UserId = currentUserId,
-                ParentId = request.ParentId,
+                ParentId = validParentId,
                 Content = request.Content.Trim(),
                 ReplyCount = 0,
                 CreatedAt = DateTime.UtcNow

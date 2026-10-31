@@ -1,4 +1,4 @@
-﻿# 🌿 VeganLife Backend
+# 🌿 VeganLife Backend
 
 Backend API cho ứng dụng **VeganLife** — hệ thống quản lý chuỗi nhà hàng thuần chay (franchise), xây dựng bằng **ASP.NET Core** theo kiến trúc **Clean Architecture** (N-Layer).
 
@@ -109,16 +109,24 @@ Sao chép ppsettings.json và điền giá trị thật. **Không commit secret
 
 ---
 
-## 🚀 Chạy ứng dụng
+## 🚀 Hướng Dẫn Thiết Lập & Chạy Ứng Dụng
 
+👉 Xem hướng dẫn chi tiết từng bước tại: [**`SETUP_HUONG_DAN_CHAY_BACKEND.md`**](SETUP_HUONG_DAN_CHAY_BACKEND.md)  
+👉 Xem toàn bộ bộ Test Cases API tại: [**`HUONG_DAN_TEST_TOAN_DIEN_BE_API.md`**](HUONG_DAN_TEST_TOAN_DIEN_BE_API.md)
+
+### Tóm tắt khởi chạy nhanh (3 bước):
 ```bash
-# Chạy trực tiếp
+# 1. Bật Docker Desktop, sau đó chạy database (MongoDB & Redis):
+docker compose up -d mongodb redis
+
+# 2. Biên dịch dự án:
+dotnet build
+
+# 3. Chạy Backend:
 cd ControllerLayer
 dotnet run
-
-# Chạy với Docker Compose
-docker-compose up --build
 ```
+Mở Swagger UI tại: `http://localhost:5001/swagger` (hoặc `http://localhost:7211/swagger`)
 
 ---
 
