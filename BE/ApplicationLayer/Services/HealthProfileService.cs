@@ -15,13 +15,21 @@ namespace ApplicationLayer.Services
     {
         private readonly IGenericRepository<HealthProfile> _profileRepo;
         private readonly IGenericRepository<HealthMetricLog> _logRepo;
+        private readonly IGenericRepository<MealPlan> _mealPlanRepo;
+
+        private static readonly HashSet<string> ValidGoals = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "lose_weight", "maintain", "lean_muscle", "gain_weight", "eat_clean", "gain_muscle"
+        };
 
         public HealthProfileService(
             IGenericRepository<HealthProfile> profileRepo,
-            IGenericRepository<HealthMetricLog> logRepo)
+            IGenericRepository<HealthMetricLog> logRepo,
+            IGenericRepository<MealPlan> mealPlanRepo)
         {
             _profileRepo = profileRepo;
             _logRepo = logRepo;
+            _mealPlanRepo = mealPlanRepo;
         }
 
         public async Task<HealthProfileResponse> GetMyHealthProfileAsync(string userId)
@@ -37,15 +45,39 @@ namespace ApplicationLayer.Services
 
         public async Task<HealthProfileResponse> UpdateMyHealthProfileAsync(string userId, UpdateHealthProfileRequest request)
         {
+            // B10: Validate whitelist goal khi ghi
+            if (!string.IsNullOrWhiteSpace(request.Goal) && !ValidGoals.Contains(request.Goal.Trim()))
+            {
+                throw new BadRequestException("Mục tiêu dinh dưỡng không hợp lệ. Các mục tiêu hợp lệ: lose_weight, maintain, lean_muscle, gain_weight, eat_clean, gain_muscle.");
+            }
+
+            var goalToSave = string.IsNullOrWhiteSpace(request.Goal) ? "maintain" : request.Goal.Trim().ToLowerInvariant();
             var existing = await _profileRepo.FirstOrDefaultAsync(x => x.UserId == userId && !x.IsDeleted);
 
+            // B9: Gender và BirthYear bắt buộc khi tạo lần đầu, cho phép null khi cập nhật
+            if (existing == null)
+            {
+                if (string.IsNullOrWhiteSpace(request.Gender) || !request.BirthYear.HasValue)
+                {
+                    throw new BadRequestException("Giới tính và năm sinh là bắt buộc khi tạo hồ sơ lần đầu.");
+                }
+            }
+
+            var effectiveGender = !string.IsNullOrWhiteSpace(request.Gender)
+                ? request.Gender
+                : (existing?.Gender ?? "Other");
+
+            var effectiveBirthYear = (request.BirthYear.HasValue && request.BirthYear.Value > 0)
+                ? request.BirthYear.Value
+                : (existing?.BirthYear ?? 1998);
+
             var (bmr, tdee, targetCalories, bmi, bmiCategory) = EnergyCalculator.ComputeAll(
-                request.Gender,
-                request.BirthYear,
+                effectiveGender,
+                effectiveBirthYear,
                 request.HeightCm,
                 request.WeightKg,
                 request.ActivityLevel,
-                request.Goal);
+                goalToSave);
 
             var allergyKeys = new List<string>();
             if (request.Allergies != null)
@@ -73,9 +105,9 @@ namespace ApplicationLayer.Services
                     WeightKg = request.WeightKg,
                     Bmi = bmi,
                     BmiCategory = bmiCategory,
-                    Goal = request.Goal,
-                    Gender = request.Gender,
-                    BirthYear = request.BirthYear,
+                    Goal = goalToSave,
+                    Gender = effectiveGender,
+                    BirthYear = effectiveBirthYear,
                     ActivityLevel = request.ActivityLevel,
                     MealPattern = request.MealPattern?.Any() == true
                         ? request.MealPattern
@@ -96,9 +128,15 @@ namespace ApplicationLayer.Services
                 existing.WeightKg = request.WeightKg;
                 existing.Bmi = bmi;
                 existing.BmiCategory = bmiCategory;
-                existing.Goal = request.Goal;
-                existing.Gender = request.Gender;
-                existing.BirthYear = request.BirthYear;
+                existing.Goal = goalToSave;
+                if (!string.IsNullOrWhiteSpace(request.Gender))
+                {
+                    existing.Gender = request.Gender;
+                }
+                if (request.BirthYear.HasValue && request.BirthYear.Value > 0)
+                {
+                    existing.BirthYear = request.BirthYear.Value;
+                }
                 existing.ActivityLevel = request.ActivityLevel;
                 if (request.MealPattern?.Any() == true)
                 {
@@ -131,7 +169,73 @@ namespace ApplicationLayer.Services
                 await _logRepo.CreateAsync(metricLog);
             }
 
+            // B8: Đồng bộ DailyTargets và Goal vào thực đơn tuần hiện tại nếu có
+            try
+            {
+                var vnNow = DateTime.UtcNow.AddHours(7).Date;
+                int diff = (7 + (vnNow.DayOfWeek - DayOfWeek.Monday)) % 7;
+                var currentMonday = vnNow.AddDays(-1 * diff).ToString("yyyy-MM-dd");
+
+                var currentPlan = await _mealPlanRepo.FirstOrDefaultAsync(p => p.UserId == userId && p.StartDate == currentMonday && !p.IsDeleted);
+                if (currentPlan != null)
+                {
+                    currentPlan.Goal = existing.Goal;
+                    currentPlan.DailyTargets.Calories = existing.TargetCalories;
+                    currentPlan.DailyTargets.ProteinG = Math.Round(existing.TargetCalories * 0.15 / 4.0, 1);
+                    currentPlan.DailyTargets.CarbsG = Math.Round(existing.TargetCalories * 0.55 / 4.0, 1);
+                    currentPlan.DailyTargets.FatG = Math.Round(existing.TargetCalories * 0.30 / 9.0, 1);
+                    currentPlan.UpdatedAt = DateTime.UtcNow;
+                    await _mealPlanRepo.UpdateAsync(currentPlan.Id, currentPlan);
+                }
+            }
+            catch
+            {
+                // B8: Nếu chưa có thực đơn hoặc có lỗi query, bỏ qua
+            }
+
             return MapToResponse(existing);
+        }
+
+        public async Task<HealthMetricLogResponse> LogMetricsAsync(string userId, LogMetricsRequest request)
+        {
+            var profile = await _profileRepo.FirstOrDefaultAsync(p => p.UserId == userId && !p.IsDeleted);
+            var height = request.HeightCm ?? profile?.HeightCm ?? 170.0;
+            var weight = request.WeightKg ?? profile?.WeightKg ?? 65.0;
+            var bmi = EnergyCalculator.CalculateBmi(height, weight);
+
+            var log = new HealthMetricLog
+            {
+                UserId = userId,
+                HeightCm = height,
+                WeightKg = weight,
+                Bmi = bmi,
+                WaistCm = request.WaistCm,
+                BodyFatPct = request.BodyFatPct,
+                LoggedAt = DateTime.UtcNow
+            };
+
+            await _logRepo.CreateAsync(log);
+
+            if (profile != null && (request.WeightKg.HasValue || request.HeightCm.HasValue))
+            {
+                if (request.WeightKg.HasValue) profile.WeightKg = request.WeightKg.Value;
+                if (request.HeightCm.HasValue) profile.HeightCm = request.HeightCm.Value;
+                profile.Bmi = bmi;
+                profile.BmiCategory = EnergyCalculator.CategorizeBmi(bmi);
+                profile.UpdatedAt = DateTime.UtcNow;
+                await _profileRepo.UpdateAsync(profile.Id, profile);
+            }
+
+            return new HealthMetricLogResponse
+            {
+                Id = log.Id,
+                HeightCm = log.HeightCm,
+                WeightKg = log.WeightKg,
+                Bmi = log.Bmi,
+                WaistCm = log.WaistCm,
+                BodyFatPct = log.BodyFatPct,
+                LoggedAt = log.LoggedAt
+            };
         }
 
         public async Task<IEnumerable<HealthMetricLogResponse>> GetMetricsHistoryAsync(string userId, int limit = 30)
@@ -149,18 +253,29 @@ namespace ApplicationLayer.Services
                 WeightKg = l.WeightKg,
                 HeightCm = l.HeightCm,
                 Bmi = l.Bmi,
+                WaistCm = l.WaistCm,
+                BodyFatPct = l.BodyFatPct,
                 LoggedAt = l.LoggedAt
             });
         }
 
-        public IEnumerable<AllergenResponse> GetAllergens()
+        // ─── B20: Lọc dị ứng theo query q ─────────────────────────────────────
+        public IEnumerable<AllergenResponse> GetAllergens(string? q = null)
         {
-            return AllergyMatcher.StandardAllergenIds.Select(id => new AllergenResponse
+            var all = AllergyMatcher.StandardAllergenIds.Select(id => new AllergenResponse
             {
                 AllergenId = id,
                 Name = AllergyMatcher.StandardAllergenLabels.TryGetValue(id, out var label) ? label : id,
                 Description = $"Dị ứng liên quan đến {id}"
             });
+
+            if (string.IsNullOrWhiteSpace(q))
+                return all;
+
+            var qNorm = AllergyMatcher.RemoveDiacritics(q.Trim()).ToLowerInvariant();
+            return all.Where(a =>
+                AllergyMatcher.RemoveDiacritics(a.AllergenId).ToLowerInvariant().Contains(qNorm) ||
+                AllergyMatcher.RemoveDiacritics(a.Name).ToLowerInvariant().Contains(qNorm));
         }
 
         private static HealthProfileResponse MapToResponse(HealthProfile profile)
@@ -173,7 +288,8 @@ namespace ApplicationLayer.Services
                 WeightKg = profile.WeightKg,
                 Bmi = profile.Bmi,
                 BmiCategory = profile.BmiCategory,
-                Goal = profile.Goal,
+                // B10: Fallback về maintain nếu gặp giá trị lạ trong DB cũ
+                Goal = ValidGoals.Contains(profile.Goal) ? profile.Goal : "maintain",
                 Gender = profile.Gender,
                 BirthYear = profile.BirthYear,
                 ActivityLevel = profile.ActivityLevel,
@@ -191,4 +307,3 @@ namespace ApplicationLayer.Services
         }
     }
 }
-

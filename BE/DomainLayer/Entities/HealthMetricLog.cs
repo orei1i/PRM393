@@ -15,7 +15,10 @@ namespace DomainLayer.Entities
 
         public double Bmi { get; set; }
 
+        public double? WaistCm { get; set; }
+
+        public double? BodyFatPct { get; set; }
+
         public DateTime LoggedAt { get; set; } = DateTime.UtcNow;
     }
 }
-

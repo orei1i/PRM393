@@ -21,5 +21,9 @@ namespace DomainLayer.Entities
         public string? GoogleId { get; set; }
 
         public string Role { get; set; } = "User";
+
+        public string? RefreshTokenHash { get; set; }
+
+        public DateTime? RefreshTokenExpiresAt { get; set; }
     }
 }

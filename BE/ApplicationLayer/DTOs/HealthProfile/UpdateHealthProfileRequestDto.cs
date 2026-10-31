@@ -13,10 +13,10 @@ namespace ApplicationLayer.DTOs.HealthProfile
 
         public string Goal { get; set; } = "maintain";
 
-        public string Gender { get; set; } = "Other";
+        public string? Gender { get; set; }
 
         [Range(1920, 2015, ErrorMessage = "Năm sinh không hợp lệ (13–100 tuổi).")]
-        public int BirthYear { get; set; } = 1998;
+        public int? BirthYear { get; set; }
 
         public string ActivityLevel { get; set; } = "light";
 
@@ -27,4 +27,3 @@ namespace ApplicationLayer.DTOs.HealthProfile
         public List<string>? DietaryRestrictions { get; set; }
     }
 }
-

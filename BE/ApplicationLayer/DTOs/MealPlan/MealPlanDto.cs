@@ -29,7 +29,7 @@ namespace ApplicationLayer.DTOs.MealPlan
         public double? FiberG { get; set; }
         public List<string> Allergens { get; set; } = new();
         public List<string> DietTags { get; set; } = new();
-        public int PrepMinutes { get; set; }
+        public int? PrepMinutes { get; set; }
         public string? ImageUrl { get; set; }
         public string Source { get; set; } = "ai";
         public string? SourceName { get; set; }
@@ -71,6 +71,9 @@ namespace ApplicationLayer.DTOs.MealPlan
         public string Date { get; set; } = string.Empty;
         public string Slot { get; set; } = string.Empty;
         public string RecipeId { get; set; } = string.Empty;
+        public string? Source { get; set; }
+        public string? SourceName { get; set; }
+        public double? Portion { get; set; }
     }
 
     public class AddMealRequestDto
@@ -79,9 +82,16 @@ namespace ApplicationLayer.DTOs.MealPlan
         public string Slot { get; set; } = string.Empty;
         public string? Source { get; set; } = "manual";
         public string? SourceId { get; set; }
+        public string? RecipeId { get; set; }
+        public string? SourceName { get; set; }
         public string Name { get; set; } = string.Empty;
         public int Calories { get; set; }
-        public int PrepMinutes { get; set; } = 15;
+        public double? ProteinG { get; set; }
+        public double? CarbsG { get; set; }
+        public double? FatG { get; set; }
+        public double? FiberG { get; set; }
+        public double? Portion { get; set; }
+        public int? PrepMinutes { get; set; } = 15;
         public List<string>? Ingredients { get; set; }
         public List<string>? Allergens { get; set; }
     }
@@ -98,4 +108,3 @@ namespace ApplicationLayer.DTOs.MealPlan
         public List<MealPlanDayResponse> Days { get; set; } = new();
     }
 }
-

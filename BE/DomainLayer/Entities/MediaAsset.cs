@@ -16,7 +16,7 @@ namespace DomainLayer.Entities
 
         public long SizeBytes { get; set; }
 
-        public int DurationSeconds { get; set; }
+        public int? DurationSeconds { get; set; }
 
         public int? Width { get; set; }
 

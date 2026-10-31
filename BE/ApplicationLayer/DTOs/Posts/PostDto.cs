@@ -14,7 +14,7 @@ namespace ApplicationLayer.DTOs.Posts
     public class VideoSummaryDto
     {
         public string Id { get; set; } = string.Empty;
-        public int DurationSeconds { get; set; }
+        public int? DurationSeconds { get; set; }
         public string AiStatus { get; set; } = "ready";
     }
 
@@ -70,5 +70,22 @@ namespace ApplicationLayer.DTOs.Posts
         public int PageSize { get; set; }
         public long TotalItems { get; set; }
         public int TotalPages { get; set; }
+    }
+
+    public class AdminReviewPostRequest
+    {
+        public string Decision { get; set; } = "Approve"; // "Approve" | "Reject"
+        public string? Reason { get; set; }
+    }
+
+    public class AdminActionPostRequest
+    {
+        public string Action { get; set; } = "restore"; // "restore" | "unhide" | "hide" | "delete"
+        public string? Reason { get; set; }
+    }
+
+    public class AdminStatusPostRequest
+    {
+        public string Status { get; set; } = "Published"; // "Published" | "Pending" | "Rejected"
     }
 }

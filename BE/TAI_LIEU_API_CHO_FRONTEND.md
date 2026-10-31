@@ -499,5 +499,49 @@ Mọi phản hồi từ Backend (thành công hoặc thất bại) đều đư�
 | **`500 Internal Error`** | Lỗi máy chủ | Lỗi DB hoặc ngoại lệ chưa bắt | Hiển thị: "Đã xảy ra lỗi, vui lòng thử lại sau ít phút." |
 
 ---
+## 10. CÁC ĐIỂM CẬP NHẬT MỚI NHẤT (BACKEND V4 & TOÀN BỘ 34 BUGS + 3 MISSING ITEMS)
+
+### 10.1. Xác thực & Tài khoản Mẫu (Dev)
+* **3 tài khoản mẫu mặc định (môi trường Development)**:
+  - Admin: `admin@veganlife.vn` / `Password123!`
+  - Chef: `chef.hoang@veganlife.vn` / `Password123!`
+  - Member: `minhanh.nguyen@gmail.com` / `Password123!`
+* **Admin Login**: `POST /api/v1/auth/admin/login` dành riêng cho Web Admin (chỉ chấp nhận vai trò Admin).
+* **Refresh Token Rotation**: `POST /api/v1/auth/refresh` với `{ "refreshToken": "..." }` (đổi token mới và thu hồi token cũ).
+* **Đăng xuất**: `POST /api/v1/auth/logout`.
+* **Thống kê User Profile**: `/users/me` trả về `stats.posts` và `stats.likesReceived` tính từ dữ liệu thật.
+
+### 10.2. Hồ sơ Sức khỏe & Catalog
+* **Whitelist Mục tiêu (`goal`)**: Hỗ trợ đầy đủ: `lose_weight`, `maintain`, `lean_muscle`, `gain_weight`, `eat_clean`, `gain_muscle`.
+* **Cập nhật Hồ sơ**: Cho phép bỏ qua `gender` và `birthYear` khi cập nhật (`PUT /health-profile/me`), Backend sẽ giữ nguyên giá trị đã lưu trước đó.
+* **Ghi nhận Chỉ số Cơ thể**: `POST /api/v1/health-profile/me/metrics` nhận `{ "waistCm": 75.5, "bodyFatPct": 18.2, "source": "manual" }`.
+* **Tìm kiếm Dị ứng**: `GET /api/v1/catalog/allergens?q=...` hỗ trợ lọc theo từ khóa tiếng Việt không phân biệt dấu/hoa thường.
+
+### 10.3. Tủ lạnh & Nguyên liệu (Pantry)
+* **Upsert thông minh (Chống nhân đôi số lượng)**: Quét hoặc thêm lại nguyên liệu cùng tên sẽ cập nhật số lượng mới nhất và `scannedAt`, không tự động nhân đôi (+1) như trước.
+* **Phân loại Thuần chay 5 Tầng**: Nhận diện chuẩn xác các thực phẩm có tên chứa từ động vật nhưng là chay (ví dụ: `nấm đùi gà`, `sữa đậu nành`, `bơ đậu phộng`, `bò chay`, `yến mạch` đều là `isVegan: true`). Bắt chính xác từ khóa động vật (`thịt`, `bò`, `cá`, `trứng` -> `isVegan: false`).
+* **Cảnh báo Dị ứng Chuẩn**: `AllergyWarning` tự động kích hoạt khi nguyên liệu khớp với dị ứng chuẩn (`peanut`, `soy`, `gluten`...) hoặc từ khóa tự do.
+
+### 10.4. Thực đơn Tuần & Món ăn (MealPlan)
+* **Gợi ý Món từ Tủ lạnh (Không ghi DB)**: `POST /api/v1/meal-plans/from-ingredients` trả về danh sách công thức phù hợp mà không làm biến đổi thực đơn đang có.
+* **Làm trống Tuần**: `POST /api/v1/meal-plans` gửi `{ "empty": true, "startDate": "YYYY-MM-DD" }` sẽ làm trống toàn bộ các bữa ăn của tuần đã có.
+* **Thời gian UTC+7**: Múi giờ Việt Nam được áp dụng chuẩn xác cho ngày Thứ Hai đầu tuần.
+* **Bảo mật Quyền sở hữu (IDOR Fix)**: Mọi thao tác xem/sửa/xóa/đổi món đều kiểm tra nghiêm ngặt `UserId`.
+* **Lấy chi tiết Món ăn**: `GET /api/v1/recipes/{id}`.
+* **Bổ sung trường DTO**: `SwapMealRequestDto` và `AddMealRequestDto` hỗ trợ đầy đủ `Source`, `SourceName`, `Portion`, `ProteinG`, `CarbsG`, `FatG`, `FiberG`, `RecipeId`.
+
+### 10.5. Bảng Tin Cộng Đồng & Quản Trị (Community & Moderation)
+* **Cursor Pagination**: API Feed hỗ trợ cả `cursor` và `limit` (`GET /posts?cursor=...&limit=10`), trả `nextCursor` cho trang tiếp theo.
+* **Toggle Like Không lỗi trùng khóa**: Thả tim, bỏ tim, thả tim lại an toàn tuyệt đối (tự động khôi phục bản ghi thay vì insert trùng).
+* **Đọc Toàn Bộ Phản hồi**: `GET /api/v1/posts/{id}/comments/{commentId}/replies` và `GET /api/v1/comments/{id}/replies` cho phép đọc tất cả các phản hồi từ câu thứ 3 trở đi.
+* **Xóa Bình Luận Phân Nhánh**: Xóa bình luận cha sẽ tự động xóa tất cả phản hồi con và giảm `commentCount` chính xác.
+* **Thời gian Bình Luận**: Bình luận mới tạo có `updatedAt: null`.
+* **Web Admin Kiểm Duyệt Bài Viết**:
+  - `POST /api/v1/admin/posts/{id}/review`: `{ "decision": "Approve" | "Reject" }`
+  - `POST /api/v1/admin/posts/{id}/actions`: `{ "action": "unhide" | "restore" | "hide" | "delete" }`
+  - Khôi phục/duyệt bài tự động đặt lại `reportCount: 0`.
+* **Video Media**: Tải lên video local lưu `durationSeconds: null` (không hardcode 15s). Bài viết video không trả trường `aiStatus` giả khi chưa có pipeline AI.
+
+---
 *Tài liệu được cập nhật tự động theo phiên bản Backend mới nhất của dự án VeganLife.*
 

@@ -165,7 +165,7 @@ namespace ApplicationLayer.Services
             stream.Position = 0;
 
             string finalUrl;
-            int duration = 15;
+            int? duration = null;
             long sizeBytes = file.Length;
             string publicId = $"{Guid.NewGuid():N}";
 

@@ -40,3 +40,7 @@ build_*.txt
 *_err*.txt
 git_status.txt
 deleted_files.txt
+
+# Static file uploads
+**/wwwroot/uploads/*
+!**/wwwroot/uploads/.gitkeep

@@ -16,6 +16,8 @@ namespace ApplicationLayer.Interfaces
         Task<MealPlanDayResponse> RemoveMealAsync(string userId, string planId, string date, string slot);
         Task<IEnumerable<RecipeResponse>> GetSwapSuggestionsAsync(string userId, string planId, string date, string slot, int limit = 3);
 
+        Task<List<RecipeResponse>> SuggestFromIngredientsAsync(string userId);
+        Task<RecipeResponse> GetRecipeByIdAsync(string userId, string recipeId);
         Task<IEnumerable<RecipeResponse>> GetMyRecipesAsync(string userId);
         Task<RecipeResponse> CreateMyRecipeAsync(string userId, CreateRecipeRequest request);
     }

@@ -31,6 +31,17 @@ namespace DomainLayer.Helpers
             ["celery"] = "Cần tây"
         };
 
+        private static readonly Dictionary<string, List<string>> StandardAllergenKeywords = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["peanut"] = new() { "đậu phộng", "dau phong", "lạc", "lac", "peanut" },
+            ["soy"] = new() { "đậu nành", "dau nanh", "đậu tương", "dau tuong", "tàu hũ", "tau hu", "đậu phụ", "dau phu", "soy" },
+            ["gluten"] = new() { "gluten", "lúa mì", "lua mi", "bột mì", "bot mi", "bánh mì", "banh mi", "yến mạch", "yen mach" },
+            ["sesame"] = new() { "mè", "me", "vừng", "vung", "sesame" },
+            ["mustard"] = new() { "mù tạt", "mu tat", "mustard" },
+            ["celery"] = new() { "cần tây", "can tay", "celery" },
+            ["tree_nut"] = new() { "hạt điều", "hat dieu", "óc chó", "oc cho", "hạnh nhân", "hanh nhan", "dẻ cười", "de cuoi", "macca" }
+        };
+
         public static bool IsStandardAllergen(string key) => StandardAllergenIds.Contains(key);
 
         public static string RemoveDiacritics(string text)
@@ -98,15 +109,24 @@ namespace DomainLayer.Helpers
                 {
                     conflicts.Add(tag);
                 }
+                else if (StandardAllergenKeywords.TryGetValue(tag, out var kws))
+                {
+                    var matchingAllergy = userAllergySet.FirstOrDefault(u => kws.Any(k => string.Equals(k, u, StringComparison.OrdinalIgnoreCase)));
+                    if (matchingAllergy != null && !conflicts.Contains(matchingAllergy))
+                    {
+                        conflicts.Add(matchingAllergy);
+                    }
+                }
             }
 
             // 2. Khớp theo tên tự do trong tên món ăn và danh sách nguyên liệu
             var textList = dishTexts.Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
             foreach (var allergy in userAllergySet)
             {
-                if (!IsStandardAllergen(allergy) && !conflicts.Contains(allergy))
+                if (!conflicts.Contains(allergy))
                 {
-                    if (MentionsAllergy(allergy, textList))
+                    if (MentionsAllergy(allergy, textList) ||
+                        (StandardAllergenKeywords.TryGetValue(allergy, out var kws) && kws.Any(k => MentionsAllergy(k, textList))))
                     {
                         conflicts.Add(allergy);
                     }

@@ -58,6 +58,17 @@ namespace ControllerLayer.Controllers
             var history = await _healthProfileService.GetMetricsHistoryAsync(userId, limit);
             return Ok(ApiResponse<IEnumerable<HealthMetricLogResponse>>.Ok(history));
         }
+
+        /// <summary>Ghi log các chỉ số cơ thể mới (cân nặng, vòng eo, mỡ cơ thể...).</summary>
+        [HttpPost("me/metrics")]
+        [Authorize]
+        [ProducesResponseType(typeof(ApiResponse<HealthMetricLogResponse>), StatusCodes.Status201Created)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+        public async Task<ActionResult<ApiResponse<HealthMetricLogResponse>>> LogMetrics([FromBody] LogMetricsRequest request)
+        {
+            var userId = User.GetUserId();
+            var log = await _healthProfileService.LogMetricsAsync(userId, request);
+            return StatusCode(StatusCodes.Status201Created, ApiResponse<HealthMetricLogResponse>.Created(log, "Ghi nhận chỉ số thành công."));
+        }
     }
 }
-

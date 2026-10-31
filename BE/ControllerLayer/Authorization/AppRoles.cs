@@ -15,6 +15,6 @@ namespace ControllerLayer.Authorization
 
         public const string AdminOrChef = "Admin,Chef";
 
-        public const string AdminOrMember = "Admin,Member";
+        public const string AdminOrMember = "Admin,User,Chef,Member";
     }
 }

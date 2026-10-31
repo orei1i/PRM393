@@ -23,7 +23,7 @@ namespace DomainLayer.Entities
         /// </summary>
         public List<string> MealTypes { get; set; } = new();
 
-        public int PrepMinutes { get; set; } = 15;
+        public int? PrepMinutes { get; set; }
 
         public int Calories { get; set; }
 

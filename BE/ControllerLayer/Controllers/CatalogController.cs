@@ -19,15 +19,14 @@ namespace ControllerLayer.Controllers
             _healthProfileService = healthProfileService;
         }
 
-        /// <summary>Lấy danh mục các chất dị ứng chuẩn được hệ thống hỗ trợ.</summary>
+        /// <summary>Lấy danh mục các chất dị ứng chuẩn được hệ thống hỗ trợ, có thể tìm kiếm theo từ khóa q.</summary>
         [HttpGet("allergens")]
         [AllowAnonymous]
         [ProducesResponseType(typeof(ApiResponse<IEnumerable<AllergenResponse>>), StatusCodes.Status200OK)]
-        public ActionResult<ApiResponse<IEnumerable<AllergenResponse>>> GetAllergens()
+        public ActionResult<ApiResponse<IEnumerable<AllergenResponse>>> GetAllergens([FromQuery] string? q = null)
         {
-            var allergens = _healthProfileService.GetAllergens();
+            var allergens = _healthProfileService.GetAllergens(q);
             return Ok(ApiResponse<IEnumerable<AllergenResponse>>.Ok(allergens));
         }
     }
 }
-

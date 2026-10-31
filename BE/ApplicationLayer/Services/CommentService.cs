@@ -110,7 +110,8 @@ namespace ApplicationLayer.Services
                     Author = commentAuthor,
                     Content = comment.Content,
                     CreatedAt = comment.CreatedAt,
-                    UpdatedAt = comment.UpdatedAt,
+
+    
                     ReplyCount = Math.Max(comment.ReplyCount, allReplies.Count(r => r.ParentId == comment.Id)),
                     Replies = repliesForThisComment
                 });
@@ -155,7 +156,8 @@ namespace ApplicationLayer.Services
                 ParentId = validParentId,
                 Content = request.Content.Trim(),
                 ReplyCount = 0,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = null
             };
 
             await _commentRepo.CreateAsync(comment);
@@ -179,6 +181,7 @@ namespace ApplicationLayer.Services
                 Author = author,
                 Content = comment.Content,
                 CreatedAt = comment.CreatedAt,
+
                 ReplyCount = 0,
                 Replies = new List<CommentResponse>()
             };
@@ -203,7 +206,17 @@ namespace ApplicationLayer.Services
             await _commentRepo.UpdateAsync(commentId, comment);
 
             // Giảm số lượng comment của bài viết
-            await _postRepo.IncrementFieldAsync(comment.PostId, p => p.CommentCount, -1);
+            // B16 Fix: Xoá theo cả nhánh (cascade soft-delete child replies)
+            var childReplies = (await _commentRepo.FindAsync(c => c.ParentId == commentId && !c.IsDeleted)).ToList();
+            foreach (var child in childReplies)
+            {
+                child.IsDeleted = true;
+                child.DeletedAt = DateTime.UtcNow;
+                await _commentRepo.UpdateAsync(child.Id, child);
+            }
+
+            var totalDeleted = 1 + childReplies.Count;
+            await _postRepo.IncrementFieldAsync(comment.PostId, p => p.CommentCount, -totalDeleted);
 
             // Nếu đây là phản hồi con, giảm replyCount của comment cha
             if (!string.IsNullOrEmpty(comment.ParentId))
@@ -212,6 +225,51 @@ namespace ApplicationLayer.Services
             }
 
             return true;
+        }
+
+        public async Task<IEnumerable<CommentResponse>> GetCommentRepliesAsync(string commentId)
+        {
+            var parent = await _commentRepo.FindByIdAsync(commentId);
+            if (parent == null || parent.IsDeleted)
+            {
+                throw new NotFoundException($"Không tìm thấy bình luận với id: {commentId}");
+            }
+
+            var replies = (await _commentRepo.FindAsync(r =>
+                r.ParentId == commentId &&
+                !r.IsDeleted
+            )).OrderBy(r => r.CreatedAt).ToList();
+
+            if (!replies.Any())
+            {
+                return Enumerable.Empty<CommentResponse>();
+            }
+
+            var userIds = replies.Select(r => r.UserId).Distinct().ToList();
+            var authors = (await _userRepo.FindAsync(u => userIds.Contains(u.Id) && !u.IsDeleted))
+                .ToDictionary(
+                    u => u.Id,
+                    u => new AuthorSummaryDto
+                    {
+                        Id = u.Id,
+                        FullName = u.FullName,
+                        IsVerifiedChef = u.Role?.Equals("Chef", StringComparison.OrdinalIgnoreCase) == true
+                    });
+
+            return replies.Select(r => new CommentResponse
+            {
+                Id = r.Id,
+                PostId = r.PostId,
+                ParentId = r.ParentId,
+                Author = authors.TryGetValue(r.UserId, out var ra)
+                    ? ra
+                    : new AuthorSummaryDto { Id = r.UserId, FullName = "Thành viên" },
+                Content = r.Content,
+                CreatedAt = r.CreatedAt,
+                UpdatedAt = r.UpdatedAt,
+                ReplyCount = 0,
+                Replies = new List<CommentResponse>()
+            });
         }
     }
 }
