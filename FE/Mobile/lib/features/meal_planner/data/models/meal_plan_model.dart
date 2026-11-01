@@ -30,8 +30,8 @@
 // portion).
 //
 // A real BE slot item also has "recipeId" ("id" is then the slot's own 32-hex
-// uuid, not a recipe) and "allergyConflicts". PATCH always stores
-// "source": "manual", even for a recipe, so that reads as "recipe" here.
+// uuid, not a recipe) and "allergyConflicts". Its kcal and macros are for ONE
+// serving: `withPortionsApplied` makes them what the rest of the app expects.
 //
 // POST /meal-plans/current/meals   → 200 MealPlanDayDto (the updated day)
 // { "date": "2026-10-15", "slot": "lunch", "source": "fridge_scan", "sourceId": "menu_1",
@@ -49,6 +49,7 @@
 
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/json_helpers.dart';
+import '../../domain/allergy_match.dart';
 import '../../domain/entities/health_profile.dart';
 import '../../domain/entities/meal_plan.dart';
 import '../../domain/entities/plan_adjustment.dart';
@@ -156,9 +157,7 @@ class RecipeDto {
             ? SeasonalSwapDto.fromJson(
                 json['seasonalSwap'] as Map<String, dynamic>)
             : null,
-        source: _hasRecipeId(json) && json['source'] == 'manual'
-            ? MealSource.recipe.apiValue
-            : json['source'] as String?,
+        source: json['source'] as String?,
         sourceName: json['sourceName'] as String?,
         createdBy: json['createdBy']?.toString(),
         portion: json['portion'] == null || readDouble(json['portion']) <= 0
@@ -256,6 +255,25 @@ class RecipeDto {
     );
   }
 
+  /// The dish with numbers for its [portion], from a server that sends them
+  /// per serving (the real BE: its `totalCalories` is kcal × portion).
+  RecipeDto portionApplied() => portion == 1
+      ? this
+      : RecipeDto(
+          id: id,
+          name: name,
+          nutrition: nutrition,
+          imageUrl: imageUrl,
+          allergens: allergens,
+          dietTags: dietTags,
+          prepMinutes: prepMinutes,
+          seasonalSwap: seasonalSwap,
+          source: source,
+          sourceName: sourceName,
+          createdBy: createdBy,
+          allergyConflicts: allergyConflicts,
+        ).scaled(portion);
+
   Recipe toEntity() => Recipe(
         id: id,
         name: name,
@@ -297,6 +315,11 @@ class MealPlanDayDto {
         'date': toApiDate(date),
         'meals': {for (final e in meals.entries) e.key: e.value.toJson()},
       };
+
+  /// See [RecipeDto.portionApplied].
+  MealPlanDayDto withPortionsApplied() => MealPlanDayDto(date: date, meals: {
+        for (final e in meals.entries) e.key: e.value.portionApplied(),
+      });
 
   MealPlanDay toEntity() {
     final mapped = <MealSlot, Recipe>{};
@@ -343,6 +366,15 @@ class MealPlanDto {
         'dailyTargets': dailyTargets.toJson(),
         'days': days.map((d) => d.toJson()).toList(),
       };
+
+  /// See [RecipeDto.portionApplied].
+  MealPlanDto withPortionsApplied() => MealPlanDto(
+        id: id,
+        startDate: startDate,
+        goal: goal,
+        dailyTargets: dailyTargets,
+        days: [for (final d in days) d.withPortionsApplied()],
+      );
 
   /// The same week aimed at a new goal and daily targets (the server
   /// recomputes them when the health profile changes).
@@ -422,6 +454,7 @@ class AddMealRequestDto {
     this.proteinG,
     this.carbsG,
     this.fatG,
+    this.fiberG,
     this.prepMinutes,
     this.ingredients = const [],
     this.allergens = const [],
@@ -441,6 +474,7 @@ class AddMealRequestDto {
   final double? proteinG;
   final double? carbsG;
   final double? fatG;
+  final double? fiberG;
   final int? prepMinutes;
   final List<String> ingredients;
   final List<String> allergens;
@@ -466,6 +500,7 @@ class AddMealRequestDto {
         if (proteinG != null) 'proteinG': proteinG,
         if (carbsG != null) 'carbsG': carbsG,
         if (fatG != null) 'fatG': fatG,
+        if (fiberG != null) 'fiberG': fiberG,
         if (prepMinutes != null) 'prepMinutes': prepMinutes,
         'ingredients': ingredients,
         'allergens': allergens,
@@ -583,8 +618,12 @@ class CreateRecipeRequestDto {
     this.proteinG,
     this.carbsG,
     this.fatG,
+    this.fiberG,
     this.prepMinutes,
     this.servings,
+    this.allergens,
+    this.structuredRows,
+    this.changeNotes,
   });
 
   final String name;
@@ -594,8 +633,19 @@ class CreateRecipeRequestDto {
   final double? proteinG;
   final double? carbsG;
   final double? fatG;
+  final double? fiberG;
   final int? prepMinutes;
   final int? servings;
+
+  /// `null`: the ones the name and the ingredients mention.
+  final List<String>? allergens;
+
+  /// [ingredients] in the recipe-detail wire format, for a store that keeps
+  /// roles and substitutes (the mock). The BE takes only text rows.
+  final List<Map<String, Object?>>? structuredRows;
+
+  /// `customizations` of a saved variant, likewise.
+  final List<Map<String, Object?>>? changeNotes;
 
   String get instructions => [
         for (final (i, s) in steps.indexed) '${i + 1}. ${s.trim()}',
@@ -604,11 +654,15 @@ class CreateRecipeRequestDto {
   Map<String, dynamic> toJson() => {
         'name': name,
         'caloriesCache': calories,
-        'ingredients': ingredients.map((i) => i.toJson()).toList(),
+        'ingredients':
+            structuredRows ?? ingredients.map((i) => i.toJson()).toList(),
         'instructions': instructions,
         if (proteinG != null) 'proteinG': proteinG,
         if (carbsG != null) 'carbsG': carbsG,
         if (fatG != null) 'fatG': fatG,
+        if (fiberG != null) 'fiberG': fiberG,
+        if (allergens != null) 'allergens': allergens,
+        if (changeNotes != null) 'customizations': changeNotes,
         if (prepMinutes != null) 'prepMinutes': prepMinutes,
         if (servings != null) 'servings': servings,
       };
@@ -621,7 +675,11 @@ class CreateRecipeRequestDto {
         if (proteinG != null) 'proteinG': proteinG,
         if (carbsG != null) 'carbsG': carbsG,
         if (fatG != null) 'fatG': fatG,
+        if (fiberG != null) 'fiberG': fiberG,
         if (prepMinutes != null) 'prepMinutes': prepMinutes,
+        // The BE stores what it is given and works nothing out from the rows.
+        'allergens': allergens ??
+            detectDishAllergens(name, ingredients.map((i) => i.name)).toList(),
         'ingredients': [
           for (final i in ingredients)
             i.quantity > 0

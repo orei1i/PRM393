@@ -7,6 +7,7 @@ import 'package:veganlife_mobile/core/config/backend_modules.dart';
 import 'package:veganlife_mobile/core/network/api_exception.dart';
 import 'package:veganlife_mobile/core/session/session_controller.dart';
 import 'package:veganlife_mobile/core/session/user_role.dart';
+import 'package:veganlife_mobile/features/community/presentation/controllers/feed_controller.dart';
 import 'package:veganlife_mobile/features/profile/data/models/user_profile_model.dart';
 import 'package:veganlife_mobile/features/profile/data/profile_api_service.dart';
 import 'package:veganlife_mobile/features/profile/domain/entities/user_profile.dart';
@@ -117,10 +118,13 @@ void main() {
   });
 
   group('saving "Thông tin cá nhân"', () {
-    test('403 (B3) says so in Vietnamese and keeps the profile', () async {
+    test('a refusal keeps the profile, with the BE message', () async {
+      const message =
+          'Bạn không có quyền cập nhật thông tin của người dùng khác.';
       final backend = FakeBackend()
         ..on('GET /users/me', 200, _me())
-        ..on('PUT /users/$testUserId', 403, null);
+        ..on('PUT /users/$testUserId', 403,
+            {'success': false, 'message': message});
       final c = await backendContainer(backend);
       addTearDown(c.listen(profileControllerProvider, (_, __) {}).close);
       await c.read(profileControllerProvider.future);
@@ -129,13 +133,27 @@ void main() {
         c
             .read(profileControllerProvider.notifier)
             .updateInfo(fullName: 'Tên Mới'),
-        throwsA(isA<ApiException>().having((e) => e.message, 'message',
-            'Máy chủ chưa cho phép đổi thông tin cá nhân. Thử lại sau nhé.')),
+        throwsA(
+            isA<ApiException>().having((e) => e.message, 'message', message)),
       );
       expect(c.read(profileControllerProvider).requireValue.fullName, 'FE M1');
     });
 
-    test('once B3 is fixed it saves, then reloads the whole profile', () async {
+    test('a garbled 404 (B35) reads in Vietnamese', () async {
+      final backend = FakeBackend()
+        ..on('PUT /users/$testUserId', 404, {
+          'success': false,
+          'message': 'KhÃ´ng tÃ¬m tháº¥y user vá»›i id: x',
+        });
+      final c = await backendContainer(backend);
+      await expectLater(
+        api(c).updateMe(testUserId, const UpdateUserRequestDto(fullName: 'x')),
+        throwsA(isA<ApiException>()
+            .having((e) => e.message, 'message', 'Không tìm thấy dữ liệu.')),
+      );
+    });
+
+    test('a rename saves, then reloads the whole profile', () async {
       var name = 'FE M1';
       final backend = FakeBackend();
       backend.routes['GET /users/me'] = (_) {
@@ -178,31 +196,15 @@ void main() {
   });
 
   group('stats on "Tôi"', () {
-    test('follow the feed and the saved list, not the zeros of /users/me',
-        () async {
+    test('posts and likes from /users/me, saved from this device', () async {
+      final me = _me();
+      (me['data'] as Map)['stats'] = {
+        'posts': 40,
+        'likesReceived': 7,
+        'saved': 0,
+      };
       final backend = FakeBackend()
-        ..on('GET /users/me', 200, _me())
-        ..on(
-            'GET /posts',
-            200,
-            envelope({
-              'items': [
-                for (final (id, author, likes) in [
-                  ('a', testUserId, 2),
-                  ('b', 'someone_else', 9),
-                  ('c', testUserId, 3),
-                ])
-                  {
-                    'id': id,
-                    'type': 'recipe',
-                    'author': {'id': author, 'fullName': 'Ai đó'},
-                    'title': 'Bài',
-                    'likeCount': likes,
-                  },
-              ],
-              'page': 1,
-              'totalPages': 1,
-            }))
+        ..on('GET /users/me', 200, me)
         ..on('GET /posts/b', 200, envelope({'id': 'b', 'title': 'Đã lưu'}));
       final c = await backendContainer(backend);
       await c
@@ -210,12 +212,33 @@ void main() {
           .setStringList('vl.saved_posts.$testUserId', const ['b']);
 
       addTearDown(c.listen(profileStatsProvider, (_, __) {}).close);
-      await c.read(myPostsProvider.future);
+      await c.read(profileControllerProvider.future);
       await c.read(savedPostsProvider.future);
 
-      expect(
-          c.read(profileStatsProvider), (posts: 2, likesReceived: 5, saved: 1));
-      expect(c.read(myPostsTruncatedProvider), isFalse);
+      expect(c.read(profileStatsProvider),
+          (posts: 40, likesReceived: 7, saved: 1));
+      expect(backend.requests('GET /posts'), isEmpty,
+          reason: 'no scan of the feed for a count');
+    });
+
+    test('the counts follow a change in this session', () async {
+      var posts = 1;
+      final backend = FakeBackend();
+      backend.routes['GET /users/me'] = (_) {
+        final me = _me();
+        (me['data'] as Map)['stats'] = {'posts': posts, 'likesReceived': 0};
+        return (200, me);
+      };
+      final c = await backendContainer(backend);
+      addTearDown(c.listen(profileStatsProvider, (_, __) {}).close);
+      await c.read(profileControllerProvider.future);
+      await c.read(savedPostsProvider.future);
+      expect(c.read(profileStatsProvider)?.posts, 1);
+
+      posts = 2;
+      c.read(communityRevisionProvider.notifier).bump();
+      await c.read(profileControllerProvider.future);
+      expect(c.read(profileStatsProvider)?.posts, 2);
     });
   });
 }

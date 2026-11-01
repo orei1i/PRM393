@@ -179,8 +179,8 @@ void main() {
 
   test(
       'two accounts: request → quote → counter → accept → pay → escrow Held → '
-      'day 1 → feedback → day 2 → release after the window (net 90%)',
-      () async {
+      'day 1 → feedback → every day → chef confirms → 7-day hold → release '
+      '(net 90%)', () async {
     final created = await bookings.createBooking(request());
     expect(created.status, BookingStatus.requested);
     expect(created.chef.id, 'u_chef_tam');
@@ -227,13 +227,12 @@ void main() {
     expect(b.status, BookingStatus.active);
     expect(b.escrow!.status, EscrowStatus.held);
     expect(b.escrow!.amount, 1100000);
-    // 26/10 23:59 VN + 3 days.
-    expect(b.escrow!.releaseAt.toUtc(), DateTime.utc(2026, 10, 29, 16, 59));
+    expect(b.escrow!.releaseAt, isNull, reason: 'runs from completion');
     expect(b.canComplain(now), isTrue);
 
     asTam();
     var w = await wallet.getWallet();
-    expect(w.pending, 1134000 + 990000);
+    expect(w.pending, 2934000 + 990000);
     await expectLater(bookings.sendPlanDay(created.id, 1),
         throwsA(apiError(409, 'day_incomplete')));
     final draft = await bookings.savePlanDay(created.id, 1, _fullDay('ngày 1'));
@@ -275,15 +274,52 @@ void main() {
     await bookings.savePlanDay(created.id, 2, _fullDay('ngày 2'));
     await bookings.sendPlanDay(created.id, 2);
 
-    // After 29/10 23:59 VN nobody complained: released, fee 10 %. The seeded
-    // Thảo Vy hold is released too; Ngọc Trâm's stays frozen.
-    now = DateTime.utc(2026, 10, 29, 17, 0);
+    // Not before every day is delivered, and only the chef.
+    await expectLater(bookings.confirmCompletion(created.id),
+        throwsA(apiError(409, 'plan_not_delivered')));
+    for (var day = 3; day <= 7; day++) {
+      await bookings.savePlanDay(created.id, day, _fullDay('ngày $day'));
+      await bookings.sendPlanDay(created.id, day);
+    }
+    // Everything is sent, but the plan runs until 26/10.
+    await expectLater(bookings.confirmCompletion(created.id),
+        throwsA(apiError(409, 'plan_not_delivered')));
+    asMember();
+    await expectLater(bookings.confirmCompletion(created.id),
+        throwsA(apiError(403, 'wrong_party')));
+
+    // 26/10: the chef confirms; the hold runs exactly 7 days from here.
+    now = DateTime.utc(2026, 10, 26, 3);
+    asTam();
+    b = await bookings.confirmCompletion(created.id);
+    expect(b.status, BookingStatus.ended);
+    expect(b.completedAt!.toUtc(), now);
+    expect(b.escrow!.completedAt!.toUtc(), now);
+    final releaseAt = DateTime.utc(2026, 11, 2, 3);
+    expect(b.escrow!.releaseAt!.toUtc(), releaseAt);
+    await expectLater(bookings.confirmCompletion(created.id),
+        throwsA(apiError(409, 'not_active')));
+    expect(b.canComplain(now), isTrue);
+    expect(
+        (await wallet.getWallet()).available, 110000 + 405000 + 270000 + 675000,
+        reason:
+            'still held after completing; released: b_ma_tam_hold on 20/10, '
+            'b_ma_tam_auto on 21/10, Bảo Châu (completed by the system) on 25/10');
+
+    now = releaseAt.subtract(const Duration(seconds: 1));
+    b = await bookings.getBooking(created.id);
+    expect(b.escrow!.status, EscrowStatus.held);
+
+    // Nobody complained: released, fee 10 %. Thảo Vy's and b_ma_tam_short still
+    // miss days, so those stay held with no date; Ngọc Trâm's stays frozen.
+    now = releaseAt;
     b = await bookings.getBooking(created.id);
     expect(b.status, BookingStatus.completed);
     expect(b.escrow!.status, EscrowStatus.released);
     expect(b.escrow!.feeAmount, 110000);
     w = await wallet.getWallet();
-    expect(w.available, 110000 + 1134000 + 990000);
+    expect(w.available, 110000 + 405000 + 675000 + 270000 + 990000);
+    expect(w.pending, 1134000 + 450000);
     expect(w.frozen, 945000, reason: 'a disputed hold stays frozen');
     final row = (await wallet.transactions())
         .singleWhere((t) => t.id == 'tx_in_${created.id}');
@@ -294,8 +330,7 @@ void main() {
 
   test(
       'complaint: evidence rules, frozen past the window, split decision '
-      '(refund to the original payment, chef gross = price − refund)',
-      () async {
+      "(refund to the member's wallet, chef gross = price − refund)", () async {
     const id = 'b_ma_thuha_active';
     ComplaintRequestDto complaint({
       ComplaintReason reason = ComplaintReason.healthRisk,
@@ -347,10 +382,10 @@ void main() {
     expect(b.complaint!.status, ComplaintStatus.open);
     expect(b.complaint!.requestedAmount, 300000);
     await expectLater(bookings.fileComplaint(id, complaint()),
-        throwsA(apiError(409, 'complaint_exists')));
+        throwsA(apiError(409, 'not_open')));
 
-    // Past releaseAt (24/10 23:59 VN): still frozen.
-    now = DateTime.utc(2026, 10, 26);
+    // Well past the plan's end: still frozen.
+    now = DateTime.utc(2026, 11, 26);
     b = await bookings.getBooking(id);
     expect(b.escrow!.status, EscrowStatus.frozen);
     expect(b.status, BookingStatus.disputed);

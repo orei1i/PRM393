@@ -21,7 +21,11 @@
 // The real BE adds to a row (all optional here, the mock has none of them):
 // { …, "quantity": 200, "unit": "g", "expiryDate": null, "isVegan": true,
 //   "allergyWarning": null }
-// Its POST returns only the rows it touched, so the service GETs the list.
+// Its POST returns only the rows it touched, so the service GETs the list. It
+// stores a food it finds non-vegan too, with "isVegan": false. A second add of a
+// name changes that row: the quantity becomes the one sent, or 1 when none is
+// sent (B38), so the service sends the row's own.
+// "allergyWarning": "Cảnh báo dị ứng: peanut, soy" (allergen ids or custom names).
 // PUT /users/me/ingredients/{id}
 // { "quantity": 300, "unit": "g", "expiryDate": "2026-11-05" }
 import '../../../../core/utils/formatters.dart';
@@ -100,6 +104,7 @@ class PantryItemDto {
         unit: unit,
         expiryDate: expiryDate,
         allergyWarning: allergyWarning,
+        serverSaysNotVegan: isVegan == false,
       );
 }
 

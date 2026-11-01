@@ -54,8 +54,30 @@ export function isMock(name: WebModule): boolean {
 
 export const ALL_MODULES_REAL = REAL_MODULES.size === WEB_MODULES.length;
 
-/** Header badge text. */
-export const DATA_MODE_LABEL = REAL_MODULES.size === 0 ? "Dữ liệu mô phỏng" : ALL_MODULES_REAL ? "Production" : "Kết hợp: máy chủ + mô phỏng";
+const PAGE_MODULE: Record<string, WebModule> = {
+  "/overview": "overview",
+  "/users": "users",
+  "/chefs": "chefs",
+  "/content": "content",
+  "/comments": "comments",
+  "/moderation": "moderation",
+  "/restaurants": "restaurants",
+  "/catalog": "catalog",
+  "/orders": "commerce",
+  "/disputes": "bookings",
+  "/payouts": "payouts",
+  "/ads": "ads",
+  "/knowledge": "knowledge",
+  "/ai-models": "aiModels",
+  "/telemetry": "telemetry",
+};
+
+/** Header badge text for a page. A hybrid build says per page which data it is showing. */
+export function dataModeLabel(pathname: string): string {
+  if (ALL_MODULES_REAL) return "Production";
+  const pageModule = PAGE_MODULE[pathname];
+  return pageModule && !isMock(pageModule) ? "Dữ liệu máy chủ" : "Dữ liệu mô phỏng";
+}
 
 /** Actions a real module has no backend route for: disabled in the UI, refused by the API layer. */
 export const UNSUPPORTED_ACTION = "Máy chủ chưa hỗ trợ thao tác này.";

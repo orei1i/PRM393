@@ -42,8 +42,13 @@ abstract interface class RestaurantApiService {
   Future<ReviewDto> upsertReview(String restaurantId,
       {required int rating, required String comment});
 
-  /// Created uncertified, with `createdBy` = the caller.
-  Future<RestaurantDto> createRestaurant(CreateRestaurantRequestDto request);
+  /// Created uncertified, with `createdBy` = the caller. It waits for an admin:
+  /// not public until `status` is Approved.
+  Future<RestaurantSuggestionDto> createRestaurant(
+      CreateRestaurantRequestDto request);
+
+  /// "Quán tôi đã gợi ý": the caller's suggestions, every status, newest first.
+  Future<List<RestaurantSuggestionDto>> getMySuggestions();
 
   /// Restaurants whose name or reviews mention [food] (a word typed without
   /// accents matches any accents): the ones naming more of the dish first,
@@ -131,12 +136,24 @@ class RemoteRestaurantApiService implements RestaurantApiService {
       });
 
   @override
-  Future<RestaurantDto> createRestaurant(CreateRestaurantRequestDto request) =>
+  Future<RestaurantSuggestionDto> createRestaurant(
+          CreateRestaurantRequestDto request) =>
       guardApi(() async {
         final res = await _dio.post<Map<String, dynamic>>(
             ApiEndpoints.restaurants,
             data: request.toJson());
-        return RestaurantDto.fromJson(res.data!);
+        return RestaurantSuggestionDto.fromJson(res.data!);
+      });
+
+  @override
+  Future<List<RestaurantSuggestionDto>> getMySuggestions() =>
+      guardApi(() async {
+        final res =
+            await _dio.get<List<dynamic>>(ApiEndpoints.myRestaurantSuggestions);
+        return (res.data ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(RestaurantSuggestionDto.fromJson)
+            .toList();
       });
 
   @override

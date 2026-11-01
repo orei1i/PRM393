@@ -23,8 +23,8 @@ enum PostType {
   }
 }
 
-/// `posts.status`. New and edited posts are published unless the AI
-/// pre-screen flags them; flagged ones wait for an admin decision.
+/// `posts.status`. New and edited posts wait for an admin decision; the app
+/// honours whatever the server answers (today the real BE publishes at once).
 enum PostStatus {
   pending('Pending', 'Chờ duyệt'),
   published('Published', 'Đã đăng'),

@@ -12,38 +12,28 @@ import type {
 } from "@/types/knowledge";
 import { KNOWLEDGE_DOC_STATUSES, KNOWLEDGE_SOURCES } from "@/types/knowledge";
 
-import { qs, request } from "./api_client";
+import { qs, request, requestList, requestObject } from "./api_client";
 import { isMock } from "./backend_modules";
 import { readSession } from "./auth";
 import { readId } from "./ids";
 import * as mock from "./mock_knowledge";
+import { counts, hasId, isoOr, num, optIso, optText, pick, text, type Raw } from "./wire";
 
-function pick<T extends string>(values: readonly T[], raw: unknown, fallback: T): T {
-  return typeof raw === "string" ? (values.find((v) => v.toLowerCase() === raw.toLowerCase()) ?? fallback) : fallback;
-}
-
-type RawDoc = Partial<Omit<KnowledgeDoc, "id" | "chefId" | "source" | "status">> & {
-  id?: unknown;
-  chefId?: unknown;
-  source?: unknown;
-  status?: unknown;
-};
-
-export function normalizeKnowledgeDoc(raw: RawDoc): KnowledgeDoc {
+export function normalizeKnowledgeDoc(raw: Raw): KnowledgeDoc {
   return {
     id: readId(raw.id),
     chefId: raw.chefId === null || raw.chefId === undefined ? null : readId(raw.chefId),
-    chefName: raw.chefName ?? null,
-    title: raw.title ?? "",
+    chefName: optText(raw.chefName),
+    title: text(raw.title),
     source: pick<KnowledgeSource>(KNOWLEDGE_SOURCES, raw.source, "WHO"),
-    fileUrl: raw.fileUrl ?? "",
-    createdAt: raw.createdAt ?? new Date(0).toISOString(),
+    fileUrl: text(raw.fileUrl),
+    createdAt: isoOr(raw.createdAt),
     status: pick<KnowledgeDocStatus>(KNOWLEDGE_DOC_STATUSES, raw.status, "Pending"),
-    chunkCount: raw.chunkCount ?? 0,
-    citationCount: raw.citationCount ?? 0,
-    reviewNote: raw.reviewNote ?? null,
-    reviewedBy: raw.reviewedBy ?? null,
-    reviewedAt: raw.reviewedAt ?? null,
+    chunkCount: num(raw.chunkCount),
+    citationCount: num(raw.citationCount),
+    reviewNote: optText(raw.reviewNote),
+    reviewedBy: optText(raw.reviewedBy),
+    reviewedAt: optIso(raw.reviewedAt),
   };
 }
 
@@ -51,33 +41,33 @@ export const knowledgeApi = {
   /** GET /admin/knowledge-docs?source=&status=&search= */
   async list(query: KnowledgeQuery): Promise<KnowledgeDoc[]> {
     if (isMock("knowledge")) return mock.listDocs(query);
-    const raw = await request<RawDoc[]>(
+    const raw = await requestList(
       `/admin/knowledge-docs?${qs({
         status: query.status === "all" ? undefined : query.status,
         source: query.source === "all" ? undefined : query.source,
         search: query.search,
       })}`,
     );
-    return raw.map(normalizeKnowledgeDoc);
+    return raw.map(normalizeKnowledgeDoc).filter(hasId);
   },
 
   /** GET /admin/knowledge-docs/counts */
-  counts(): Promise<Record<KnowledgeDocStatus, number>> {
+  async counts(): Promise<Record<KnowledgeDocStatus, number>> {
     if (isMock("knowledge")) return mock.getCounts();
-    return request<Record<KnowledgeDocStatus, number>>("/admin/knowledge-docs/counts");
+    return counts(KNOWLEDGE_DOC_STATUSES, await requestObject("/admin/knowledge-docs/counts"));
   },
 
   /** POST /admin/knowledge-docs { title, fileUrl } → source WHO, status Approved. */
   async createWho(input: WhoDocInput): Promise<KnowledgeDoc> {
     if (isMock("knowledge")) return mock.createWhoDoc(input, readSession());
-    return normalizeKnowledgeDoc(await request<RawDoc>("/admin/knowledge-docs", { method: "POST", body: JSON.stringify(input) }));
+    return normalizeKnowledgeDoc(await requestObject("/admin/knowledge-docs", { method: "POST", body: JSON.stringify(input) }));
   },
 
   /** POST /admin/knowledge-docs/{id}/review { decision, note } */
   async review(input: KnowledgeReviewInput): Promise<KnowledgeDoc> {
     if (isMock("knowledge")) return mock.reviewDoc(input, readSession());
     return normalizeKnowledgeDoc(
-      await request<RawDoc>(`/admin/knowledge-docs/${input.docId}/review`, {
+      await requestObject(`/admin/knowledge-docs/${input.docId}/review`, {
         method: "POST",
         body: JSON.stringify({ decision: input.decision, note: input.note }),
       }),
@@ -93,10 +83,8 @@ export const knowledgeApi = {
   /** GET /admin/knowledge-docs/{id}/chunks?limit= */
   async chunks(id: string, limit = 5): Promise<KnowledgeChunk[]> {
     if (isMock("knowledge")) return mock.listChunks(id, limit);
-    const raw = await request<(Omit<KnowledgeChunk, "id" | "docId"> & { id?: unknown; docId?: unknown })[]>(
-      `/admin/knowledge-docs/${id}/chunks?${qs({ limit })}`,
-    );
-    return raw.map((c) => ({ id: readId(c.id), docId: readId(c.docId ?? id), chunkIndex: c.chunkIndex ?? 0, content: c.content ?? "" }));
+    const raw = await requestList(`/admin/knowledge-docs/${id}/chunks?${qs({ limit })}`);
+    return raw.map((c) => ({ id: readId(c.id), docId: readId(c.docId ?? id), chunkIndex: num(c.chunkIndex), content: text(c.content) })).filter(hasId);
   },
 };
 

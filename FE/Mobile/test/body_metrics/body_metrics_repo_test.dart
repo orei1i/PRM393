@@ -38,12 +38,8 @@ void main() {
           [66.0, 65.8, 65.6, 65.3, 65.2, 65.0]);
       expect([for (final r in rows) _now.difference(r.loggedAt).inDays],
           [8, 14, 21, 28, 42, 56]);
-      expect(rows.first.waistCm, 70);
       expect(rows.first.bmi, 22.3);
-      expect(rows[1].bodyFatPct, 27.0);
       expect(rows.last.source, 'profile');
-      expect(rows.last.waistCm, 71);
-      expect(rows.last.bodyFatPct, 27.8);
       expect(
           [for (final r in rows.take(5)) r.source], everyElement('check_in'));
       expect(rows.every((r) => r.heightCm == 172), isTrue);
@@ -78,7 +74,6 @@ void main() {
       expect(m.id, '7');
       expect(m.source, MeasurementSource.profile);
       expect(m.bmi, 22.1);
-      expect(m.waistCm, isNull);
       expect(m.loggedAt.isUtc, isFalse, reason: 'shown in local time');
     });
   });
@@ -91,15 +86,12 @@ void main() {
       expect((await repo.getCurrentMealPlan())!.dailyTargets.calories,
           before.dailyKcalTarget);
 
-      final result = await repo.logBodyMeasurement(
-          const LogMeasurementRequestDto(
-              weightKg: 65.4, waistCm: 70, bodyFatPct: 26.2));
+      final result = await repo
+          .logBodyMeasurement(const LogMeasurementRequestDto(weightKg: 65.4));
       expect(result.measurement.source, 'check_in');
       expect(result.measurement.weightKg, 65.4);
       expect(result.measurement.heightCm, 172);
       expect(result.measurement.bmi, 22.1);
-      expect(result.measurement.waistCm, 70);
-      expect(result.measurement.bodyFatPct, 26.2);
       expect(result.measurement.loggedAt, _now);
 
       final profile = result.profile.toEntity();
@@ -138,14 +130,6 @@ void main() {
       await expectLater(
           repo.logBodyMeasurement(const LogMeasurementRequestDto(weightKg: 29)),
           throwsA(_apiError(400, 'Cân nặng từ 30 đến 250 kg')));
-      await expectLater(
-          repo.logBodyMeasurement(
-              const LogMeasurementRequestDto(weightKg: 65, waistCm: 39)),
-          throwsA(_apiError(400, 'Vòng eo từ 40 đến 200 cm')));
-      await expectLater(
-          repo.logBodyMeasurement(
-              const LogMeasurementRequestDto(weightKg: 65, bodyFatPct: 71)),
-          throwsA(_apiError(400, 'Tỉ lệ mỡ từ 3 đến 70 %')));
     });
 
     test('no profile → 404; guest → 401', () async {

@@ -1,5 +1,6 @@
 // integration_test_be/community_be_test.dart
 import 'package:flutter_test/flutter_test.dart';
+import 'package:veganlife_mobile/features/community/data/backend_posts.dart';
 import 'package:veganlife_mobile/features/community/data/community_api_service.dart';
 import 'package:veganlife_mobile/features/community/data/models/post_model.dart';
 import 'package:veganlife_mobile/features/community/domain/entities/post.dart';
@@ -56,6 +57,44 @@ Future<void> main() async {
       final read = await asB.getPost(dto.id);
       expect(read.title, 'Đậu hũ sốt cà tại nhà');
       expect(read.likedByMe, isFalse);
+    });
+
+    beTest('B15: the feed walks by cursor, in the same order as by page',
+        () async {
+      for (var i = 0; i < 4; i++) {
+        await post(asA, title: 'Bài thử con trỏ số ${i + 1}');
+      }
+      final byCursor = <String>[];
+      String? cursor;
+      do {
+        final page = await asA.getFeed(cursor: cursor, limit: 3);
+        expect(page.items.length, lessThanOrEqualTo(3));
+        byCursor.addAll(page.items.map((p) => p.id));
+        cursor = page.nextCursor;
+      } while (cursor != null);
+
+      final byPage = <String>[];
+      for (var page = 1;; page++) {
+        final res =
+            await a.raw('GET', '/posts', query: {'page': page, 'pageSize': 3});
+        byPage.addAll(res.dataMap['items'] is List
+            ? (res.dataMap['items'] as List)
+                .map((p) => (p as Map)['id'] as String)
+            : const <String>[]);
+        if (page >= (res.dataMap['totalPages'] as num)) break;
+      }
+      expect(byCursor, byPage);
+      expect(byCursor.toSet(), hasLength(byCursor.length));
+
+      final typed = await asA.getFeed(type: PostType.discussion, limit: 2);
+      final next = await asA.getFeed(
+          type: PostType.discussion, limit: 2, cursor: typed.nextCursor);
+      expect(next.items.map((p) => p.type).toSet(),
+          {PostType.discussion.apiValue});
+    });
+
+    beTest('B15: a bad cursor is a Vietnamese 400', () async {
+      await expectApiError(asA.getFeed(cursor: 'khong-phai-id'), status: 400);
     });
 
     beTest('feed pages never repeat, and the last one has no cursor', () async {
@@ -120,6 +159,124 @@ Future<void> main() async {
       expect(read.likeCount, 0);
     });
 
+    beTest('B28: like, unlike, like again', () async {
+      final id = (await post(asA)).id;
+      for (final liked in [true, false, true]) {
+        await asB.setLiked(id, liked: liked);
+        final read = await asB.getPost(id);
+        expect(read.likedByMe, liked);
+        expect(read.likeCount, liked ? 1 : 0);
+        final feed = await asB.getFeed(limit: 50);
+        final row = feed.items.firstWhere((p) => p.id == id);
+        expect(row.likedByMe, liked);
+      }
+      await asA.setLiked(id, liked: true);
+      expect((await asA.getPost(id)).likeCount, 2);
+    });
+
+    beTest('a post moved to Pending: only its author finds it', () async {
+      final store = MyPostIdsStore(currentUserId: () => a.id);
+      final asAuthor = RemoteCommunityApiService(a.dio,
+          currentUserId: () => a.id, myPostIds: store);
+      final dto = await asAuthor.createPost(const CreatePostRequestDto(
+          type: PostType.discussion,
+          title: 'FE IT bài bị đưa về chờ duyệt',
+          body: 'Nội dung đủ dài để máy chủ nhận bài viết này.'));
+      created.add(dto.id);
+      expect(dto.status, 'Published');
+
+      final admin = await be.adminToken();
+      final hidden = await rawRequest('POST', '/admin/posts/${dto.id}/actions',
+          token: admin, data: {'action': 'hide'});
+      expect(hidden.status, 200);
+      expect(hidden.dataMap['status'], 'Pending');
+
+      // Off the feed for everyone, the author included.
+      final feed = await asAuthor.getFeed(limit: 50);
+      expect(feed.items.map((p) => p.id), isNot(contains(dto.id)));
+      await expectApiError(
+          RemoteCommunityApiService(be.guestDio()).getPost(dto.id),
+          status: 404);
+      await expectApiError(asB.getPost(dto.id), status: 404);
+
+      // The owner still reads it, and "Bài của tôi" finds it by its id.
+      final own = (await asAuthor.getPost(dto.id)).toEntity();
+      expect(own.isPending, isTrue);
+      final mine = await asAuthor.getMyPosts();
+      expect(mine.singleWhere((p) => p.id == dto.id).status, 'Pending');
+
+      // A device that doesn't know the id can't see it: the limit we report.
+      final elsewhere = RemoteCommunityApiService(a.dio,
+          currentUserId: () => a.id,
+          myPostIds: MyPostIdsStore(currentUserId: () => a.id));
+      expect((await elsewhere.getMyPosts()).map((p) => p.id),
+          isNot(contains(dto.id)));
+
+      // Rejected: still the author's, and back on the feed once approved.
+      final rejected = await rawRequest('POST', '/admin/posts/${dto.id}/review',
+          token: admin, data: {'decision': 'Reject', 'reason': 'Thiếu nguồn'});
+      expect(rejected.dataMap['status'], 'Rejected');
+      final refused = (await asAuthor.getPost(dto.id)).toEntity();
+      expect(refused.isRejected, isTrue);
+      expect(refused.rejectionReason, isNull,
+          reason: 'PostResponse has no rejectionReason yet. Once it does, the '
+              'banner shows the reason by itself: check this and drop it.');
+
+      await rawRequest('POST', '/admin/posts/${dto.id}/review',
+          token: admin, data: {'decision': 'Approve'});
+      expect((await asAuthor.getFeed(limit: 50)).items.map((p) => p.id),
+          contains(dto.id));
+    });
+
+    beTest('PUT /posts/{id} is a 405, so nothing pretends it saved', () async {
+      final dto = await post(asA);
+      await expectApiError(
+          asA.updatePost(
+              dto.id,
+              const UpdatePostRequestDto(
+                  title: 'FE IT tiêu đề đã sửa',
+                  body: 'Nội dung đã sửa của bài này.',
+                  mediaType: PostMediaType.text)),
+          status: 405);
+      // Once this fails the BE has the route: turn on BackendModules.postEdit.
+      expect((await asA.getPost(dto.id)).title, dto.title);
+    });
+
+    beTest('B27: three reports hide a post, an admin brings it back', () async {
+      final id = (await post(asA)).id;
+      for (var i = 0; i < 3; i++) {
+        final reporter = await be.newUser(name: 'FE IT Reporter');
+        await RemoteCommunityApiService(reporter.dio)
+            .reportPost(id, reason: ReportReason.spamPromo);
+      }
+      await expectApiError(RemoteCommunityApiService(be.guestDio()).getPost(id),
+          status: 404);
+      expect((await asA.getPost(id)).status, 'Pending');
+
+      final admin = await be.adminToken();
+      final queue = await rawRequest('GET', '/admin/posts',
+          token: admin, query: {'status': 'Pending', 'pageSize': 50});
+      expect((queue.dataMap['items'] as List).map((p) => (p as Map)['id']),
+          contains(id));
+      expect(
+          (await a.raw('POST', '/admin/posts/$id/review',
+                  data: {'decision': 'Approve'}))
+              .status,
+          403);
+      final approved = await rawRequest('POST', '/admin/posts/$id/review',
+          token: admin, data: {'decision': 'Approve'});
+      expect(approved.dataMap['status'], 'Published');
+      expect(
+          (await RemoteCommunityApiService(be.guestDio()).getPost(id)).id, id);
+
+      final late = await be.newUser(name: 'FE IT Reporter');
+      await RemoteCommunityApiService(late.dio)
+          .reportPost(id, reason: ReportReason.spamPromo);
+      expect(
+          (await RemoteCommunityApiService(be.guestDio()).getPost(id)).id, id,
+          reason: 'the count started over');
+    });
+
     beTest('comments: page 2 is reached and does not repeat page 1', () async {
       final id = (await post(asB)).id;
       for (var i = 0; i < 11; i++) {
@@ -137,22 +294,46 @@ Future<void> main() async {
       expect((await asA.getPost(id)).commentCount, 11);
     });
 
-    beTest('replies: 2 previewed, the count says 3, no "(đã sửa)" (B16, B17)',
+    beTest('B16: 2 previewed, the route reads them all, oldest first',
         () async {
       final id = (await post(asB)).id;
       final root = await asA.addComment(id, 'Bình luận gốc');
-      for (var i = 0; i < 3; i++) {
+      for (var i = 0; i < 4; i++) {
         final reply =
             await asB.addComment(id, 'Phản hồi ${i + 1}', parentId: root.id);
         expect(reply.parentId, root.id);
       }
       final first = (await asA.getComments(id)).items.single;
-      expect(first.replyCount, 3);
+      expect(first.replyCount, 4);
       expect(first.replies, hasLength(2));
-      expect(first.updatedAt, isNull);
+      expect(first.updatedAt, isNull, reason: 'B17');
       expect(first.replies.first.updatedAt, isNull);
-      expect((await asA.getReplies(id, root.id)).items, isEmpty,
-          reason: 'no route on the BE: the thread shows the static label');
+
+      final all = await asA.getReplies(id, root.id);
+      expect(all.items.map((r) => r.text),
+          ['Phản hồi 1', 'Phản hồi 2', 'Phản hồi 3', 'Phản hồi 4']);
+      expect(all.nextCursor, isNull);
+      final guest = RemoteCommunityApiService(be.guestDio());
+      expect((await guest.getReplies(id, root.id)).items, hasLength(4));
+    });
+
+    beTest('B16: deleting a reply or a root keeps the counts right', () async {
+      final id = (await post(asB)).id;
+      final root = await asA.addComment(id, 'Bình luận gốc');
+      final replies = [
+        for (var i = 0; i < 3; i++)
+          await asB.addComment(id, 'Phản hồi ${i + 1}', parentId: root.id),
+      ];
+      expect((await asA.getPost(id)).commentCount, 4);
+
+      await asB.deleteComment(id, replies.first.id);
+      expect((await asA.getPost(id)).commentCount, 3);
+      expect((await asA.getComments(id)).items.single.replyCount, 2);
+
+      await asA.deleteComment(id, root.id);
+      expect((await asA.getPost(id)).commentCount, 0);
+      expect((await asA.getComments(id)).items, isEmpty);
+      await expectApiError(asA.getReplies(id, root.id), status: 404);
     });
 
     beTest('delete a comment: own only', () async {

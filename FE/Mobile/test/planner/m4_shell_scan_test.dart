@@ -285,6 +285,8 @@ void main() {
 
       // A swap joins the vegan list and the count.
       await reveal(find.widgetWithText(ActionChip, 'Đậu hũ non'));
+      // A scroll still in flight makes the list ignore the tap.
+      await tester.pump(const Duration(seconds: 1));
       await tester.tap(find.widgetWithText(ActionChip, 'Đậu hũ non'));
       await tester.pump();
       await reveal(find.text('Lưu vào tủ lạnh (5)'));

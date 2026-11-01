@@ -1,5 +1,6 @@
 // lib/core/network/api_exception.dart
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 /// The only error type features need to understand. Messages are user-facing (vi).
 class ApiException implements Exception {
@@ -67,10 +68,12 @@ ApiException _fromResponse(DioException err) {
   if (data is Map<String, dynamic>) {
     code = data['code']?.toString();
     message = data['message']?.toString();
-    // ASP.NET ProblemDetails: its `title` is English, so never shown.
+    if (message != null && _garbled.hasMatch(message)) message = null;
+    // The field errors say what to fix; `message` only "Dữ liệu … không hợp lệ".
+    // The `title` of a ProblemDetails is English, so never shown.
     final errors = data['errors'];
-    if (message == null && errors is Map<String, dynamic>) {
-      message = _validationMessage(errors) ?? _invalidInput;
+    if (errors is Map<String, dynamic>) {
+      message = _validationMessage(errors) ?? message ?? _invalidInput;
     }
   }
   if (status == 402 || code == 'trial_exhausted') {
@@ -85,7 +88,12 @@ ApiException _fromResponse(DioException err) {
 
 const _invalidInput = 'Dữ liệu gửi lên chưa hợp lệ.';
 
-/// The first usable message of each field of `ProblemDetails.errors`, joined:
+/// A BE source file saved in the wrong encoding (B35): "Email hoáº·c máº­t…". Such
+/// a message reads as if there were none, so the status decides the text.
+/// Remove with B35.
+final _garbled = RegExp(r'Ã[\u0080-\u00BF\u2018-\u203A]|Ä|Æ|á[º»]|â€');
+
+/// The first usable message of each field of `errors`, joined:
 /// `{"Email": ["Email không đúng định dạng."]}`. Keys like `$.birthYear` and
 /// values starting with "The " are the framework's English parser errors.
 String? _validationMessage(Map<String, dynamic> errors) {
@@ -114,13 +122,31 @@ String _fallbackMessage(int? status) => switch (status) {
       _ => 'Đã có lỗi xảy ra. Vui lòng thử lại.',
     };
 
-/// Runs an API call and rethrows failures as [ApiException].
+/// Runs an API call and rethrows failures as [ApiException]. So does a body of
+/// the wrong shape (a null, a string where a number goes, an empty list), so a
+/// caller has one error type to handle and nothing goes unhandled.
 Future<T> guardApi<T>(Future<T> Function() call) async {
   try {
     return await call();
   } on DioException catch (e) {
     throw mapDioException(e);
+  } on TypeError catch (e) {
+    throw _badData(e);
+  } on FormatException catch (e) {
+    throw _badData(e);
+  } on StateError catch (e) {
+    throw _badData(e);
+  } on RangeError catch (e) {
+    throw _badData(e);
   }
+}
+
+ApiException _badData(Object error) {
+  debugPrint('guardApi: unexpected response body: $error');
+  return const ApiException(
+    message: 'Máy chủ trả về dữ liệu không đọc được. Vui lòng thử lại.',
+    code: 'bad_data',
+  );
 }
 
 /// User-facing text for any error object.

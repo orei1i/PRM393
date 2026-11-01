@@ -58,7 +58,8 @@ class RecipeEnergyCard extends ConsumerWidget {
               : 'Mỗi phần: ${formatInt(shown)} kcal',
           style: context.textStyles.bodyLarge,
         ),
-        if (total != null)
+        // At one serving it would repeat the line above.
+        if (total != null && custom.servings > 1)
           Text('Tổng ${custom.servings} phần: $approx${formatInt(total)} kcal',
               style: context.textStyles.bodyMedium),
       ],

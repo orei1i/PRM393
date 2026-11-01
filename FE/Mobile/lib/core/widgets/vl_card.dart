@@ -85,8 +85,12 @@ class VLTag extends StatelessWidget {
             Icon(icon, size: 14, color: fg),
             const SizedBox(width: 4),
           ],
-          Text(label,
-              style: context.textStyles.labelMedium?.copyWith(color: fg)),
+          // Fits a narrow parent even with a long label ("Cho bữa tối · Chủ
+          // nhật, 01/11"), on two lines.
+          Flexible(
+            child: Text(label,
+                style: context.textStyles.labelMedium?.copyWith(color: fg)),
+          ),
         ],
       ),
     );

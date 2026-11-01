@@ -1,7 +1,5 @@
 // lib/core/network/api_endpoints.dart
-import '../config/env.dart';
-
-/// Relative paths under [Env.apiBaseUrl]. Agreed contract with the backend team;
+/// Relative paths under `Env.apiBaseUrl`. Agreed contract with the backend team;
 /// update here only — features never hard-code URLs. Request / response JSON
 /// samples sit at the top of each feature's `data/models/*.dart` (or its API
 /// service when it has no model file).
@@ -30,6 +28,13 @@ abstract final class ApiEndpoints {
   /// POST `{ resetToken, newPassword }` → 204.
   static const String authResetPassword = '/auth/reset-password';
 
+  /// POST `{ refreshToken }` → same body as [authLogin], with a new refresh
+  /// token; the old one stops working. 401 when it is dead.
+  static const String authRefresh = '/auth/refresh';
+
+  /// POST with the Bearer → 204: revokes the refresh token.
+  static const String authLogout = '/auth/logout';
+
   /// Future/unused: no client flow signs in with Google any more. Kept so
   /// the BE route stays documented.
   static const String authGoogle = '/auth/google';
@@ -38,8 +43,7 @@ abstract final class ApiEndpoints {
   static const String healthProfile = '/health-profile/me';
 
   /// Body measurements ("Theo dõi cân nặng"): GET `?limit=` (≤ 100, newest
-  /// first); POST `{ weightKg, waistCm?, bodyFatPct? }` → `{ measurement,
-  /// profile }` (BE: POST is new).
+  /// first); POST `{ weightKg }`.
   static const String healthMetrics = '/health-profile/me/metrics';
 
   /// POST `{ startDate, empty: true }` → a week with every slot empty
@@ -65,6 +69,10 @@ abstract final class ApiEndpoints {
   static String mealPlanAdjustApply(String proposalId) =>
       '/meal-plans/current/adjust/$proposalId/apply';
 
+  /// POST (no body): up to 10 recipes for what is in the fridge, best match
+  /// first. Changes nothing on the plan.
+  static const String mealPlanFromIngredients = '/meal-plans/from-ingredients';
+
   /// GET: dishes chefs suggested to the signed-in member ("Từ chuyên gia").
   static const String chefSuggestions = '/meal-plans/chef-suggestions';
 
@@ -87,10 +95,7 @@ abstract final class ApiEndpoints {
   static const String allergens = '/catalog/allergens';
 
   // Smart kitchen (computer vision)
-  /// Absolute on purpose: the host-root route, because BE bug B1 makes
-  /// `/api/v1/vision/scan` answer 500. Revert to the relative `/vision/scan`
-  /// once B1 is fixed.
-  static String get visionScan => '${Env.apiOrigin}/vision/scan';
+  static const String visionScan = '/vision/scan';
 
   // RAG chatbot
   static const String guestTrial = '/chat/guest-trial';
@@ -101,6 +106,8 @@ abstract final class ApiEndpoints {
   /// GET `?type=&cursor=&limit=`; Reels ask for `?mediaType=Video&limit=`.
   static const String feed = '/posts';
   static const String posts = '/posts';
+
+  /// GET, DELETE; PUT with the body of [posts] (not on the BE yet: 405).
   static String post(String id) => '/posts/$id';
   static String postLike(String id) => '/posts/$id/like';
   static String postSave(String id) => '/posts/$id/save';
@@ -112,7 +119,7 @@ abstract final class ApiEndpoints {
   /// DELETE a comment on the real BE (it has no route under `/posts/{id}`).
   static String commentDelete(String commentId) => '/comments/$commentId';
 
-  /// GET `?cursor=&limit=`: replies of a top-level comment.
+  /// GET: every reply of a top-level comment, oldest first.
   static String commentReplies(String postId, String commentId) =>
       '/posts/$postId/comments/$commentId/replies';
   static const String uploadVideo = '/media/videos';
@@ -174,6 +181,9 @@ abstract final class ApiEndpoints {
   // (confirmed by the PaymentOS webhook on the BE, never by the app).
   static String order(String id) => '/orders/$id';
 
+  /// POST (no body): pays the whole price from "Ví của tôi". BE: new.
+  static String orderWalletPayment(String id) => '/orders/$id/wallet-payment';
+
   /// POST: a new QR after the last one expired or failed.
   static String orderPayments(String id) => '/orders/$id/payments';
 
@@ -206,6 +216,10 @@ abstract final class ApiEndpoints {
   static String chefPlanSendAll(String id) =>
       '/chefs/me/bookings/$id/plan/send';
 
+  /// POST (no body): "Xác nhận hoàn thành". BE: new.
+  static String chefBookingComplete(String id) =>
+      '/chefs/me/bookings/$id/complete';
+
   /// POST `{ text, links? }`: the chef's answer to a complaint.
   static String chefComplaintResponse(String id) =>
       '/chefs/me/bookings/$id/complaint/response';
@@ -223,6 +237,16 @@ abstract final class ApiEndpoints {
   /// GET the history, POST `{ amount }` to request a withdrawal.
   static const String myChefWithdrawals = '/chefs/me/withdrawals';
 
+  // Member wallet ("Ví của tôi"), same shapes as the chef's. BE: new.
+  static const String myWallet = '/users/me/wallet';
+  static const String myWalletTransactions = '/users/me/wallet/transactions';
+
+  /// PUT the payout bank account.
+  static const String myBankAccount = '/users/me/bank-account';
+
+  /// GET the history, POST `{ amount }` to request a withdrawal.
+  static const String myWithdrawals = '/users/me/withdrawals';
+
   // Restaurants & reviews
   static const String restaurants = '/restaurants';
   static String restaurant(String id) => '/restaurants/$id';
@@ -231,6 +255,11 @@ abstract final class ApiEndpoints {
 
   /// GET the restaurant's photos and videos (`restaurant_media`).
   static String restaurantMedia(String id) => '/restaurants/$id/media';
+
+  /// GET the signed-in member's suggestions, every status ("Quán tôi đã gợi
+  /// ý"). BE: new.
+  static const String myRestaurantSuggestions =
+      '/users/me/restaurant-suggestions';
 
   // Geocoding (server proxy; clients never call Nominatim directly)
   /// GET `?q=`.

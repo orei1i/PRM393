@@ -18,6 +18,7 @@ import '../widgets/location_chip.dart';
 import '../widgets/restaurant_filter_sheet.dart';
 import '../widgets/restaurant_map_view.dart';
 import '../widgets/restaurant_tile.dart';
+import 'my_restaurant_suggestions_screen.dart';
 import 'restaurant_detail_screen.dart';
 import 'restaurant_route_screen.dart';
 import 'submit_restaurant_screen.dart';
@@ -25,7 +26,8 @@ import 'submit_restaurant_screen.dart';
 /// "Quán chay gần bạn": a compact header (location chip → "Chọn vị trí",
 /// search, "Bộ lọc" with a count badge, removable filter chips), then the
 /// list (one "Được tài trợ" row first, if it fits the filters) or the map ("Xem bản đồ" /
-/// "Xem danh sách"). Guests can browse; suggesting a place needs sign-in.
+/// "Xem danh sách"). Guests can browse; suggesting a place needs sign-in, and
+/// "Quán tôi đã gợi ý" follows what became of the suggestions.
 class RestaurantNearbyScreen extends ConsumerStatefulWidget {
   const RestaurantNearbyScreen({super.key, this.initialQuery});
 
@@ -98,9 +100,18 @@ class _RestaurantNearbyScreenState
       return;
     }
     if (!mounted) return;
-    // The form replaces itself with the new restaurant's detail and
-    // refreshes this list.
+    // The form replaces itself with "Quán tôi đã gợi ý".
     await Navigator.of(context).push(SubmitRestaurantScreen.route());
+  }
+
+  Future<void> _openMySuggestions() async {
+    if (!await ensureSignedIn(context, ref,
+        reason: 'Đăng nhập để xem các quán bạn đã gợi ý.')) {
+      return;
+    }
+    if (mounted) {
+      await Navigator.of(context).push(MyRestaurantSuggestionsScreen.route());
+    }
   }
 
   @override
@@ -128,6 +139,11 @@ class _RestaurantNearbyScreenState
       appBar: AppBar(
         title: const Text('Quán chay gần bạn'),
         actions: [
+          IconButton(
+            tooltip: 'Quán tôi đã gợi ý',
+            onPressed: _openMySuggestions,
+            icon: const Icon(Icons.assignment_outlined),
+          ),
           IconButton(
             tooltip: _mapMode ? 'Xem danh sách' : 'Xem bản đồ',
             onPressed: () => setState(() => _mapMode = !_mapMode),

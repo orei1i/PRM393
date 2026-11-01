@@ -4,13 +4,20 @@
 // (FE/Web src/lib/mock_bookings.ts) so ids, people and amounts match:
 // Minh Anh (u_me) — b_ma_tam_nego (Tâm, 10 ngày có phản hồi, chef offer
 // 1.500.000đ open), b_ma_thuha_active (Thu Hà, 7 ngày giao một lần, paid,
-// all days sent, day 3 is today), b_ma_tam_done (Tâm, 5 ngày, released).
+// all days sent, day 3 is today, not confirmed yet), b_ma_tam_hold (Tâm, 3
+// ngày, completed, in the 7-day hold), b_ma_tam_done (Tâm, 5 ngày, released),
+// b_ma_thuha_refund (Thu Hà, refunded to her wallet: 1.800.000đ, less a
+// 200.000đ withdrawal, so "Ví của tôi" reads 1.600.000đ), b_ma_tam_auto (Tâm,
+// all sent, never confirmed: completed by the system 3 days after its end, in
+// the hold), b_ma_tam_short (Tâm, only 3 of 5 days sent, past that moment:
+// still held, asks the member to complain and the chef to act).
 // Lê Quang Tâm (u_chef_tam) — b_nam_tam_req (Hoàng Nam, Requested),
-// b_vy_tam_active (Thảo Vy, today's day still a draft), b_tram_tam +
+// b_vy_tam_active (Thảo Vy, today's day still a draft), b_chau_tam_ready
+// (Bảo Châu, gia đình 3 người, all sent → "Xác nhận hoàn thành"), b_tram_tam +
 // cp_tram_tam (Ngọc Trâm, health_risk, 1 link + 1 image, Frozen),
-// b_han_tam_done (Gia Hân, released). Tâm's wallet then reads: có thể rút
-// 110.000đ (a 5.100.000đ withdrawal waits for an admin), đang giữ
-// 1.134.000đ, tạm giữ 945.000đ. Dates are relative to "today" in
+// b_han_tam_done (Gia Hân, gia đình 4 người, released). Tâm's wallet then
+// reads: có thể rút 110.000đ (a 5.100.000đ withdrawal waits for an admin),
+// đang giữ 2.934.000đ, tạm giữ 945.000đ. Dates are relative to "today" in
 // Asia/Ho_Chi_Minh, so the seeds keep their meaning on any day.
 part of 'mock_booking_db.dart';
 
@@ -75,6 +82,7 @@ const _members = <String, (String, String)>{
   'u_thao_vy': ('Thảo Vy', 'thaovy.nguyen@gmail.com'),
   'u_ngoc_tram': ('Ngọc Trâm', 'ngoctram.k17@gmail.com'),
   'u_gia_han': ('Gia Hân', 'giahan.tran@gmail.com'),
+  'u_bao_chau': ('Bảo Châu', 'baochau.le@gmail.com'),
 };
 
 /// Shared health profiles (what the chef sees with "Chia sẻ hồ sơ sức khoẻ").
@@ -96,7 +104,6 @@ Map<String, dynamic>? _healthOf(String memberId) => switch (memberId) {
           'bmi': 22.2,
           'gender': 'Male',
           'age': 26,
-          'activityLevel': 'active',
           'dailyKcalTarget': 2900,
         },
       'u_thao_vy' => {
@@ -105,7 +112,6 @@ Map<String, dynamic>? _healthOf(String memberId) => switch (memberId) {
           'bmi': 20.0,
           'gender': 'Female',
           'age': 22,
-          'activityLevel': 'light',
           'dailyKcalTarget': 1650,
         },
       'u_ngoc_tram' => {
@@ -114,7 +120,6 @@ Map<String, dynamic>? _healthOf(String memberId) => switch (memberId) {
           'bmi': 21.9,
           'gender': 'Female',
           'age': 41,
-          'activityLevel': 'sedentary',
           'dailyKcalTarget': 1500,
         },
       'u_gia_han' => {
@@ -123,7 +128,6 @@ Map<String, dynamic>? _healthOf(String memberId) => switch (memberId) {
           'bmi': 20.6,
           'gender': 'Female',
           'age': 34,
-          'activityLevel': 'moderate',
           'dailyKcalTarget': 1900,
         },
       _ => null,
@@ -139,6 +143,7 @@ class _ComplaintSeed {
     required this.evidence,
     this.amount,
     this.chefResponse,
+    this.decidedAt,
   });
 
   final String id;
@@ -153,6 +158,9 @@ class _ComplaintSeed {
 
   /// (text, minutes after the complaint).
   final (String, int)? chefResponse;
+
+  /// An admin already refunded the whole price (to the member's wallet).
+  final DateTime? decidedAt;
 }
 
 class _MealOverride {
@@ -186,6 +194,9 @@ class _Seed {
     this.overrides = const {},
     this.dayNotes = const {},
     this.complaint,
+    this.familySize,
+    this.completedDay,
+    this.deliveredOnly,
   });
 
   final String id;
@@ -222,6 +233,16 @@ class _Seed {
   final Map<String, _MealOverride> overrides;
   final Map<int, String> dayNotes;
   final _ComplaintSeed? complaint;
+
+  /// "Cho gia đình".
+  final int? familySize;
+
+  /// The chef confirmed at 20:00 on this day (days from today); the hold runs
+  /// from there.
+  final int? completedDay;
+
+  /// Only the first days were sent, whatever the dates say.
+  final int? deliveredOnly;
 }
 
 const _maNeeds =
@@ -321,7 +342,8 @@ void _seedBookings(MockBookingDb db) {
       chef: 'u_chef_tam',
       type: BookingType.dailyFeedback,
       days: 5,
-      start: -9,
+      start: -14,
+      completedDay: -10,
       status: BookingStatus.completed,
       goal: 'eat_clean',
       allergies: const ['peanut'],
@@ -329,7 +351,7 @@ void _seedBookings(MockBookingDb db) {
       budget: 60000,
       needs:
           'Thử ăn chay 5 ngày cho quen, món dễ nấu trong bếp nhỏ ở chung cư, không dùng lò nướng.',
-      created: atVn(-13, 19, 10),
+      created: atVn(-18, 19, 10),
       offers: const [
         (
           BookingParty.chef,
@@ -339,6 +361,125 @@ void _seedBookings(MockBookingDb db) {
         ),
       ],
       orderId: 'ord_602',
+    ),
+    _Seed(
+      id: 'b_ma_tam_hold',
+      member: 'u_me',
+      chef: 'u_chef_tam',
+      type: BookingType.oneShot,
+      days: 3,
+      start: -6,
+      completedDay: -4,
+      status: BookingStatus.ended,
+      goal: 'lean_muscle',
+      allergies: const ['peanut'],
+      pattern: const [MealSlot.breakfast, MealSlot.lunch, MealSlot.dinner],
+      budget: 60000,
+      needs:
+          'Thử thực đơn tăng cơ 3 ngày để xem có hợp không, ưu tiên món nấu một lần ăn được hai bữa.',
+      created: atVn(-11, 18, 20),
+      offers: const [
+        (
+          BookingParty.chef,
+          450000,
+          '3 ngày × 150.000đ, giao trọn kế hoạch trước ngày bắt đầu.',
+          45
+        ),
+      ],
+      orderId: 'ord_607',
+    ),
+    _Seed(
+      id: 'b_ma_thuha_refund',
+      member: 'u_me',
+      chef: 'u_thu_ha',
+      type: BookingType.oneShot,
+      days: 15,
+      start: -40,
+      completedDay: -26,
+      status: BookingStatus.resolved,
+      goal: 'lose_weight',
+      allergies: const ['peanut'],
+      pattern: const [MealSlot.breakfast, MealSlot.lunch, MealSlot.dinner],
+      budget: 70000,
+      needs:
+          'Cần thực đơn 15 ngày giảm cân, tránh hoàn toàn đậu phộng vì mình dị ứng nặng.',
+      created: atVn(-46, 9, 0),
+      offers: const [
+        (
+          BookingParty.chef,
+          1800000,
+          '15 ngày × 120.000đ, giao trọn kế hoạch trước ngày bắt đầu.',
+          120
+        ),
+      ],
+      orderId: 'ord_606',
+      complaint: _ComplaintSeed(
+        id: 'cp_thuha_refund',
+        reason: ComplaintReason.allergen,
+        description:
+            'Ngày 3 và ngày 8 có sốt đậu phộng dù mình đã ghi rõ dị ứng nặng, nên mình không dùng được kế hoạch này.',
+        outcome: RequestedOutcome.fullRefund,
+        at: atVn(-24, 9, 30),
+        decidedAt: atVn(-22, 15, 0),
+        evidence: const [
+          (
+            EvidenceKind.image,
+            'https://res.cloudinary.com/veganlife/image/upload/v1/complaints/cp_thuha_refund.jpg',
+            'Ảnh chụp kế hoạch ngày 3',
+          ),
+        ],
+      ),
+    ),
+    _Seed(
+      id: 'b_ma_tam_auto',
+      member: 'u_me',
+      chef: 'u_chef_tam',
+      type: BookingType.oneShot,
+      days: 3,
+      start: -8,
+      status: BookingStatus.active,
+      goal: 'eat_clean',
+      allergies: const ['peanut'],
+      pattern: const [MealSlot.lunch, MealSlot.dinner],
+      budget: 60000,
+      needs:
+          'Thử thực đơn 3 ngày ăn sạch cho bữa trưa và bữa tối, nấu nhanh sau giờ làm.',
+      created: atVn(-16, 9, 0),
+      offers: const [
+        (
+          BookingParty.chef,
+          300000,
+          '3 ngày × 100.000đ, giao trọn kế hoạch trước ngày bắt đầu.',
+          60
+        ),
+      ],
+      orderId: 'ord_609',
+    ),
+    _Seed(
+      id: 'b_ma_tam_short',
+      member: 'u_me',
+      chef: 'u_chef_tam',
+      type: BookingType.dailyFeedback,
+      days: 5,
+      start: -12,
+      deliveredOnly: 3,
+      status: BookingStatus.active,
+      goal: 'eat_clean',
+      allergies: const ['peanut'],
+      pattern: const [MealSlot.breakfast, MealSlot.dinner],
+      budget: 60000,
+      needs:
+          'Thực đơn 5 ngày có góp ý mỗi tối, mình muốn đổi món theo lịch đi làm trong tuần.',
+      created: atVn(-18, 9, 0),
+      offers: const [
+        (
+          BookingParty.chef,
+          500000,
+          '5 ngày có phản hồi mỗi ngày, 100.000đ/ngày.',
+          60
+        ),
+      ],
+      orderId: 'ord_610',
     ),
     // ------------------------------------------------ Lê Quang Tâm (u_chef_tam)
     _Seed(
@@ -409,12 +550,38 @@ void _seedBookings(MockBookingDb db) {
       },
     ),
     _Seed(
+      id: 'b_chau_tam_ready',
+      member: 'u_bao_chau',
+      chef: 'u_chef_tam',
+      type: BookingType.oneShot,
+      days: 5,
+      start: -6,
+      familySize: 3,
+      status: BookingStatus.active,
+      goal: 'maintain',
+      allergies: const ['peanut'],
+      pattern: const [MealSlot.lunch, MealSlot.dinner],
+      budget: 200000,
+      needs: 'Nhà mình 3 người, ưu tiên món nấu một nồi ăn được cả nhà.',
+      created: atVn(-12, 14, 0),
+      offers: const [
+        (
+          BookingParty.chef,
+          750000,
+          '5 ngày × 150.000đ, giao trọn kế hoạch trước ngày bắt đầu.',
+          60
+        ),
+      ],
+      orderId: 'ord_608',
+    ),
+    _Seed(
       id: 'b_tram_tam',
       member: 'u_ngoc_tram',
       chef: 'u_chef_tam',
       type: BookingType.oneShot,
       days: 7,
       start: -7,
+      completedDay: -1,
       status: BookingStatus.disputed,
       goal: 'eat_clean',
       allergies: const ['peanut'],
@@ -475,6 +642,8 @@ void _seedBookings(MockBookingDb db) {
       type: BookingType.dailyFeedback,
       days: 30,
       start: -53,
+      completedDay: -24,
+      familySize: 4,
       status: BookingStatus.completed,
       goal: 'maintain',
       allergies: const [],
@@ -536,15 +705,18 @@ void _build(MockBookingDb db, _Seed seed,
     bookingType: seed.type,
     planDays: seed.days,
     startDate: startDate,
-    goal: seed.goal,
+    audience:
+        seed.familySize == null ? BookingAudience.self : BookingAudience.family,
+    familySize: seed.familySize,
+    goal: seed.familySize == null ? seed.goal : null,
     allergies: [...seed.allergies],
     mealPattern: [...seed.pattern],
     budgetPerDay: seed.budget,
     needs: seed.needs,
-    shareHealthProfile: true,
+    shareHealthProfile: seed.familySize == null,
     status: seed.status,
     createdAt: seed.created,
-    memberHealth: _healthOf(seed.member),
+    memberHealth: seed.familySize == null ? _healthOf(seed.member) : null,
   );
   db.bookings.add(row);
   db.say(
@@ -637,6 +809,9 @@ void _build(MockBookingDb db, _Seed seed,
   commerce.payments.add(payment);
   db._fund(row, payment, paidAt);
   _buildDays(db, seed, row, paidAt, row.contract!.deliveryDueAt, atVn);
+  if (seed.completedDay case final day?) {
+    db._complete(row, atVn(day, 20, 0));
+  }
   if (seed.complaint case final c?) _buildComplaint(db, row, c);
   if (seed.status == BookingStatus.completed) db._autoRelease(row);
 }
@@ -656,8 +831,8 @@ void _buildDays(
   final byDate = [
     for (var i = 0; i < seed.days; i++) seed.start + i,
   ].where((o) => o < 0 || (o == 0 && !seed.todayDraft)).length;
-  final delivered =
-      oneShot ? (oneShotSentAt.isAfter(now) ? 0 : seed.days) : byDate;
+  final due = oneShot ? (oneShotSentAt.isAfter(now) ? 0 : seed.days) : byDate;
+  final delivered = seed.deliveredOnly ?? due;
   final h = _hash(seed.id);
 
   for (final day in row.days) {
@@ -782,5 +957,14 @@ void _buildComplaint(MockBookingDb db, MockBookingRow row, _ComplaintSeed c) {
       at: c.at);
   if (response != null) {
     db.say(row, BookingParty.chef, response.$1, at: complaint.chefRespondedAt);
+  }
+  if (c.decidedAt case final at?) {
+    db._applyDecision(
+        row,
+        ComplaintDecision.refundMember,
+        null,
+        'Kế hoạch có món chứa chất thành viên đã khai dị ứng.',
+        'Quản trị viên',
+        at);
   }
 }

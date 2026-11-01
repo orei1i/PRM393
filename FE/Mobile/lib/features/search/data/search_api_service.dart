@@ -7,9 +7,11 @@ import '../../../core/network/api_endpoints.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
 import '../../community/data/community_api_service.dart';
+import '../../ingredient/data/ingredient_api_service.dart';
 import '../../restaurant/data/restaurant_api_service.dart';
 import '../../restaurant/domain/geo.dart';
 import '../domain/entities/search_result.dart';
+import 'client_search_service.dart';
 import 'mock_search_repository.dart';
 import 'models/search_models.dart';
 
@@ -87,12 +89,16 @@ class RemoteSearchApiService implements SearchApiService {
       });
 }
 
+/// The BE has no `/search`: a build with real modules searches their data on
+/// the client ([ClientSearchService]); a fully mock one keeps the sample page.
 final searchApiProvider = Provider<SearchApiService>((ref) {
-  if (BackendModules.isMock(BackendModule.search)) {
-    return MockSearchRepository(
-      community: ref.watch(communityApiProvider),
-      restaurants: ref.watch(restaurantApiProvider),
-    );
+  if (BackendModules.isReal(BackendModule.search)) {
+    return RemoteSearchApiService(ref.watch(dioProvider));
   }
-  return RemoteSearchApiService(ref.watch(dioProvider));
+  if (BackendModules.isHybrid) return ClientSearchService.fromRef(ref);
+  return MockSearchRepository(
+    community: ref.watch(communityApiProvider),
+    restaurants: ref.watch(restaurantApiProvider),
+    ingredients: ref.watch(ingredientApiProvider),
+  );
 });

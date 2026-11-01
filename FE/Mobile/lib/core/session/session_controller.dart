@@ -100,6 +100,22 @@ class SessionController extends Notifier<AuthSession> {
 
   bool _expiring = false;
 
+  /// The refresh on its way: every request refused meanwhile waits for it.
+  Future<bool>? _refreshing;
+
+  /// Access tokens of this session that were replaced: a late 401 for one of
+  /// them only needs its request sent again.
+  final _replacedTokens = <String>{};
+
+  /// The token the last refresh gave, and when.
+  String? _refreshedToken;
+  DateTime? _refreshedAt;
+
+  /// A token the server refuses this soon after issuing it won't be helped by
+  /// another refresh. Each new token also makes every screen that follows the
+  /// session ask again, so refreshing would loop: hundreds of requests a second.
+  static const _refreshCooldown = Duration(seconds: 30);
+
   @override
   AuthSession build() {
     var guestToken = _prefs.getString(_kGuestToken);
@@ -159,8 +175,18 @@ class SessionController extends Notifier<AuthSession> {
     await ref.read(onboardingProvider.notifier).complete();
   }
 
-  /// Back to guest mode (Trang chủ), never to the Welcome screen.
-  Future<void> signOut() async {
+  /// Back to guest mode (Trang chủ), never to the Welcome screen. Done on the
+  /// device first, so it works offline; the server is told in the background,
+  /// unless it was the server that ended the session ([revoke] false).
+  Future<void> signOut({bool revoke = true}) async {
+    final token = state.accessToken;
+    if (revoke && token != null) {
+      unawaited(ref
+          .read(authApiProvider)
+          .logout(token)
+          .then<void>((_) {}, onError: (Object _) {}));
+    }
+    _replacedTokens.clear();
     for (final key in [
       accessTokenKey,
       refreshTokenKey,
@@ -207,7 +233,7 @@ class SessionController extends Notifier<AuthSession> {
     _expiring = true;
     try {
       rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
-      await signOut();
+      await signOut(revoke: false);
       rootScaffoldMessengerKey.currentState
           ?.showSnackBar(SnackBar(content: Text(message)));
     } finally {
@@ -215,25 +241,86 @@ class SessionController extends Notifier<AuthSession> {
     }
   }
 
-  /// At app start, for a session on the real BE: ends it if its JWT is past
-  /// `vl.expires_at`, otherwise refreshes the name and role from `GET /users/me`.
-  /// A 401 there is handled by `UnauthorizedInterceptor`; a 423 signs out with
-  /// the locked message. Network errors change nothing. Never throws.
+  /// The server refused [token] (a 401): `true` when the session now has a
+  /// token worth trying the request again with. Requests refused together share
+  /// one refresh. The session ends only when the server refuses the refresh
+  /// token too; being offline or a server error changes nothing, and that
+  /// request just fails. A token of an earlier session gets `false`, and can't
+  /// end the current one.
+  Future<bool> refreshAfterRefusal(String token) {
+    if (state.isGuest) return Future.value(false);
+    if (_replacedTokens.contains(token)) return Future.value(true);
+    if (token != state.accessToken) return Future.value(false);
+    final refreshedAt = _refreshedAt;
+    if (token == _refreshedToken &&
+        refreshedAt != null &&
+        DateTime.now().difference(refreshedAt) < _refreshCooldown) {
+      return Future.value(false);
+    }
+    return _refreshing ??=
+        _refresh(token).whenComplete(() => _refreshing = null);
+  }
+
+  Future<bool> _refresh(String token) async {
+    final refreshToken = _prefs.getString(refreshTokenKey);
+    if (refreshToken == null) {
+      await expire(token: token);
+      return false;
+    }
+    final AuthResult result;
+    try {
+      result = await ref.read(authApiProvider).refresh(refreshToken);
+    } on ApiException catch (e) {
+      final status = e.statusCode;
+      if (status != null && status >= 400 && status < 500) {
+        await expire(
+          token: token,
+          message: status == 423
+              ? AuthErrors.accountLocked
+              : AuthErrors.sessionExpired,
+        );
+      }
+      return false;
+    }
+    if (state.accessToken != token) return false; // Signed out meanwhile.
+    await _prefs.setString(accessTokenKey, result.accessToken);
+    await _setOrRemove(refreshTokenKey, result.refreshToken);
+    await _setOrRemove(
+        expiresAtKey, result.expiresAt?.toUtc().toIso8601String());
+    _replacedTokens.add(token);
+    _refreshedToken = result.accessToken;
+    _refreshedAt = DateTime.now();
+    state = AuthSession(
+      guestToken: state.guestToken,
+      accessToken: result.accessToken,
+      displayName: state.displayName,
+      userId: state.userId,
+      role: state.role,
+    );
+    return true;
+  }
+
+  /// At app start, for a session on the real BE: refreshes the name and role
+  /// from `GET /users/me`. A JWT past `vl.expires_at` is refreshed on the way,
+  /// by `TokenRefreshInterceptor`; without a refresh token (saved by an older
+  /// version) it ends the session. A 423 signs out with the locked message.
+  /// Network errors change nothing. Never throws.
   Future<void> revalidate() async {
     if (BackendModules.isMock(BackendModule.auth) || state.isGuest) return;
     final expiresAt = readDateTime(_prefs.getString(expiresAtKey));
-    if (expiresAt != null && !expiresAt.isAfter(DateTime.now())) {
+    if (expiresAt != null &&
+        !expiresAt.isAfter(DateTime.now()) &&
+        _prefs.getString(refreshTokenKey) == null) {
       await expire();
       return;
     }
-    final token = state.accessToken;
     try {
       final res = await ref.read(dioProvider).get<Object?>(ApiEndpoints.me);
-      if (state.accessToken != token) return;
+      if (state.isGuest) return;
       await _applyServerProfile(readMap(res.data));
     } on DioException catch (e) {
       if (mapDioException(e).statusCode == 423) {
-        await expire(token: token, message: AuthErrors.accountLocked);
+        await expire(message: AuthErrors.accountLocked);
       }
     } catch (_) {
       // An unexpected body must not disturb app start.

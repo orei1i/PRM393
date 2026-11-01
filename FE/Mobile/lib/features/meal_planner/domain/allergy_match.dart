@@ -5,6 +5,7 @@
 // picked ("Nấm", "lá lốt"). Tagged ids match a dish's `allergens`; names are
 // looked for, as whole words and ignoring accents, in the dish name and its
 // ingredients.
+import '../../../core/utils/labels.dart';
 import '../../../core/utils/text_search.dart';
 
 /// Allergen ids recipes are tagged with (`recipes.allergens`), labelled by
@@ -20,6 +21,18 @@ const dishAllergenIds = {
 };
 
 bool isDishAllergenId(String key) => dishAllergenIds.contains(key);
+
+/// The allergen id a name stands for ("Đậu nành", "dau nanh", "Đậu nành (Đậu
+/// tương)" → `soy`); `null` for anything else. A profile can hold such a name
+/// with no id, and a dish tagged `soy` must still conflict with it.
+String? dishAllergenIdNamed(String name) {
+  final bare = foldVietnamese(name.split('(').first.trim());
+  if (bare.isEmpty) return null;
+  for (final id in dishAllergenIds) {
+    if (foldVietnamese(allergenLabel(id)) == bare) return id;
+  }
+  return null;
+}
 
 /// Allergen id → Vietnamese ingredient words that contain it (whole words,
 /// so "nấm mèo" is not mistaken for "mè").
@@ -80,14 +93,16 @@ List<String> allergyConflicts({
   required Iterable<String> userAllergies,
 }) {
   final mine = userAllergies.toSet();
+  final named = {for (final key in mine) dishAllergenIdNamed(key)};
   final tagged = tags.toSet();
   return [
     // In the dish's own order, like the tags.
     for (final tag in tagged)
-      if (mine.contains(tag)) tag,
+      if (mine.contains(tag) || named.contains(tag)) tag,
     for (final key in mine)
       if (!isDishAllergenId(key) &&
           !tagged.contains(key) &&
+          !tagged.contains(dishAllergenIdNamed(key)) &&
           mentionsAllergy(key, texts))
         key,
   ];

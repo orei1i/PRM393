@@ -18,12 +18,16 @@ export function PayoutKpis({ summary }: { summary: UseQueryResult<PayoutSummary>
   const data = summary.data;
   const loading = summary.isLoading;
   return (
-    <section aria-label="Chỉ số ví chuyên gia" className="flex flex-col gap-3">
+    <section aria-label="Chỉ số ví" className="flex flex-col gap-3">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           label="Số dư có thể rút"
           value={data ? formatVnd(data.totalAvailable) : "–"}
-          hint={data ? `Tổng ví chuyên gia · ${formatVnd(data.totalProcessing)} đang xử lý rút` : undefined}
+          hint={
+            data
+              ? `Chuyên gia ${formatVnd(data.availableByRole.chef)} · thành viên ${formatVnd(data.availableByRole.member)} · ${formatVnd(data.totalProcessing)} chờ duyệt rút`
+              : undefined
+          }
           icon={Wallet}
           loading={loading}
         />
@@ -32,8 +36,8 @@ export function PayoutKpis({ summary }: { summary: UseQueryResult<PayoutSummary>
           value={data ? formatVnd(data.totalPending) : "–"}
           hint={
             data
-              ? `Đến ${ESCROW_HOLD_DAYS} ngày sau khi kế hoạch kết thúc · tạm giữ do khiếu nại ${formatVnd(data.totalFrozen)}`
-              : `Đến ${ESCROW_HOLD_DAYS} ngày sau khi kế hoạch kết thúc`
+              ? `VeganLife giữ phần của chuyên gia đến ${ESCROW_HOLD_DAYS} ngày sau khi hoàn thành · tạm giữ do khiếu nại ${formatVnd(data.totalFrozen)}`
+              : `VeganLife giữ phần của chuyên gia đến ${ESCROW_HOLD_DAYS} ngày sau khi hoàn thành`
           }
           icon={Hourglass}
           loading={loading}

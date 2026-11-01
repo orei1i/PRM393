@@ -164,32 +164,6 @@ class ProgressReview {
     return 'BMI: ${formatDecimal(p.bmi)} → $now';
   }
 
-  /// Only when both weigh-ins have a waist.
-  String? get waistRow {
-    final before = previous?.waistCm;
-    final now = current.waistCm;
-    final ratio = current.waistToHeight;
-    if (before == null || now == null || ratio == null) return null;
-    return 'Vòng eo: ${BodyProgress.formatTrim(before)} → '
-        '${BodyProgress.formatTrim(now)} cm · '
-        'WHtR ${BodyProgress.formatWhtr(ratio)}';
-  }
-
-  /// WHtR ≥ 0,5 on the new weigh-in.
-  bool get waistCaution => switch (current.waistToHeight) {
-        final r? => BodyProgress.whtrNeedsCaution(r),
-        null => false,
-      };
-
-  /// Only when both weigh-ins have a body fat figure.
-  String? get bodyFatRow {
-    final before = previous?.bodyFatPct;
-    final now = current.bodyFatPct;
-    if (before == null || now == null) return null;
-    return 'Tỉ lệ mỡ: ${BodyProgress.formatTrim(before)} → '
-        '${BodyProgress.formatTrim(now)} %';
-  }
-
   /// Only when the daily target changed.
   String? get energyRow {
     final a = targetBefore;
@@ -214,10 +188,6 @@ class ProgressReview {
 abstract final class BodyProgress {
   static const minWeightKg = 30.0;
   static const maxWeightKg = 250.0;
-  static const minWaistCm = 40.0;
-  static const maxWaistCm = 200.0;
-  static const minBodyFatPct = 3.0;
-  static const maxBodyFatPct = 70.0;
 
   /// The "Bình thường" BMI band (Asia-Pacific) drawn on the BMI chart.
   static const bmiBand = (min: 18.5, max: 22.9);
@@ -240,15 +210,6 @@ abstract final class BodyProgress {
     final m = heightCm / 100;
     return (min: round1(18.5 * m * m), max: round1(23 * m * m));
   }
-
-  /// 70 / 172 → "0,41".
-  static String formatWhtr(double ratio) => formatDecimal(ratio, digits: 2);
-
-  /// WHtR ≥ 0,5 (as shown, two decimals).
-  static bool whtrNeedsCaution(double ratio) =>
-      (ratio * 100).roundToDouble() / 100 >= 0.5;
-
-  static const whtrCautionLabel = 'Vòng eo/chiều cao ≥ 0,5 — nên lưu ý';
 
   /// Calendar days from [from] to [to] (local dates, DST-safe).
   static int daysBetween(DateTime from, DateTime to) =>
@@ -273,6 +234,26 @@ abstract final class BodyProgress {
     }
     final days = byDay.keys.toList()..sort();
     return [for (final d in days) ChartPoint(d, of.of(byDay[d]!))];
+  }
+
+  /// The BMI chart of "Cập nhật cân nặng": every weigh-in, then what is being
+  /// typed ([typedWeightKg], `null` while invalid) as today's point at
+  /// [heightCm], replacing a weigh-in already logged today.
+  static List<ChartPoint> bmiPreviewSeries(
+    Iterable<BodyMeasurement> measurements, {
+    required double heightCm,
+    required DateTime now,
+    double? typedWeightKg,
+  }) {
+    final points = series(measurements,
+        range: MetricsRange.all, of: MetricsSeries.bmi, now: now);
+    if (typedWeightKg == null) return points;
+    final today = dateOnly(now);
+    return [
+      for (final p in points)
+        if (p.day != today) p,
+      ChartPoint(today, bmiOf(heightCm: heightCm, weightKg: typedWeightKg)),
+    ];
   }
 
   /// When the planner asks for a weigh-in: a member with a health profile
@@ -326,8 +307,7 @@ abstract final class BodyProgress {
         }
         return goal == HealthGoal.leanMuscle
             ? const ProgressVerdict(
-                'Ổn định — theo dõi thêm vòng eo và tỉ lệ mỡ',
-                VerdictTone.neutral)
+                'Ổn định — tiếp tục theo dõi', VerdictTone.neutral)
             : const ProgressVerdict('Chưa thay đổi', VerdictTone.neutral);
     }
   }
@@ -357,6 +337,11 @@ abstract final class BodyProgress {
   static double? parse(String? text) =>
       double.tryParse((text ?? '').trim().replaceAll(',', '.'));
 
+  /// The rule of the check-in sheet for a weight that is already a number; its
+  /// message, or `null`.
+  static String? validateMeasurement(double weightKg) =>
+      validateWeight('$weightKg');
+
   /// Same rules as the "Hồ sơ sức khoẻ" editor.
   static String? validateWeight(String? value) {
     final text = value?.trim() ?? '';
@@ -369,28 +354,6 @@ abstract final class BodyProgress {
     }
     if (kg < minWeightKg || kg > maxWeightKg) {
       return 'Cân nặng từ 30 đến 250 kg';
-    }
-    return null;
-  }
-
-  /// Optional.
-  static String? validateWaist(String? value) {
-    final text = value?.trim() ?? '';
-    if (text.isEmpty) return null;
-    final cm = parse(text);
-    if (cm == null || cm < minWaistCm || cm > maxWaistCm) {
-      return 'Vòng eo từ 40 đến 200 cm';
-    }
-    return null;
-  }
-
-  /// Optional.
-  static String? validateBodyFat(String? value) {
-    final text = value?.trim() ?? '';
-    if (text.isEmpty) return null;
-    final pct = parse(text);
-    if (pct == null || pct < minBodyFatPct || pct > maxBodyFatPct) {
-      return 'Tỉ lệ mỡ từ 3 đến 70 %';
     }
     return null;
   }

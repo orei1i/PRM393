@@ -4,7 +4,7 @@
 // creates the contract and an orders row with booking_id; the paid money goes into escrow
 // (types/bookings.ts). Services, consultations and access grants are deprecated.
 // Wire values follow the SQL enums.
-import type { BookingStatus, BookingType, DateOnly, EscrowHold } from "./bookings";
+import type { BookingAudience, BookingStatus, BookingType, DateOnly, EscrowHold } from "./bookings";
 import type { ISODateString } from "./moderation";
 
 /* ---------------------------------------------------------------- enums */
@@ -24,8 +24,14 @@ export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
 /** The single order type left (shown in the "Loại" column). */
 export const ORDER_TYPE_LABEL = "Đặt chuyên gia";
 
-export const PAYMENT_PROVIDERS = ["PaymentOS"] as const;
+/** "Wallet": paid in full from the member's wallet (POST /orders/{id}/wallet-payment); there is no partial balance. */
+export const PAYMENT_PROVIDERS = ["PaymentOS", "Wallet"] as const;
 export type PaymentProvider = (typeof PAYMENT_PROVIDERS)[number];
+
+export const PAYMENT_PROVIDER_LABEL: Record<PaymentProvider, string> = {
+  PaymentOS: "PaymentOS",
+  Wallet: "Ví VeganLife",
+};
 
 export const PAYMENT_STATUSES = ["Pending", "Paid", "Failed", "Expired", "Refunded"] as const;
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
@@ -57,8 +63,11 @@ export interface Payment {
 /**
  * How the order was closed. `cancel`: an admin cancelled an unpaid order here.
  * `refund` / `partial_refund` / `release`: a complaint decision on /disputes (`complaintId`).
+ * `member_cancel`: the member cancelled after paying, before any day was delivered (refunded to the wallet).
+ * `admin_resolve`: an admin decided a stuck hold with no complaint (POST /admin/escrow/holds/{id}/resolve);
+ * the hold's status says which way it went.
  */
-export type OrderResolutionAction = "cancel" | "refund" | "partial_refund" | "release";
+export type OrderResolutionAction = "cancel" | "refund" | "partial_refund" | "release" | "member_cancel" | "admin_resolve";
 
 export interface OrderResolution {
   action: OrderResolutionAction;
@@ -77,9 +86,15 @@ export interface OrderBooking {
   planDays: number;
   startDate: DateOnly;
   endDate: DateOnly;
+  audience: BookingAudience;
+  familySize: number | null;
+  allergies: string[];
   status: BookingStatus;
   /** Plan days already sent by the chef. */
   deliveredDays: number;
+  /** When the contract completed: the chef confirmed, or the system did it for them (autoCompleted). */
+  completedAt: ISODateString | null;
+  autoCompleted: boolean;
   complaintId: string | null;
 }
 

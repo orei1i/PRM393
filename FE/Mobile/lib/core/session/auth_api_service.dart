@@ -11,12 +11,20 @@
 //             "status": "Active" } }
 // errors: 401 invalid_credentials, 403 admin_web_only, 423 account_locked,
 //         409 email_taken, 429 too_many_attempts
+// The real BE sends no `code`, and garbled text (B35) in `message` for most of
+// them, so the status decides the message ([AuthErrors.localize]).
+//
+// POST /auth/refresh { "refreshToken": "…" } → 200 AuthResponse; the old refresh
+//                    token stops working. 401 when it is dead.
+// POST /auth/logout  (Bearer) → 204: revokes the refresh token. The JWT itself
+//                    stays valid until it expires.
 //
 // POST /auth/forgot-password   { "email" }                → 204 (always)
 // POST /auth/verify-reset-code { "email", "code" }        → { "resetToken" }
 // POST /auth/reset-password    { "resetToken", "newPassword" } → 204
-// errors: 400 invalid_code / code_expired (the real BE sends these in
-//         `message`, with no `code` field)
+// errors: 400 with a Vietnamese `message` and no `code` on the verify route
+//         (5 wrong codes use the code up); `invalid_code` / `code_expired` as
+//         the `message` of the reset route.
 //
 // Register always creates role `User`: a chef is approved later by an admin
 // (chef application). Guest data is merged through the `X-Guest-Token`
@@ -107,6 +115,9 @@ abstract final class AuthErrors {
   static const sessionExpired =
       'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
 
+  static final _codeGone =
+      RegExp(r'^Mã xác thực .*hết hạn|^Bạn đã nhập sai mã');
+
   /// Maps a server error of an auth endpoint to the message above (by `code`,
   /// or a code sent as `message`, else by status); other errors are returned
   /// unchanged. A code found in `message` becomes the result's `code`.
@@ -124,6 +135,12 @@ abstract final class AuthErrors {
     };
     if (byCode != null) {
       return ApiException(message: byCode, statusCode: e.statusCode, code: key);
+    }
+    // The code is gone on the verify route: "Gửi lại mã" shouldn't make them
+    // wait. Its text is fine, but the BE sends no `code` to tell.
+    if (e.code == null && _codeGone.hasMatch(e.message)) {
+      return ApiException(
+          message: e.message, statusCode: e.statusCode, code: 'code_expired');
     }
     final byStatus = e.code != null
         ? null
@@ -145,6 +162,13 @@ abstract interface class AuthApiService {
   Future<AuthResult> login({required String email, required String password});
 
   Future<AuthResult> register(RegisterRequest request);
+
+  /// New tokens for [refreshToken], which stops working.
+  Future<AuthResult> refresh(String refreshToken);
+
+  /// Revokes the refresh token of the session of [accessToken]. Best effort: the
+  /// caller doesn't wait for it, and it may fail.
+  Future<void> logout(String accessToken);
 
   /// Always succeeds (no hint whether the email is registered). Mock builds
   /// return the code they "sent", so testers can read it on screen; the real
@@ -193,6 +217,24 @@ class RemoteAuthApiService implements AuthApiService {
       });
 
   @override
+  Future<AuthResult> refresh(String refreshToken) => _call(() async {
+        final res = await _dio.post<Map<String, dynamic>>(
+          ApiEndpoints.authRefresh,
+          data: {'refreshToken': refreshToken},
+        );
+        return AuthResult.fromJson(res.data!);
+      });
+
+  /// With its own Bearer: the session is already gone from the app.
+  @override
+  Future<void> logout(String accessToken) => _call(() async {
+        await _dio.post<void>(
+          ApiEndpoints.authLogout,
+          options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+        );
+      });
+
+  @override
   Future<String?> requestPasswordReset(String email) => _call(() async {
         await _dio.post<void>(ApiEndpoints.authForgotPassword,
             data: {'email': email});
@@ -237,6 +279,16 @@ class MockAuthApiService implements AuthApiService {
     await mockDelay(700);
     return MockAuthDb.register(request);
   }
+
+  /// A mock session has no JWT to refresh, so nothing ever asks for this.
+  @override
+  Future<AuthResult> refresh(String refreshToken) async {
+    throw const ApiException(
+        message: AuthErrors.sessionExpired, statusCode: 401);
+  }
+
+  @override
+  Future<void> logout(String accessToken) async {}
 
   @override
   Future<String?> requestPasswordReset(String email) async {

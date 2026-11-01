@@ -7,7 +7,19 @@ import { Ban, ExternalLink, QrCode, Scale } from "lucide-react";
 import { toast } from "sonner";
 
 import { InitialsAvatar } from "@/components/admin/initials-avatar";
-import { EscrowStatusBadge, formatDateOnly, formatVnDateTime, StepList, timeLeft, type Step } from "@/components/disputes/booking-badges";
+import {
+  adminResolvedLabel,
+  AUTO_COMPLETE_RULE,
+  completionHint,
+  completionLabel,
+  EscrowStatusBadge,
+  formatDateOnly,
+  formatVnDateTime,
+  moneyLocation,
+  StepList,
+  timeLeft,
+  type Step,
+} from "@/components/disputes/booking-badges";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
 import { Label, Textarea } from "@/components/ui/form-controls";
@@ -15,9 +27,10 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { describeError } from "@/lib/api_error";
 import { useOrderAction } from "@/lib/hooks/use-commerce";
 import { cn } from "@/lib/utils";
-import { BOOKING_STATUS_LABEL, BOOKING_TYPE_LABEL, PAYMENT_WINDOW_HOURS } from "@/types/bookings";
-import type { AdminOrder } from "@/types/commerce";
+import { audienceLabel, BOOKING_STATUS_LABEL, BOOKING_TYPE_LABEL, familySummary, PAYMENT_WINDOW_HOURS } from "@/types/bookings";
+import { PAYMENT_PROVIDER_LABEL, type AdminOrder } from "@/types/commerce";
 import { MIN_AUDIT_NOTE_LENGTH } from "@/types/moderation";
+import { ESCROW_HOLD_DAYS } from "@/types/payouts";
 
 import { formatDateTime, formatVnd, OrderStatusBadge, OrderTypeBadge, PaymentStatusBadge } from "./order-badges";
 import { latestPayment } from "./order-table";
@@ -42,7 +55,7 @@ export function OrderDrawer({
 
 /* --------------------------------------------------------------- timeline */
 
-/** Tạo hợp đồng → Thanh toán → Giữ tiền → Giao kế hoạch → Giải ngân / Hoàn tiền */
+/** Tạo hợp đồng → Thanh toán → VeganLife giữ tiền → Giao kế hoạch → Hoàn thành (chuyên gia hoặc hệ thống) → Vào ví / Hoàn tiền */
 function buildTimeline(order: AdminOrder): Step[] {
   const payment = latestPayment(order);
   const paid = order.payments.find((p) => p.paidAt !== null) ?? null;
@@ -59,7 +72,7 @@ function buildTimeline(order: AdminOrder): Step[] {
 
   // Thanh toán
   if (paid) {
-    steps.push({ label: "Thanh toán", state: "done", detail: `PaymentOS · ${paid.transactionRef}`, at: paid.paidAt });
+    steps.push({ label: "Thanh toán", state: "done", detail: `${PAYMENT_PROVIDER_LABEL[paid.provider]} · ${paid.transactionRef}`, at: paid.paidAt });
   } else if (order.status === "Pending") {
     const detail =
       payment?.status === "Pending"
@@ -84,7 +97,11 @@ function buildTimeline(order: AdminOrder): Step[] {
       detail:
         escrow.status === "Frozen"
           ? "Tạm giữ do khiếu nại — chờ Ban quản trị quyết định"
-          : `VeganLife giữ đến ${formatVnDateTime(escrow.releaseAt)} (3 ngày sau khi kết thúc kế hoạch)`,
+          : escrow.status !== "Held"
+            ? "VeganLife đã giữ đến khi tiền được chuyển vào ví"
+            : escrow.releaseAt
+              ? `VeganLife giữ đến ${formatVnDateTime(escrow.releaseAt)} (${ESCROW_HOLD_DAYS} ngày sau khi hoàn thành)`
+              : `VeganLife giữ đến ${ESCROW_HOLD_DAYS} ngày sau khi chuyên gia xác nhận hoàn thành`,
       at: escrow.heldAt,
     });
   } else {
@@ -92,45 +109,72 @@ function buildTimeline(order: AdminOrder): Step[] {
   }
 
   // Giao kế hoạch
+  const memberCancelled = order.resolution?.action === "member_cancel";
+  const adminResolved = order.resolution?.action === "admin_resolve";
   if (escrow) {
     const all = b.deliveredDays >= b.planDays;
     steps.push({
       label: "Giao kế hoạch",
-      state: all ? "done" : "current",
+      state: all ? "done" : memberCancelled || adminResolved ? "skipped" : "current",
       detail: `Đã giao ${b.deliveredDays}/${b.planDays} ngày · ${formatDateOnly(b.startDate)} – ${formatDateOnly(b.endDate)}`,
     });
   } else {
     steps.push({ label: "Giao kế hoạch", state: order.status === "Pending" ? "upcoming" : "skipped", detail: `${b.planDays} ngày từ ${formatDateOnly(b.startDate)}` });
   }
 
-  // Giải ngân / Hoàn tiền
+  // Hoàn thành: chuyên gia xác nhận, hoặc hệ thống làm thay. Ban quản trị xử lý khoản kẹt thì không ai xác nhận.
+  if (adminResolved) {
+    steps.push({ label: "Chuyên gia xác nhận hoàn thành", state: "skipped", detail: "Quá hạn tự hoàn tất, Ban quản trị xử lý khoản tiền này" });
+  } else if (b.completedAt) {
+    steps.push({
+      label: b.autoCompleted ? "Hệ thống tự hoàn tất" : "Chuyên gia xác nhận hoàn thành",
+      state: "done",
+      detail: `${b.autoCompleted ? `${AUTO_COMPLETE_RULE}. ` : ""}Hợp đồng hoàn thành, tính ${ESCROW_HOLD_DAYS} ngày giữ tiền từ đây`,
+      at: b.completedAt,
+    });
+  } else if (escrow && (escrow.status === "Held" || escrow.status === "Frozen")) {
+    steps.push({ label: "Chuyên gia xác nhận hoàn thành", state: "upcoming", detail: `${completionHint(b, escrow.status === "Frozen").text}. Chưa có ngày tiền vào ví` });
+  } else {
+    steps.push({
+      label: "Chuyên gia xác nhận hoàn thành",
+      state: order.status === "Pending" ? "upcoming" : "skipped",
+      detail: memberCancelled ? "Thành viên huỷ trước khi chuyên gia giao ngày nào" : escrow ? "Khiếu nại được quyết định trước khi chuyên gia xác nhận" : "Sau khi giao đủ kế hoạch và tới ngày kết thúc",
+    });
+  }
+
+  // Vào ví / Hoàn tiền
   const r = order.resolution;
   if (escrow?.status === "Released") {
     steps.push({
-      label: "Giải ngân",
+      label: "Vào ví chuyên gia",
       state: "done",
-      detail: r?.action === "release" ? `Theo quyết định khiếu nại của ${r.by}` : `Tự động khi hết hạn khiếu nại · chuyên gia nhận ${formatVnd(escrow.releasedAmount - escrow.feeAmount)}`,
+      detail: `${r?.action === "release" ? `Theo quyết định khiếu nại của ${r.by}` : r?.action === "admin_resolve" ? `Theo quyết định của ${r.by}: “${r.note}”` : `Tự động khi hết ${ESCROW_HOLD_DAYS} ngày giữ`} · ví chuyên gia nhận ${formatVnd(escrow.releasedAmount - escrow.feeAmount)}`,
       at: escrow.releasedAt,
     });
   } else if (escrow?.status === "Refunded" || escrow?.status === "PartiallyRefunded") {
     steps.push({
-      label: escrow.status === "Refunded" ? "Hoàn tiền" : "Hoàn một phần & giải ngân",
+      label: escrow.status === "Refunded" ? "Hoàn vào ví thành viên" : "Hoàn một phần & chuyển phần còn lại",
       state: "closed",
-      detail: `Hoàn ${formatVnd(escrow.refundedAmount)} về phương thức thanh toán ban đầu${
-        escrow.releasedAmount > 0 ? ` · chuyên gia nhận ${formatVnd(escrow.releasedAmount - escrow.feeAmount)}` : ""
+      detail: `Ví thành viên nhận ${formatVnd(escrow.refundedAmount)}${
+        escrow.releasedAmount > 0 ? ` · ví chuyên gia nhận ${formatVnd(escrow.releasedAmount - escrow.feeAmount)}` : ""
       }${r ? ` · ${r.by}: “${r.note}”` : ""}`,
       at: r?.at ?? escrow.releasedAt,
     });
   } else if (escrow) {
     steps.push({
-      label: "Giải ngân / Hoàn tiền",
+      label: "Vào ví chuyên gia / Hoàn tiền",
       state: "upcoming",
-      detail: escrow.status === "Frozen" ? "Theo quyết định khiếu nại" : `Tự động chuyển cho chuyên gia ${timeLeft(escrow.releaseAt)} nếu không có khiếu nại`,
+      detail:
+        escrow.status === "Frozen"
+          ? "Theo quyết định khiếu nại"
+          : escrow.releaseAt
+            ? `Tự vào ví chuyên gia ${timeLeft(escrow.releaseAt)} nếu không có khiếu nại`
+            : `${ESCROW_HOLD_DAYS} ngày sau khi hoàn thành, nếu không có khiếu nại`,
     });
   } else if (order.status === "Cancelled") {
     steps.push({ label: "Huỷ đơn", state: "closed", detail: r ? `${r.by}: “${r.note}”` : "Thành viên không thanh toán kịp", at: r?.at });
   } else {
-    steps.push({ label: "Giải ngân / Hoàn tiền", state: "upcoming", detail: "Sau khi kế hoạch kết thúc và hết hạn khiếu nại" });
+    steps.push({ label: "Vào ví chuyên gia / Hoàn tiền", state: "upcoming", detail: `${ESCROW_HOLD_DAYS} ngày sau khi chuyên gia xác nhận hoàn thành, nếu không có khiếu nại` });
   }
   return steps;
 }
@@ -144,6 +188,7 @@ function Detail({ order, onOrderChange }: { order: AdminOrder; onOrderChange: (o
   const noteId = React.useId();
   const noteOk = note.trim().length >= MIN_AUDIT_NOTE_LENGTH;
   const escrow = order.escrow;
+  const adminResolution = order.resolution?.action === "admin_resolve" ? order.resolution : null;
 
   function submit() {
     if (!noteOk) return;
@@ -191,7 +236,8 @@ function Detail({ order, onOrderChange }: { order: AdminOrder; onOrderChange: (o
           <Info label="Số tiền" value={formatVnd(order.amount)} mono />
           <Info label="Hình thức" value={BOOKING_TYPE_LABEL[order.booking.bookingType]} />
           <Info label="Trạng thái đặt" value={BOOKING_STATUS_LABEL[order.booking.status]} />
-          {order.refundedAmount > 0 && <Info label="Đã hoàn thành viên" value={formatVnd(order.refundedAmount)} mono />}
+          <Info label="Đặt cho" value={order.booking.audience === "Family" ? familySummary(order.booking) : audienceLabel(order.booking)} />
+          {order.refundedAmount > 0 && <Info label="Đã hoàn vào ví thành viên" value={formatVnd(order.refundedAmount)} mono />}
         </dl>
 
         <section aria-labelledby={`${noteId}-timeline`} className="flex flex-col gap-3">
@@ -210,9 +256,16 @@ function Detail({ order, onOrderChange }: { order: AdminOrder; onOrderChange: (o
               <EscrowStatusBadge status={escrow.status} />
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
                 <Info label="Bắt đầu giữ" value={formatVnDateTime(escrow.heldAt)} />
-                <Info label="Hạn giữ" value={formatVnDateTime(escrow.releaseAt)} />
-                <Info label="Chuyển chuyên gia" value={formatVnd(escrow.releasedAmount - escrow.feeAmount)} mono />
+                <Info
+                  label="Hoàn thành"
+                  value={adminResolution ? adminResolvedLabel(adminResolution.at) : escrow.completedAt ? completionLabel(escrow.completedAt, order.booking.autoCompleted) : "Chưa xác nhận"}
+                />
+                <Info label="Hạn giữ" value={escrow.releaseAt ? formatVnDateTime(escrow.releaseAt) : adminResolution ? "Không áp dụng" : "Chưa có ngày"} />
+                <Info label="Vào ví chuyên gia" value={formatVnd(escrow.releasedAmount - escrow.feeAmount)} mono />
                 <Info label="Phí nền tảng" value={formatVnd(escrow.feeAmount)} mono />
+                <div className="col-span-2">
+                  <Info label="Tiền đang ở" value={moneyLocation(escrow)} />
+                </div>
               </dl>
               <Button asChild size="sm" variant={order.booking.complaintId ? "warn" : "outline"} className="w-fit">
                 <Link href={`/disputes?booking=${encodeURIComponent(order.bookingId)}`}>
@@ -223,7 +276,7 @@ function Detail({ order, onOrderChange }: { order: AdminOrder; onOrderChange: (o
             </div>
           ) : (
             <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
-              {order.status === "Pending" ? "Tiền được giữ ngay khi thanh toán thành công." : "Đơn không phát sinh khoản giữ tiền."}
+              {order.status === "Pending" ? "Tiền vào VeganLife và được giữ ngay khi thanh toán thành công." : "Đơn không phát sinh khoản giữ tiền."}
             </p>
           )}
         </section>
@@ -239,7 +292,7 @@ function Detail({ order, onOrderChange }: { order: AdminOrder; onOrderChange: (o
               {[...order.payments].reverse().map((p) => (
                 <li key={p.id} className="flex flex-col gap-1.5 rounded-lg border p-3 text-sm">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-semibold">{p.provider}</span>
+                    <span className="font-semibold">{PAYMENT_PROVIDER_LABEL[p.provider]}</span>
                     <PaymentStatusBadge status={p.status} />
                   </div>
                   <p className="font-mono text-xs break-all">{p.transactionRef}</p>
@@ -281,7 +334,11 @@ function Detail({ order, onOrderChange }: { order: AdminOrder; onOrderChange: (o
             <p className="text-sm text-muted-foreground">
               {order.status === "Cancelled"
                 ? "Đơn đã huỷ — không còn thao tác nào."
-                : "Hoàn tiền chỉ thực hiện qua quyết định khiếu nại ở “Khiếu nại & giữ tiền”."}
+                : order.resolution?.action === "member_cancel"
+                  ? "Thành viên đã huỷ sau khi thanh toán, tiền đã hoàn vào ví — không còn thao tác nào."
+                  : adminResolution
+                    ? "Ban quản trị đã xử lý khoản tiền này ở “Khiếu nại & giữ tiền” — không còn thao tác nào."
+                    : "Hoàn tiền chỉ thực hiện qua “Khiếu nại & giữ tiền”: quyết định khiếu nại, hoặc xử lý khoản kẹt."}
             </p>
           )}
         </section>

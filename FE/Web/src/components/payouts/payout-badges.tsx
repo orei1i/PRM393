@@ -1,10 +1,10 @@
 // src/components/payouts/payout-badges.tsx
-// Status / approval-rule badges and the masked bank account number shared by the
+// Status / role badges and the masked bank account number shared by the
 // withdrawal table, drawer and wallets tab.
 "use client";
 
 import * as React from "react";
-import { Ban, CircleCheck, Eye, EyeOff, Hourglass, Lock, RotateCcw, ShieldAlert, Snowflake, Wallet, Zap } from "lucide-react";
+import { Ban, ChefHat, CircleCheck, Eye, EyeOff, Hourglass, Lock, RotateCcw, Snowflake, UserRound, Wallet } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,10 +12,11 @@ import { formatVnd } from "@/components/orders/order-badges";
 import { maskAccountNumber } from "@/lib/payouts_api";
 import { cn } from "@/lib/utils";
 import {
-  AUTO_APPROVE_LIMIT,
   LEDGER_STATUS_LABEL,
+  WALLET_ROLE_LABEL,
   WITHDRAWAL_STATUS_LABEL,
   type LedgerStatus,
+  type WalletRole,
   type WithdrawalStatus,
 } from "@/types/payouts";
 
@@ -45,22 +46,18 @@ export function WithdrawalStatusBadge({ status }: { status: WithdrawalStatus }) 
   }
 }
 
-/** "Cần duyệt" above AUTO_APPROVE_LIMIT, "Tự động" otherwise. */
-export function ApprovalRuleBadge({ requiresApproval }: { requiresApproval: boolean }) {
-  return requiresApproval ? (
-    <Badge variant="ai" title={`Trên ${formatVnd(AUTO_APPROVE_LIMIT)}: Ban quản trị chuyển khoản rồi xác nhận`}>
-      <ShieldAlert aria-hidden />
-      Cần duyệt
-    </Badge>
-  ) : (
-    <Badge variant="outline" title={`Tối đa ${formatVnd(AUTO_APPROVE_LIMIT)}: chi trả tự động`}>
-      <Zap aria-hidden />
-      Tự động
+/** Whose wallet: "Chuyên gia" (earnings) or "Thành viên" (refunds). */
+export function WalletRoleBadge({ role }: { role: WalletRole }) {
+  const Icon = role === "chef" ? ChefHat : UserRound;
+  return (
+    <Badge variant={role === "chef" ? "ai" : "outline"}>
+      <Icon aria-hidden />
+      {WALLET_ROLE_LABEL[role]}
     </Badge>
   );
 }
 
-export function LedgerStatusBadge({ status }: { status: LedgerStatus }) {
+export function LedgerStatusBadge({ status, label }: { status: LedgerStatus; label?: string }) {
   if (status === "Frozen") {
     return (
       <Badge variant="outline" className="border-destructive/40 text-destructive">
@@ -92,7 +89,7 @@ export function LedgerStatusBadge({ status }: { status: LedgerStatus }) {
   return (
     <Badge variant={variant}>
       <Icon aria-hidden />
-      {LEDGER_STATUS_LABEL[status]}
+      {label ?? LEDGER_STATUS_LABEL[status]}
     </Badge>
   );
 }

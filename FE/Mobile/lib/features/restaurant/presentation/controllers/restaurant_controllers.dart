@@ -1,6 +1,7 @@
 // lib/features/restaurant/presentation/controllers/restaurant_controllers.dart
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/session/session_controller.dart';
 import '../../data/location_service.dart';
 import '../../data/models/restaurant_model.dart';
 import '../../data/restaurant_api_service.dart';
@@ -92,9 +93,10 @@ class RestaurantListState {
   RestaurantSort get sort => filters.sort;
   double? get radiusKm => filters.radiusKm;
 
-  /// Whether [r] fits the area and the "Bộ lọc" choices that decide which
-  /// places belong in this list (the sponsored row obeys them too).
+  /// Whether [r] fits the search, the area and the "Bộ lọc" choices that decide
+  /// which places belong in this list (the sponsored row obeys them too).
   bool admits(Restaurant r) {
+    if (query.isNotEmpty && !restaurants.any((x) => x.id == r.id)) return false;
     if (certifiedOnly && !r.isVeganCertified) return false;
     final area = this.area;
     if (area != null) {
@@ -230,6 +232,15 @@ class RestaurantListController
     if (id == _requestId) state = next; // drop stale responses while typing
   }
 }
+
+/// "Quán tôi đã gợi ý", newest first; empty for a guest.
+final mySuggestionsProvider =
+    FutureProvider.autoDispose<List<RestaurantSuggestion>>((ref) async {
+  final guest = ref.watch(sessionControllerProvider.select((s) => s.isGuest));
+  if (guest) return const [];
+  final rows = await ref.watch(restaurantApiProvider).getMySuggestions();
+  return [for (final r in rows) r.toSuggestion()];
+});
 
 class RestaurantDetailState {
   const RestaurantDetailState({

@@ -42,6 +42,8 @@ class VLMap extends ConsumerWidget {
     this.layers = const [],
     this.overlays = const [],
     this.onTap,
+    this.onTapPoint,
+    this.onTileError,
     this.onMapEvent,
     this.extraAttributions = const [],
   });
@@ -58,6 +60,13 @@ class VLMap extends ConsumerWidget {
   final List<Widget> layers;
   final List<Widget> overlays;
   final VoidCallback? onTap;
+
+  /// Like [onTap], with the point that was tapped.
+  final ValueChanged<GeoPoint>? onTapPoint;
+
+  /// A tile failed to load (no connection, a server that refuses). The map
+  /// still pans and taps; the screen can say so.
+  final VoidCallback? onTileError;
   final void Function(MapEvent event)? onMapEvent;
 
   /// More sources next to "OpenStreetMap contributors" (e.g. OSRM).
@@ -92,7 +101,12 @@ class VLMap extends ConsumerWidget {
               ? InteractiveFlag.all & ~InteractiveFlag.rotate
               : InteractiveFlag.none,
         ),
-        onTap: onTap == null ? null : (_, __) => onTap!(),
+        onTap: onTap == null && onTapPoint == null
+            ? null
+            : (_, point) {
+                onTap?.call();
+                onTapPoint?.call(point.geoPoint);
+              },
         onMapEvent: onMapEvent,
       ),
       children: [
@@ -102,6 +116,8 @@ class VLMap extends ConsumerWidget {
             userAgentPackageName: Env.mapUserAgentPackageName,
             maxZoom: 19,
             tileProvider: tileProvider,
+            errorTileCallback:
+                onTileError == null ? null : (_, __, ___) => onTileError!(),
           ),
         ...layers,
         ...overlays,

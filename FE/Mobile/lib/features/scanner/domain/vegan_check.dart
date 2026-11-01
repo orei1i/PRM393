@@ -13,12 +13,23 @@ class VeganVerdict {
   const VeganVerdict.vegan()
       : isVegan = true,
         nonVeganReason = null,
-        veganAlternatives = const [];
+        veganAlternatives = const [],
+        byServerOnly = false;
 
   const VeganVerdict.nonVegan(
-      {required String reason, this.veganAlternatives = const []})
+      {required String reason,
+      this.veganAlternatives = const [],
+      this.byServerOnly = false})
       : isVegan = false,
         nonVeganReason = reason;
+
+  /// The BE's verdict on a food this app's own check finds vegan. It goes by
+  /// words in the name ("Bơ" could be butter, "Đậu gà" has "gà"), so the app
+  /// repeats it without claiming it.
+  factory VeganVerdict.server() => const VeganVerdict.nonVegan(
+        reason: 'Máy chủ xét theo tên nên có thể nhầm với món thuần chay.',
+        byServerOnly: true,
+      );
 
   final bool isVegan;
 
@@ -27,6 +38,8 @@ class VeganVerdict {
 
   /// Vegan swaps ("Đậu hũ non" for eggs). Empty when vegan.
   final List<String> veganAlternatives;
+
+  final bool byServerOnly;
 
   /// "Thuần chay" / "Không thuần chay".
   String get label => isVegan ? 'Thuần chay' : 'Không thuần chay';

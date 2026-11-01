@@ -10,7 +10,7 @@
 //   "createdAt": "…",
 //   "booking": { "id": "b_ma_thuha_active", "chefId": "u_thu_ha", "chefName": "ThS. DD Phạm Thu Hà",
 //                "bookingType": "OneShot", "planDays": 7, "startDate": "2026-10-15",
-//                "endDate": "2026-10-21", "status": "Active" },
+//                "endDate": "2026-10-21", "status": "Active", "completedAt": null },
 //   "payment": PaymentDto | null,          // the latest attempt
 //   "escrow": EscrowHoldDto | null }       // null until paid
 import '../../../../core/utils/json_helpers.dart';
@@ -31,6 +31,7 @@ class OrderBookingSummary {
     required this.startDate,
     required this.endDate,
     required this.status,
+    this.completedAt,
   });
 
   factory OrderBookingSummary.fromJson(Map<String, dynamic> json) =>
@@ -43,6 +44,7 @@ class OrderBookingSummary {
         startDate: readDate(json['startDate']),
         endDate: readDate(json['endDate']),
         status: BookingStatus.fromApi(json['status']),
+        completedAt: readDateTime(json['completedAt']),
       );
 
   final String id;
@@ -53,6 +55,7 @@ class OrderBookingSummary {
   final DateTime startDate;
   final DateTime endDate;
   final BookingStatus status;
+  final DateTime? completedAt;
 
   /// "Thực đơn 10 ngày".
   String get title => 'Thực đơn $planDays ngày';

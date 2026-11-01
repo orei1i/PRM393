@@ -87,15 +87,14 @@ class _ConfirmIngredientSheetState extends State<ConfirmIngredientSheet> {
             TextSpan(
               style: context.textStyles.bodyMedium?.copyWith(color: vl.muted),
               children: [
-                const TextSpan(text: 'Mình chỉ chắc '),
                 TextSpan(
-                  text: '${(item.confidence * 100).round()}%',
+                  text: item.confidenceLabel,
                   style: AppTypography.mono(
                       size: 14, color: context.colors.onSurface),
                 ),
                 const TextSpan(
                     text:
-                        '. Nhiều nguyên liệu trông khá giống nhau nên mình hỏi lại cho chắc.'),
+                        ' là khá thấp. Nhiều nguyên liệu trông giống nhau nên mình hỏi lại cho chắc.'),
               ],
             ),
           ),
@@ -106,7 +105,7 @@ class _ConfirmIngredientSheetState extends State<ConfirmIngredientSheet> {
               subtitle: item.veganVerdictFor(name).isVegan
                   ? null
                   : 'Không thuần chay · sẽ không được lưu',
-              trailing: '${(confidence * 100).round()}%',
+              trailing: confidenceLabelOf(confidence),
               selected: !_other && _selected == name,
               onTap: () => setState(() {
                 _other = false;

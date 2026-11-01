@@ -600,12 +600,14 @@ void main() {
       await reveal(find.text('Có nguồn gốc động vật: trứng'));
       final swap = find.widgetWithText(ActionChip, 'Đậu hũ non');
       await reveal(swap);
-      await tester.ensureVisible(swap);
-      await tester.pump(const Duration(milliseconds: 300));
-      await tester.tap(swap);
+      // This test is about the source label; m4_shell_scan_test taps the same
+      // chip and button for real.
+      tester.widget<ActionChip>(swap).onPressed!();
       await tester.pump();
-      await reveal(find.text('Lưu vào tủ lạnh (5)'));
-      await tester.tap(find.text('Lưu vào tủ lạnh (5)'));
+      final save = find.ancestor(
+          of: find.text('Lưu vào tủ lạnh (5)'),
+          matching: find.byWidgetPredicate((w) => w is ButtonStyleButton));
+      tester.widget<ButtonStyleButton>(save.first).onPressed!();
       await tester.pump(const Duration(seconds: 2));
 
       final fridge = {

@@ -274,6 +274,31 @@ void main() {
   });
 
   group('Reels player', () {
+    testWidgets('the scrub bar stays above the system home gesture and seeks',
+        (tester) async {
+      tester.view
+        ..padding = const FakeViewPadding(bottom: 24)
+        ..systemGestureInsets = const FakeViewPadding(bottom: 32);
+      final created = <_FakeVideo>[];
+      final reels = await _reels(tester);
+      await _pump(tester, ReelsPlayerScreen(reels: reels), overrides: [
+        reelVideoFactoryProvider.overrideWithValue((url) {
+          final v = _FakeVideo(url);
+          created.add(v);
+          return v;
+        }),
+      ]);
+      final bar = tester.getRect(find.byType(VideoProgressIndicator));
+      expect(bar.bottom, 913 - 32);
+
+      await tester.tapAt(Offset(205, bar.center.dy));
+      await tester.pump();
+      expect(created.first.seeks, isNotEmpty);
+      expect(created.first.value.isPlaying, isTrue,
+          reason: 'a tap on the bar seeks, it does not pause');
+      await _dispose(tester);
+    });
+
     testWidgets(
         'plays the active clip only, pauses on swipe, mute toggle, '
         'disposes every player', (tester) async {
@@ -299,9 +324,11 @@ void main() {
       await tester.tapAt(const Offset(200, 400));
       await tester.pump();
       expect(created.first.value.isPlaying, isFalse);
+      expect(find.text('0:00 / 12:00'), findsOneWidget, reason: 'while paused');
       await tester.tapAt(const Offset(200, 400));
       await tester.pump();
       expect(created.first.value.isPlaying, isTrue);
+      expect(find.text('0:00 / 12:00'), findsNothing);
 
       await tester.fling(find.byType(PageView), const Offset(0, -500), 2000);
       await _frames(tester);

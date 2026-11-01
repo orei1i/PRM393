@@ -202,16 +202,12 @@ class MockMealPlannerRepository implements MealPlannerApiService {
   BodyMeasurementDto _logMeasurement(
     HealthProfileDto profile, {
     required MeasurementSource source,
-    double? waistCm,
-    double? bodyFatPct,
   }) {
     final row = BodyMeasurementDto(
       id: 'm_${userId ?? 'guest'}_${++_store.measurementSeq}',
       weightKg: profile.weightKg,
       heightCm: profile.heightCm,
       bmi: profile.bmi,
-      waistCm: waistCm,
-      bodyFatPct: bodyFatPct,
       source: source.apiValue,
       loggedAt: _clock(),
     );
@@ -249,14 +245,6 @@ class MockMealPlannerRepository implements MealPlannerApiService {
       throw const ApiException(
           message: 'Cân nặng từ 30 đến 250 kg', statusCode: 400);
     }
-    if (request.waistCm case final w? when w < 40 || w > 200) {
-      throw const ApiException(
-          message: 'Vòng eo từ 40 đến 200 cm', statusCode: 400);
-    }
-    if (request.bodyFatPct case final f? when f < 3 || f > 70) {
-      throw const ApiException(
-          message: 'Tỉ lệ mỡ từ 3 đến 70 %', statusCode: 400);
-    }
     final saved = _healthProfile;
     if (saved == null) {
       throw const ApiException(
@@ -273,8 +261,6 @@ class MockMealPlannerRepository implements MealPlannerApiService {
     final row = _logMeasurement(
       profile,
       source: MeasurementSource.checkIn,
-      waistCm: request.waistCm,
-      bodyFatPct: request.bodyFatPct,
     );
     return LogMeasurementResultDto(measurement: row, profile: profile);
   }
@@ -475,6 +461,54 @@ class MockMealPlannerRepository implements MealPlannerApiService {
       },
     );
     return RecipeDto.fromJson(row).withSource(MealSource.userRecipe.apiValue);
+  }
+
+  @override
+  Future<RecipeDto> updateMyRecipe(
+      String id, CreateRecipeRequestDto request) async {
+    await mockDelay(700);
+    final owner = userId;
+    if (owner == null) {
+      throw const ApiException(
+          message: 'Vui lòng đăng nhập để tiếp tục.', statusCode: 401);
+    }
+    if (request.name.toLowerCase().contains('#fail')) {
+      throw const ApiException(
+          message: 'Chưa lưu được công thức. Thử lại nhé.', statusCode: 503);
+    }
+    final row = MockRecipeBook.updateUserRecipe(
+      userId: owner,
+      id: id,
+      recipe: {
+        ...request.toJson(),
+        'allergens': request.allergens ??
+            detectAllergens(
+                request.name, request.ingredients.map((i) => i.name)).toList(),
+      },
+    );
+    if (row == null) {
+      throw const ApiException(
+          message: 'Không tìm thấy công thức.',
+          statusCode: 404,
+          code: 'not_found');
+    }
+    return RecipeDto.fromJson(row).withSource(MealSource.userRecipe.apiValue);
+  }
+
+  @override
+  Future<void> deleteMyRecipe(String id) async {
+    await mockDelay(500);
+    final owner = userId;
+    if (owner == null) {
+      throw const ApiException(
+          message: 'Vui lòng đăng nhập để tiếp tục.', statusCode: 401);
+    }
+    if (!MockRecipeBook.deleteUserRecipe(userId: owner, id: id)) {
+      throw const ApiException(
+          message: 'Không tìm thấy công thức.',
+          statusCode: 404,
+          code: 'not_found');
+    }
   }
 
   @override

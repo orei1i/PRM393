@@ -401,11 +401,11 @@ class CustomizedRecipe {
           if (!r.removed)
             switch (r.substitute) {
               null => r.original,
-              final s => _swappedRow(r.original, s),
+              final s => swappedRow(r.original, s),
             },
       ];
 
-  static RecipeIngredient _swappedRow(
+  static RecipeIngredient swappedRow(
           RecipeIngredient row, RecipeSubstitute s) =>
       RecipeIngredient(
         key: row.key,
@@ -523,7 +523,7 @@ class SlotComparison {
   final double energy;
 
   /// (E − target) / target.
-  double get deviation => (energy - target) / target;
+  double get deviation => target <= 0 ? 0 : (energy - target) / target;
 
   /// Within ±10 %.
   bool get fits => deviation.abs() <= 0.10;

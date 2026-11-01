@@ -3,28 +3,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../core/config/backend_modules.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/bmi.dart';
 import '../../../../core/utils/formatters.dart';
+import '../../data/meal_planner_api_service.dart';
 import '../../domain/body_progress.dart';
 import '../../domain/entities/body_measurement.dart';
 import '../controllers/body_metrics_controller.dart';
 import 'progress_review_sheet.dart';
+import 'weight_chart.dart';
 
-/// "Cập nhật cân nặng": weight (required), waist and body fat (optional) at
-/// the saved height, with a live BMI preview. On success it closes and the
-/// progress review opens; a failure stays in the sheet with the input kept.
+/// "Cập nhật cân nặng": weight at the saved height, with a live BMI preview and
+/// the member's BMI over time, the typed weight drawn as the last point. On
+/// success it closes and the progress review opens; a failure stays in the
+/// sheet with the input kept.
 class CheckInSheet extends ConsumerStatefulWidget {
-  /// Shown when the server added no row, because the weight is the same.
-  static const sameWeightNote =
-      'Cân nặng không đổi nên chưa thêm dòng mới vào lịch sử.';
-
-  /// Instead of the waist and body fat fields, when they can't be saved.
-  static const noExtrasNote =
-      'Vòng eo và tỉ lệ mỡ tạm chưa lưu được nên đã ẩn.';
-
   const CheckInSheet({super.key, required this.heightCm, this.last});
 
   /// The saved height ("đổi trong Hồ sơ sức khoẻ").
@@ -49,12 +43,6 @@ class CheckInSheet extends ConsumerStatefulWidget {
       builder: (_) => CheckInSheet(heightCm: heightCm, last: last),
     );
     if (result == null || !context.mounted) return;
-    if (result.measurement.isLocalOnly) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(content: Text(sameWeightNote)));
-      return;
-    }
     await ProgressReviewSheet.show(context, result.review, origin: origin);
   }
 
@@ -65,8 +53,6 @@ class CheckInSheet extends ConsumerStatefulWidget {
 class _CheckInSheetState extends ConsumerState<CheckInSheet> {
   final _form = GlobalKey<FormState>();
   final _weight = TextEditingController();
-  final _waist = TextEditingController();
-  final _fat = TextEditingController();
   bool _saving = false;
   bool _submitted = false;
   String? _error;
@@ -80,18 +66,21 @@ class _CheckInSheetState extends ConsumerState<CheckInSheet> {
   @override
   void dispose() {
     _weight.dispose();
-    _waist.dispose();
-    _fat.dispose();
     super.dispose();
   }
 
   void _changed() => setState(() {});
 
+  /// The weight being typed; `null` while invalid.
+  double? get _typedKg => BodyProgress.validateWeight(_weight.text) == null
+      ? BodyProgress.parse(_weight.text)
+      : null;
+
   /// "BMI mới ≈ 22,1 · Bình thường" for a valid weight.
   String? get _preview {
-    if (BodyProgress.validateWeight(_weight.text) != null) return null;
-    final bmi = BodyProgress.bmiOf(
-        heightCm: widget.heightCm, weightKg: BodyProgress.parse(_weight.text)!);
+    final kg = _typedKg;
+    if (kg == null) return null;
+    final bmi = BodyProgress.bmiOf(heightCm: widget.heightCm, weightKg: kg);
     return 'BMI mới ≈ ${formatDecimal(bmi)} · ${Bmi.categorize(bmi).label}';
   }
 
@@ -106,8 +95,6 @@ class _CheckInSheetState extends ConsumerState<CheckInSheet> {
     try {
       final result = await ref.read(bodyMeasurementsProvider.notifier).log(
             weightKg: BodyProgress.parse(_weight.text)!,
-            waistCm: BodyProgress.parse(_waist.text),
-            bodyFatPct: BodyProgress.parse(_fat.text),
           );
       navigator.pop(result);
     } catch (e) {
@@ -124,12 +111,6 @@ class _CheckInSheetState extends ConsumerState<CheckInSheet> {
     final vl = context.vl;
     final last = widget.last;
     final preview = _preview;
-    final numbers = [
-      FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
-      LengthLimitingTextInputFormatter(6),
-    ];
-    const keyboard = TextInputType.numberWithOptions(decimal: true);
-    final extras = BackendModules.checkInExtras;
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: SafeArea(
@@ -147,11 +128,14 @@ class _CheckInSheetState extends ConsumerState<CheckInSheet> {
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _weight,
-                  keyboardType: keyboard,
-                  inputFormatters: numbers,
-                  textInputAction:
-                      extras ? TextInputAction.next : TextInputAction.done,
-                  onFieldSubmitted: extras ? null : (_) => _save(),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+                    LengthLimitingTextInputFormatter(6),
+                  ],
+                  textInputAction: TextInputAction.done,
+                  onFieldSubmitted: (_) => _save(),
                   decoration: InputDecoration(
                     labelText: 'Cân nặng (kg)',
                     helperText: last == null
@@ -161,38 +145,7 @@ class _CheckInSheetState extends ConsumerState<CheckInSheet> {
                   ),
                   validator: BodyProgress.validateWeight,
                 ),
-                if (extras) ...[
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _waist,
-                    keyboardType: keyboard,
-                    inputFormatters: numbers,
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                        labelText: 'Vòng eo (cm) — không bắt buộc'),
-                    validator: BodyProgress.validateWaist,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _fat,
-                    keyboardType: keyboard,
-                    inputFormatters: numbers,
-                    textInputAction: TextInputAction.done,
-                    decoration: const InputDecoration(
-                        labelText: 'Tỉ lệ mỡ cơ thể (%) — không bắt buộc'),
-                    validator: BodyProgress.validateBodyFat,
-                    onFieldSubmitted: (_) => _save(),
-                  ),
-                ],
                 const SizedBox(height: 12),
-                if (!extras) ...[
-                  Text(
-                    CheckInSheet.noExtrasNote,
-                    style:
-                        context.textStyles.bodySmall?.copyWith(color: vl.muted),
-                  ),
-                  const SizedBox(height: 4),
-                ],
                 Text(
                   'Chiều cao ${BodyProgress.formatTrim(widget.heightCm)} cm · '
                   'đổi trong Hồ sơ sức khoẻ',
@@ -213,6 +166,8 @@ class _CheckInSheetState extends ConsumerState<CheckInSheet> {
                     ],
                   ),
                 ],
+                const SizedBox(height: 16),
+                _BmiHistory(heightCm: widget.heightCm, typedKg: _typedKg),
                 if (_error case final error?) ...[
                   const SizedBox(height: 12),
                   Text(error,
@@ -229,6 +184,80 @@ class _CheckInSheetState extends ConsumerState<CheckInSheet> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// BMI over time inside the sheet: the healthy band, every weigh-in, and the
+/// weight being typed as a filled last point. Works from a single point; with
+/// no weigh-in and nothing typed it says what will appear. History that is
+/// still loading or unavailable only leaves the older points out.
+class _BmiHistory extends ConsumerWidget {
+  const _BmiHistory({required this.heightCm, this.typedKg});
+
+  final double heightCm;
+  final double? typedKg;
+
+  /// "BMI từ 22,0 đến 22,3 từ 03/09 đến 29/10, đang nhập 22,1".
+  static String semanticsFor(List<ChartPoint> points, {required bool typing}) {
+    final values = points.map((p) => p.value);
+    final lo = values.reduce((a, b) => a < b ? a : b);
+    final hi = values.reduce((a, b) => a > b ? a : b);
+    final range = points.length == 1
+        ? 'BMI ${formatDecimal(lo)} ngày ${formatDayMonth(points.last.day)}'
+        : 'BMI từ ${formatDecimal(lo)} đến ${formatDecimal(hi)} '
+            'từ ${formatDayMonth(points.first.day)} '
+            'đến ${formatDayMonth(points.last.day)}';
+    return typing
+        ? '$range, đang nhập ${formatDecimal(points.last.value)}'
+        : range;
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final muted =
+        context.textStyles.bodySmall?.copyWith(color: context.vl.muted);
+    final async = ref.watch(bodyMeasurementsProvider);
+    final typing = typedKg != null;
+    final points = BodyProgress.bmiPreviewSeries(
+      async.valueOrNull ?? const [],
+      heightCm: heightCm,
+      now: ref.watch(plannerClockProvider)(),
+      typedWeightKg: typedKg,
+    );
+    const band = BodyProgress.bmiBand;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('BMI theo thời gian', style: context.textStyles.titleSmall),
+        const SizedBox(height: 8),
+        if (points.isEmpty)
+          Text(
+              async.isLoading
+                  ? 'Đang tải lịch sử cân nặng…'
+                  : async.hasError
+                      ? 'Chưa tải được lịch sử cân nặng.'
+                      : 'Chưa có lần cân nào. Nhập cân nặng để xem BMI của bạn '
+                          'trên biểu đồ.',
+              style: muted)
+        else ...[
+          WeightChart(
+            points: points,
+            band: band,
+            series: MetricsSeries.bmi,
+            height: 120,
+            previewLast: typing,
+            semanticsLabel: semanticsFor(points, typing: typing),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Vùng xanh: BMI bình thường (${formatDecimal(band.min)} – '
+            '${formatDecimal(band.max)})'
+            '${typing ? '. Chấm đậm: số bạn đang nhập.' : ''}',
+            style: muted,
+          ),
+        ],
+      ],
     );
   }
 }

@@ -12,13 +12,13 @@ import { Label, Skeleton, Textarea } from "@/components/ui/form-controls";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { describeError } from "@/lib/api_error";
 import { useDeleteKnowledgeDoc, useKnowledgeChunks, useReviewKnowledgeDoc } from "@/lib/hooks/use-knowledge";
-import { formatNumber } from "@/lib/utils";
+import { dateFormat, formatNumber } from "@/lib/utils";
 import type { KnowledgeDoc } from "@/types/knowledge";
 import { MIN_AUDIT_NOTE_LENGTH } from "@/types/moderation";
 
 import { dateVi, KnowledgeSourceBadge, KnowledgeStatusBadge } from "./knowledge-table";
 
-const dateTimeVi = new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" });
+const dateTimeVi = dateFormat({ hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" });
 
 export function KnowledgeDrawer({
   doc,

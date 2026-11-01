@@ -28,32 +28,57 @@ class ErrorMappingInterceptor extends Interceptor {
   }
 }
 
-/// Reports a 401 on a request that carried a Bearer (the JWT expired or was
-/// revoked; the BE has no refresh). Auth endpoints are skipped: a 401 there is
-/// a wrong password. A guest request is never reported.
-class UnauthorizedInterceptor extends Interceptor {
-  UnauthorizedInterceptor(this._onUnauthorized);
+/// A 401 on a request that carried a Bearer (the JWT expired or was revoked):
+/// asks for new tokens and sends the request again, once, through the whole
+/// pipeline so it picks them up. Auth endpoints are skipped: a 401 there is a
+/// wrong password or a dead refresh token. A guest request is never retried.
+class TokenRefreshInterceptor extends Interceptor {
+  TokenRefreshInterceptor(this._dio, this._refresh);
+
+  final Dio _dio;
 
   /// Gets the token that was refused, so a late answer to a request of an
-  /// earlier session cannot end the current one.
-  final void Function(String token) _onUnauthorized;
+  /// earlier session cannot end the current one. `true` when the session has a
+  /// token worth retrying with; it ends the session itself when it must.
+  final Future<bool> Function(String token) _refresh;
 
   static const _bearerPrefix = 'Bearer ';
+  static const _retriedKey = 'vl.retried';
 
   @override
-  void onError(DioException err, ErrorInterceptorHandler handler) {
+  Future<void> onError(
+      DioException err, ErrorInterceptorHandler handler) async {
     final options = err.requestOptions;
     final mapped = err.error;
     final status = err.response?.statusCode ??
         (mapped is ApiException ? mapped.statusCode : null);
     final authorization = options.headers['Authorization'];
-    if (status == 401 &&
-        authorization is String &&
-        authorization.startsWith(_bearerPrefix) &&
-        !options.path.startsWith('/auth/')) {
-      _onUnauthorized(authorization.substring(_bearerPrefix.length));
+    if (status != 401 ||
+        authorization is! String ||
+        !authorization.startsWith(_bearerPrefix) ||
+        options.path.startsWith('/auth/') ||
+        options.extra[_retriedKey] == true) {
+      handler.next(err);
+      return;
     }
-    handler.next(err);
+    if (!await _refresh(authorization.substring(_bearerPrefix.length))) {
+      handler.next(err);
+      return;
+    }
+    try {
+      handler.resolve(await _dio.fetch<dynamic>(_again(options)));
+    } on DioException catch (e) {
+      handler.next(e);
+    }
+  }
+
+  /// A sent `FormData` can't be sent twice.
+  static RequestOptions _again(RequestOptions options) {
+    final data = options.data;
+    return options.copyWith(
+      data: data is FormData ? data.clone() : data,
+      extra: {...options.extra, _retriedKey: true},
+    );
   }
 }
 

@@ -11,6 +11,7 @@ import '../../../../core/utils/formatters.dart';
 import '../../data/models/booking_models.dart';
 import '../../domain/booking_enums.dart';
 import '../../domain/booking_rules.dart';
+import 'number_stepper_field.dart';
 
 Future<T?> _sheet<T>(BuildContext context, Widget child) =>
     showModalBottomSheet<T>(
@@ -87,7 +88,9 @@ class _PriceOfferSheetState extends State<PriceOfferSheet> {
   late final _price =
       TextEditingController(text: widget.initial.price.toString());
   late final _note = TextEditingController(text: widget.initial.note);
-  late int _days = widget.initial.planDays;
+  late int _days = NumberStepperField.clampTo(
+      widget.initial.planDays, widget.minDays, widget.maxDays);
+  bool _daysValid = true;
   late BookingType _type = widget.initial.bookingType;
   late DateTime _start = widget.initial.startDate;
   bool _attempted = false;
@@ -114,7 +117,7 @@ class _PriceOfferSheetState extends State<PriceOfferSheet> {
       lastDate: addDays(_today, 180),
       helpText: 'Ngày bắt đầu',
     );
-    if (picked != null) setState(() => _start = dateOnly(picked));
+    if (picked != null && mounted) setState(() => _start = dateOnly(picked));
   }
 
   void _submit() {
@@ -124,6 +127,7 @@ class _PriceOfferSheetState extends State<PriceOfferSheet> {
     if (priceError != null ||
         noteError != null ||
         daysError != null ||
+        !_daysValid ||
         _startError != null) {
       setState(() => _attempted = true);
       return;
@@ -140,10 +144,6 @@ class _PriceOfferSheetState extends State<PriceOfferSheet> {
   @override
   Widget build(BuildContext context) {
     final price = _priceValue;
-    final presets = [
-      for (final d in BookingRules.dayPresets)
-        if (d >= widget.minDays && d <= widget.maxDays) d,
-    ];
     return _SheetBody(
       title: widget.title,
       children: [
@@ -165,12 +165,14 @@ class _PriceOfferSheetState extends State<PriceOfferSheet> {
         const SizedBox(height: 14),
         Text('Số ngày', style: context.textStyles.titleSmall),
         const SizedBox(height: 6),
-        DayCountPicker(
+        NumberStepperField(
+          fieldKey: const ValueKey('offer-days'),
           value: _days,
-          presets: presets,
           min: widget.minDays,
           max: widget.maxDays,
+          unit: 'ngày',
           onChanged: (v) => setState(() => _days = v),
+          onValidityChanged: (v) => setState(() => _daysValid = v),
         ),
         const SizedBox(height: 14),
         Text('Hình thức', style: context.textStyles.titleSmall),
@@ -209,66 +211,6 @@ class _PriceOfferSheetState extends State<PriceOfferSheet> {
           onPressed: _submit,
           style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
           child: const Text('Gửi đề xuất'),
-        ),
-      ],
-    );
-  }
-}
-
-/// Chips 3 / 7 / 10 / 14 / 30 plus a − / + stepper.
-class DayCountPicker extends StatelessWidget {
-  const DayCountPicker({
-    super.key,
-    required this.value,
-    required this.onChanged,
-    this.presets = BookingRules.dayPresets,
-    this.min = BookingRules.minPlanDays,
-    this.max = BookingRules.maxPlanDays,
-  });
-
-  final int value;
-  final ValueChanged<int> onChanged;
-  final List<int> presets;
-  final int min;
-  final int max;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 6,
-          children: [
-            for (final d in presets)
-              ChoiceChip(
-                label: Text('$d ngày'),
-                selected: value == d,
-                onSelected: (_) => onChanged(d),
-              ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Row(
-          children: [
-            IconButton.outlined(
-              tooltip: 'Bớt 1 ngày',
-              onPressed: value > min ? () => onChanged(value - 1) : null,
-              icon: const Icon(Icons.remove_rounded),
-            ),
-            Expanded(
-              child: Text('$value ngày',
-                  textAlign: TextAlign.center,
-                  style: context.textStyles.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w800)),
-            ),
-            IconButton.outlined(
-              tooltip: 'Thêm 1 ngày',
-              onPressed: value < max ? () => onChanged(value + 1) : null,
-              icon: const Icon(Icons.add_rounded),
-            ),
-          ],
         ),
       ],
     );

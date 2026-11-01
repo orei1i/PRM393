@@ -202,7 +202,8 @@ class RecipeDetail {
   final double? averageRating;
   final int ratingCount;
 
-  /// Set on a saved customization ("Biến thể của «…»").
+  /// Set on a saved customization ("Biến thể của «…»"). The real BE keeps only
+  /// the name: [basedOnRecipeId] is then `null`.
   final String? basedOnRecipeId;
   final String? basedOnName;
   final List<RecipeChangeNote> customizations;
@@ -215,10 +216,14 @@ class RecipeDetail {
   /// ingredients and no steps.
   final bool isSnapshot;
 
-  /// From the real BE, which has no quantities: the page only reads it, with
-  /// no scaling, swaps, reviews or notes (those stay on mock recipes).
-  bool get isReadOnly =>
+  /// From the real BE (or only known through its plan): no reviews or notes,
+  /// and not sample data. A saved change goes through POST /recipes.
+  bool get isFromBackend =>
       isSnapshot || isBackendId(id) || isBackendPlanItemId(id);
+
+  /// A BE recipe with nothing to scale or swap by (a member's own text rows, a
+  /// name the structured table doesn't know): the page only reads it.
+  bool get isReadOnly => isSnapshot || (isFromBackend && !isCustomizable);
 
   List<String> get steps => parseRecipeSteps(instructions);
 

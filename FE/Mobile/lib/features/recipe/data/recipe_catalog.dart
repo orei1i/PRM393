@@ -1,17 +1,21 @@
 // lib/features/recipe/data/recipe_catalog.dart
 //
-// The real BE has no GET /recipes/{id} and no recipe list. Its only way to read
-// the catalogue is swap-suggestions: a slot no recipe is tagged with (and a
-// large limit) returns every recipe that is safe for the member's allergies.
-// GET /meal-plans/{id}/swap-suggestions?date=2026-10-31&slot=snack_am&limit=200
-// [ { "id": "6ae595c7…", "name": "…", "imageUrl": null, "calories": 520, "proteinG": 26,
-//     "carbsG": 75, "fatG": 14, "fiberG": 10, "allergens": ["soy"], "dietTags": ["balanced"],
-//     "prepMinutes": 25, "ingredients": ["Gạo lứt", "Đậu hũ"],
-//     "instructions": ["Sơ chế nguyên liệu sạch sẽ."], "seasonalSwap": null } ]
+// GET /recipes/{id} (members only; 404 for another member's private recipe)
+// { "id": "6ae595c7…", "name": "…", "imageUrl": null, "calories": 520, "proteinG": 26,
+//   "carbsG": 75, "fatG": 14, "fiberG": 10, "allergens": ["soy"], "dietTags": ["balanced"],
+//   "prepMinutes": 25, "ingredients": ["Gạo lứt", "Đậu hũ"],
+//   "instructions": ["Sơ chế nguyên liệu sạch sẽ."], "seasonalSwap": null }
 //
-// That relies on two BE quirks (the plan id isn't checked, an unmatched slot
-// falls back to all); `integration_test_be` pins them. When BE ships
-// GET /recipes/{id}, `RemoteRecipeApiService` should try it first.
+// The real BE has no recipe list. The way to read the catalogue is
+// swap-suggestions on a plan of the member (404 for any other id): a slot no
+// recipe is tagged with, on a day outside the plan, and a large limit return
+// every recipe that is safe for the member's allergies.
+// GET /meal-plans/{id}/swap-suggestions?date=2000-01-01&slot=snack_am&limit=200
+//
+// That relies on a BE quirk (an unmatched slot falls back to all), which
+// `integration_test_be` checks. A member with no plan this week gets what
+// POST /meal-plans/from-ingredients suggests instead: at most 10 recipes, best
+// match with the fridge first. Nothing here creates a plan.
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -19,12 +23,12 @@ import '../../../core/network/api_endpoints.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/utils/backend_ids.dart';
-import '../../../core/utils/formatters.dart';
 import '../../../core/utils/json_helpers.dart';
 import '../../meal_planner/data/meal_planner_api_service.dart';
 import '../../meal_planner/data/models/meal_plan_model.dart';
 import '../../meal_planner/domain/allergy_match.dart';
 import '../../meal_planner/domain/entities/meal_slot.dart';
+import 'backend_recipe_items.dart';
 import 'models/recipe_detail_model.dart';
 
 /// Whether two food names refer to the same thing, either way round ("Đậu
@@ -38,16 +42,14 @@ class RecipeCatalog {
   RecipeCatalog(
     this._dio, {
     this.userId,
-    DateTime Function() clock = DateTime.now,
     String? Function()? planId,
-  })  : _clock = clock,
-        _planId = planId;
-
-  /// Accepted by the BE for now: it doesn't check the plan id.
-  static const _noPlanId = '000000000000000000000000';
+  }) : _planId = planId;
 
   /// Tagged on no recipe, so the BE falls back to all of them.
   static const _unmatchedSlot = 'snack_am';
+
+  /// In no plan: the dish in a slot of that day would be left out.
+  static const _dayOutsideAnyPlan = '2000-01-01';
 
   /// If that fallback is ever removed, the slots recipes are tagged with.
   static final _taggedSlots = [
@@ -59,20 +61,37 @@ class RecipeCatalog {
 
   final Dio _dio;
   final String? userId;
-  final DateTime Function() _clock;
   final String? Function()? _planId;
 
   Future<Map<String, RecipeDetailDto>>? _recipes;
+  Future<List<Map<String, dynamic>>>? _mine;
+
+  /// [_recipes] came from the fridge, because there was no plan to ask with.
+  bool _fromFridgeOnly = false;
 
   /// Reads the catalogue again next time (a failed load is never kept).
-  void invalidate() => _recipes = null;
+  void invalidate() {
+    _recipes = null;
+    _mine = null;
+  }
 
   Future<List<RecipeDetailDto>> load() async =>
       (await _load()).values.toList(growable: false);
 
-  /// `null` when the recipe isn't readable: unknown, or not safe for the
-  /// member's allergies (the BE leaves those out).
-  Future<RecipeDetailDto?> find(String id) async => (await _load())[id];
+  /// One recipe, whether or not the catalogue would list it (it leaves out what
+  /// the member is allergic to; the page flags that instead). `null` when it
+  /// doesn't exist or is another member's.
+  Future<RecipeDetailDto?> find(String id) => guardApi(() async {
+        try {
+          final res =
+              await _dio.get<Map<String, dynamic>>(ApiEndpoints.recipe(id));
+          final isMine = (await _myRecipes()).any((row) => _id(row) == id);
+          return isMine ? _myRecipe(res.data!) : recipeFromBackend(res.data!);
+        } on DioException catch (e) {
+          if (e.response?.statusCode == 404) return null;
+          rethrow;
+        }
+      });
 
   /// Recipes with [name] among their ingredient rows.
   Future<List<RecipeDetailDto>> usingIngredient(String name,
@@ -84,6 +103,7 @@ class RecipeCatalog {
           .toList();
 
   Future<Map<String, RecipeDetailDto>> _load() {
+    if (_fromFridgeOnly && _planId?.call() != null) invalidate();
     final loading = _recipes ??= _fetch();
     // Not `catchError`: the caller still gets the failure.
     loading.then<void>((_) {}, onError: (Object _) {
@@ -93,47 +113,96 @@ class RecipeCatalog {
   }
 
   Future<Map<String, RecipeDetailDto>> _fetch() => guardApi(() async {
-        var rows = await _suggestions(_unmatchedSlot);
-        if (rows.isEmpty) {
-          rows = [for (final slot in _taggedSlots) ...await _suggestions(slot)];
-        }
-        final mine = await _dio.get<List<dynamic>>(ApiEndpoints.myRecipes);
+        final planId = _planId?.call() ?? await _currentPlanId();
+        _fromFridgeOnly = planId == null;
+        final rows =
+            planId == null ? await _fromFridge() : await _allRecipes(planId);
+        final mine = await _myRecipes();
         return {
           for (final row in rows) _id(row): recipeFromBackend(row),
-          for (final row
-              in (mine.data ?? const []).whereType<Map<String, dynamic>>())
-            _id(row): recipeFromBackend(
-                {...row, if (userId != null) 'createdBy': userId}),
+          for (final row in mine) _id(row): _myRecipe(row),
         };
       });
 
-  Future<List<Map<String, dynamic>>> _suggestions(String slot) async {
+  /// `null` when the member has no plan this week.
+  Future<String?> _currentPlanId() async {
+    try {
+      final res =
+          await _dio.get<Map<String, dynamic>>(ApiEndpoints.currentMealPlan);
+      return res.data?['id']?.toString();
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _allRecipes(String planId) async {
+    final rows = await _suggestions(planId, _unmatchedSlot);
+    if (rows.isNotEmpty) return rows;
+    return [
+      for (final slot in _taggedSlots) ...await _suggestions(planId, slot),
+    ];
+  }
+
+  Future<List<Map<String, dynamic>>> _suggestions(
+      String planId, String slot) async {
     final res = await _dio.get<List<dynamic>>(
-      ApiEndpoints.swapSuggestions(_planId?.call() ?? _noPlanId),
+      ApiEndpoints.swapSuggestions(planId),
       queryParameters: {
-        'date': toApiDate(_clock()),
+        'date': _dayOutsideAnyPlan,
         'slot': slot,
         'limit': 200,
       },
     );
-    return (res.data ?? const []).whereType<Map<String, dynamic>>().toList();
+    return _rows(res.data);
   }
+
+  Future<List<Map<String, dynamic>>> _fromFridge() async {
+    final res =
+        await _dio.post<List<dynamic>>(ApiEndpoints.mealPlanFromIngredients);
+    return _rows(res.data);
+  }
+
+  /// A failed read is not kept, and only means a recipe isn't marked as theirs.
+  Future<List<Map<String, dynamic>>> _myRecipes() {
+    final loading = _mine ??= _dio
+        .get<List<dynamic>>(ApiEndpoints.myRecipes)
+        .then((res) => _rows(res.data));
+    loading.then<void>((_) {}, onError: (Object _) {
+      if (identical(_mine, loading)) _mine = null;
+    });
+    return loading;
+  }
+
+  /// Never the catalogue's table: a member may name a recipe like a seed one.
+  RecipeDetailDto _myRecipe(Map<String, dynamic> row) =>
+      RecipeDetailDto.fromJson(withSavedVariantItems({
+        ...row,
+        'isVegan': true,
+        if (userId != null) 'createdBy': userId,
+      }));
+
+  static List<Map<String, dynamic>> _rows(List<dynamic>? data) =>
+      (data ?? const []).whereType<Map<String, dynamic>>().toList();
 
   static String _id(Map<String, dynamic> row) => row['id']?.toString() ?? '';
 }
 
-/// A BE `RecipeResponse` as a detail. Everything the BE stores is vegan and it
-/// doesn't say so; text rows and step arrays are handled by the parser.
+/// A catalogue `RecipeResponse` as a detail, with the structured rows of
+/// `backend_recipe_items.dart` when it knows the name. Everything the BE stores
+/// is vegan and it doesn't say so; text rows and step arrays are handled by the
+/// parser.
 RecipeDetailDto recipeFromBackend(Map<String, dynamic> json) =>
-    RecipeDetailDto.fromJson({...json, 'isVegan': true});
+    RecipeDetailDto.fromJson(
+        {...withBackendRecipeItems(json), 'isVegan': true});
 
 /// The dishes of the plans the member has loaded, by the id that opens them.
-/// A recipe missing from [RecipeCatalog] and a typed dish still get a page
-/// from what the plan knows about them.
+/// A dish whose recipe can't be read and a typed dish still get a page from what
+/// the plan knows about them.
 class PlanItemSnapshots {
   final _items = <String, Map<String, dynamic>>{};
 
-  /// The latest plan seen: what swap-suggestions gets once it checks the id.
+  /// The latest plan seen: what swap-suggestions is asked with.
   String? planId;
 
   /// A `MealPlanResponse` (with `id` and `days`).
@@ -176,7 +245,6 @@ final recipeCatalogProvider = Provider<RecipeCatalog>((ref) {
   return RecipeCatalog(
     ref.watch(dioProvider),
     userId: ref.watch(plannerUserIdProvider),
-    clock: ref.watch(plannerClockProvider),
     planId: () => snapshots.planId,
   );
 });

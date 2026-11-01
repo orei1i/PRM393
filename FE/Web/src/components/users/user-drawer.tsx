@@ -3,28 +3,36 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Ban, FileText, Lock, LockOpen, MessageSquare, ShieldCheck, Trash2, UserRound } from "lucide-react";
+import { Ban, FileText, Lock, LockOpen, MessageSquare, ShieldCheck, Trash2, UserRound, Wallet } from "lucide-react";
 import { toast } from "sonner";
 
 import { InitialsAvatar } from "@/components/admin/initials-avatar";
+import { formatVnd } from "@/components/orders/order-badges";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
-import { Input, Label, Textarea } from "@/components/ui/form-controls";
+import { Input, Label, Skeleton, Textarea } from "@/components/ui/form-controls";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { describeError } from "@/lib/api_error";
 import { readSession } from "@/lib/auth";
 import { isMock, UNSUPPORTED_ACTION } from "@/lib/backend_modules";
-import { useDeleteUser, useSetUserRole, useSetUserStatus } from "@/lib/hooks/use-admin";
-import { formatAge, formatNumber } from "@/lib/utils";
+import { useDeleteUser, useSetUserRole, useSetUserStatus, useUpdateUser } from "@/lib/hooks/use-admin";
+import { useWallets } from "@/lib/hooks/use-payouts";
+import { dateFormat, formatAge, formatNumber } from "@/lib/utils";
 import { USER_ROLE_LABEL, USER_STATUS_LABEL, type AdminUser, type AssignableRole, type UserStatus } from "@/types/admin";
 
 import { UserRoleBadges, UserStatusBadge } from "./status-badge";
 
 const MIN_REASON = 10;
-const dateVi = new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+const dateVi = dateFormat({ day: "2-digit", month: "2-digit", year: "numeric" });
 
-/** Real mode: the backend only lists and deletes users, and has no activity or post counts. */
+/** Real mode: the backend lists, edits (name, phone only) and deletes users, and has no activity or post counts. */
 const REAL = !isMock("users");
+/** Real users with the comments page still on sample data: their comments are not there. */
+const COMMENTS_LINK = !REAL || !isMock("comments");
+/** Wallets are sample data keyed by sample user ids, so they only line up with sample users. */
+const WALLET_SECTION = !REAL && isMock("payouts");
+const MAX_NAME = 100;
 
 export function UserDrawer({ user, onOpenChange }: { user: AdminUser | null; onOpenChange: (open: boolean) => void }) {
   return (
@@ -141,14 +149,20 @@ function UserDetail({ user, onClose }: { user: AdminUser; onClose: () => void })
                 {REAL ? "Bài viết & video" : `Bài viết & video (${formatNumber(user.postCount)})`}
               </Link>
             </Button>
-            <Button asChild size="sm" variant="outline">
-              <Link href={`/comments?author=${encodeURIComponent(user.id)}`}>
-                <MessageSquare aria-hidden />
-                Bình luận
-              </Link>
-            </Button>
+            {COMMENTS_LINK && (
+              <Button asChild size="sm" variant="outline">
+                <Link href={`/comments?author=${encodeURIComponent(user.id)}`}>
+                  <MessageSquare aria-hidden />
+                  Bình luận
+                </Link>
+              </Button>
+            )}
           </div>
         </section>
+
+        {WALLET_SECTION && user.role !== "Admin" && <WalletSummary user={user} />}
+
+        {REAL && !isSelf && <EditProfile user={user} />}
 
         <section className="flex flex-col gap-2">
           <h3 className="text-sm font-bold">Vai trò</h3>
@@ -289,6 +303,89 @@ function UserDetail({ user, onClose }: { user: AdminUser; onClose: () => void })
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+function WalletSummary({ user }: { user: AdminUser }) {
+  const wallets = useWallets();
+  const wallet = wallets.data?.find((w) => w.userId === user.id) ?? null;
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="flex flex-wrap items-center gap-2 text-sm font-bold">
+        Ví
+        <Badge variant="ochre">Dữ liệu mô phỏng</Badge>
+      </h3>
+      {wallets.isError && !wallets.data ? (
+        <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">Chưa tải được ví: {describeError(wallets.error)}</p>
+      ) : !wallets.data ? (
+        <Skeleton className="h-16" />
+      ) : !wallet ? (
+        <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">Chưa có ví: người này chưa có tiền hoàn hoặc thu nhập nào.</p>
+      ) : (
+        <>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border p-3 text-sm">
+            <Info label="Có thể rút" value={formatVnd(wallet.available)} />
+            <Info label="Chờ duyệt rút" value={formatVnd(wallet.processing)} />
+            {wallet.role === "chef" && <Info label="VeganLife đang giữ" value={formatVnd(wallet.pending)} />}
+            {wallet.role === "chef" && <Info label="Tạm giữ do khiếu nại" value={formatVnd(wallet.frozen)} />}
+            <Info label="Đã rút" value={formatVnd(wallet.withdrawn)} />
+          </dl>
+          <Button asChild size="sm" variant="outline" className="w-fit">
+            <Link href={`/payouts?tab=wallets&q=${encodeURIComponent(user.fullName)}`}>
+              <Wallet aria-hidden />
+              Xem ở Ví & rút tiền
+            </Link>
+          </Button>
+        </>
+      )}
+    </section>
+  );
+}
+
+/** PUT /users/{id}. An empty phone is sent as null, which the backend reads as "keep the current one". */
+function EditProfile({ user }: { user: AdminUser }) {
+  const update = useUpdateUser();
+  const [fullName, setFullName] = React.useState(user.fullName);
+  const [phone, setPhone] = React.useState(user.phone);
+  const nameId = React.useId();
+  const phoneId = React.useId();
+
+  const name = fullName.trim();
+  const dirty = name !== user.fullName || phone.trim() !== user.phone;
+
+  function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    update.mutate(
+      { userId: user.id, fullName: name, phone: phone.trim() || null },
+      {
+        onSuccess: (u) => {
+          toast.success(`Đã lưu thông tin của ${u.fullName}`);
+          setFullName(u.fullName);
+          setPhone(u.phone);
+        },
+        onError: (e) => toast.error("Chưa lưu được thông tin", { description: describeError(e) }),
+      },
+    );
+  }
+
+  return (
+    <form className="flex flex-col gap-2" onSubmit={save}>
+      <h3 className="text-sm font-bold">Thông tin</h3>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={nameId}>Họ tên</Label>
+          <Input id={nameId} value={fullName} maxLength={MAX_NAME} onChange={(e) => setFullName(e.target.value)} />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={phoneId}>Số điện thoại</Label>
+          <Input id={phoneId} value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" />
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">Máy chủ chưa cho xoá số điện thoại: để trống thì số cũ được giữ nguyên.</p>
+      <Button type="submit" size="sm" variant="outline" className="w-fit" disabled={!name || !dirty || update.isPending}>
+        {update.isPending ? "Đang lưu…" : "Lưu thông tin"}
+      </Button>
+    </form>
   );
 }
 

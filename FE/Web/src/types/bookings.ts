@@ -4,29 +4,53 @@
 // are aligned (b_ma_tam_nego, b_tram_tam, cp_tram_tam…) but the two mocks are separate stores.
 //
 // Flow: member request → chat + offers (negotiation) → contract (immutable) → PaymentOS QR →
-// money held in escrow → chef delivers the N-day plan → hold until plan end + 3 days →
-// no complaint: released to the chef wallet minus the 10% fee. A complaint (evidence required)
-// freezes the hold until an admin decides here: release to the chef, full refund or partial
-// refund to the member's ORIGINAL payment method (PaymentOS refund, no member wallet).
+// (or the member's wallet) → money on the platform (escrow Held) → chef delivers the N-day plan →
+// chef confirms the work is done, which completes the contract (completedAt) → the hold runs 7 days
+// from that moment (releaseAt) → no complaint: released to the chef wallet minus the 10% fee. A
+// complaint (evidence required) freezes the hold until an admin decides here: release to the chef,
+// full refund or partial refund to the MEMBER'S WALLET (types/payouts.ts; no PaymentOS refund). Who
+// has the money: VeganLife while Held / Frozen, then the chef's and / or the member's wallet, then
+// their bank after an admin approves a withdrawal.
+//
+// When the chef may confirm: every plan day delivered AND today (VN) on or after the plan's end date,
+// otherwise 409 plan_not_delivered. A chef who never confirms: at endDate 23:59 Asia/Ho_Chi_Minh + 3
+// days, a Held booking with every day delivered and no open complaint completes by itself
+// (completedAt = that moment, autoCompleted = true) and the normal 7-day hold follows. With days
+// missing at that moment it does not, and a day sent afterwards doesn't change that: the money stays
+// Held with no way out unless the chef confirms or the member complains.
+//
+// Stuck hold: escrow Held, completedAt null, releaseAt null, no Open complaint, now >= that moment. The
+// chef confirming or the member complaining ends it as usual, until an admin decides here:
+// POST /admin/escrow/holds/{id}/resolve. Same three decisions and the same money as a complaint, but
+// the booking ends Completed (release, split) or Cancelled (refund), and the hold's resolvedBy with no
+// complaint is how both clients tell it apart from a member's cancellation (resolvedBy null).
+//
+// Cancelling after paying (member, while no day has been delivered): booking Cancelled, hold and order
+// Refunded, the whole price credited to the member's wallet; afterwards 409 plan_started.
+//
+// Family bookings: audience Family with familySize (2–20), goal null and no health profile. A row
+// with no audience reads as Self.
 //
 // ┌ For the BE team: NOT in the 26-table SQL design. Proposed tables (snake_case → camelCase):
 // │ chef_bookings        id, member_id, chef_id, booking_type (OneShot | DailyFeedback), plan_days, start_date,
-// │                      goal, allergies_snapshot, meal_pattern, budget_per_day NULL, needs, share_health_profile BIT,
-// │                      status, decline_reason NULL, cancel_reason NULL, created_at, updated_at
+// │                      audience (Self | Family), family_size NULL, goal NULL, allergies_snapshot, meal_pattern,
+// │                      budget_per_day NULL, needs, share_health_profile BIT, status, decline_reason NULL,
+// │                      cancel_reason NULL, completed_at NULL, auto_completed BIT, created_at, updated_at
 // │ booking_offers       id, booking_id, proposed_by, price, plan_days, booking_type, start_date, note,
 // │                      status (Open | Accepted | Rejected | Superseded | Withdrawn), created_at, responded_at
 // │ booking_messages     id, booking_id, sender_id NULL (system), kind (Text | Offer | System | Attachment), body,
 // │                      offer_id NULL, attachment_url NULL, created_at, read_at
 // │ booking_contracts    id, booking_id UNIQUE, offer_id, price, plan_days, booking_type, start_date, end_date,
 // │                      delivery_due_at, daily_send_cutoff ("06:00"), feedback_cutoff ("21:00"), scope_text,
-// │                      fee_rate (0.10), hold_days (3), payment_due_at (+48 h), created_at   — immutable
+// │                      fee_rate (0.10), hold_days (7), payment_due_at (+48 h), created_at   — immutable
 // │ booking_plan_days    id, booking_id, day_index, date, status (Draft | Sent), chef_note, sent_at, updated_at
 // │ booking_plan_meals   id, plan_day_id, meal_type (6 slots), recipe_id (recipes.created_by = chef), note
 // │ booking_day_feedback id, plan_day_id UNIQUE, member_id, rating 1–5, adherence (All | Partly | None), body,
 // │                      created_at, updated_at, chef_seen_at
 // │ escrow_holds         id, booking_id UNIQUE, payment_id, amount, status (Held | Frozen | Released | Refunded |
-// │                      PartiallyRefunded), held_at, release_at (end_date 23:59 Asia/Ho_Chi_Minh + 3 days),
-// │                      released_at, released_amount, fee_amount, refunded_amount, resolved_by, resolution_note
+// │                      PartiallyRefunded), held_at, completed_at NULL, release_at NULL (completed_at + 7 days),
+// │                      released_at, released_amount, fee_amount, refunded_amount, refunded_at NULL, resolved_by,
+// │                      resolution_note
 // │ booking_complaints   id, booking_id UNIQUE, member_id, reason, description, requested_outcome
 // │                      (FullRefund | PartialRefund), requested_amount, status (Open | Resolved), chef_response,
 // │                      chef_responded_at, decision (ReleaseToChef | RefundMember | Split), refund_amount,
@@ -42,14 +66,16 @@
 //   "member": { "id": "u_ngoc_tram", "fullName": "Ngọc Trâm", "email": "ngoctram.k17@gmail.com" },
 //   "chef":   { "id": "u_chef_tam",  "fullName": "Lê Quang Tâm", "email": "tam.chefchay@gmail.com" },
 //   "bookingType": "OneShot", "planDays": 7, "startDate": "2026-10-10",
-//   "goal": "eat_clean", "allergies": ["peanut"], "mealPattern": ["breakfast","lunch","dinner"],
+//   "audience": "Self" | "Family", "familySize": null | 4, "goal": "eat_clean" | null,
+//   "allergies": ["peanut"], "mealPattern": ["breakfast","lunch","dinner"],
 //   "budgetPerDay": 90000, "needs": "…", "shareHealthProfile": true,
-//   "status": "Disputed", "deliveredDays": 7,
+//   "status": "Disputed", "deliveredDays": 7, "completedAt": "2026-10-16T14:00:00.000Z", "autoCompleted": false,
 //   "currentOffer": OfferDto | null,
 //   "contract": ContractDto | null,
 //   "escrow": { "id": "eh_604", "bookingId": "b_tram_tam", "paymentId": "pay_…", "amount": 1050000,
-//               "status": "Frozen", "heldAt": "…", "releaseAt": "2026-10-19T16:59:00.000Z",
-//               "releasedAt": null, "releasedAmount": 0, "feeAmount": 0, "refundedAmount": 0,
+//               "status": "Frozen", "heldAt": "…", "completedAt": "2026-10-16T14:00:00.000Z",
+//               "releaseAt": "2026-10-23T14:00:00.000Z",
+//               "releasedAt": null, "releasedAmount": 0, "feeAmount": 0, "refundedAmount": 0, "refundedAt": null,
 //               "resolvedBy": null, "resolutionNote": null } | null,
 //   "complaint": ComplaintDto | null, "paymentOrderId": "ord_604",
 //   "declineReason": null, "cancelReason": null, "createdAt": "…", "updatedAt": "…" }
@@ -59,7 +85,7 @@
 //                "status": "Open", "createdAt": "…", "respondedAt": null }
 // ContractDto  { "id", "bookingId", "offerId", "price", "planDays", "bookingType", "startDate", "endDate",
 //                "deliveryDueAt", "dailySendCutoff": "06:00", "feedbackCutoff": "21:00", "scopeText",
-//                "feeRate": 0.1, "holdDays": 3, "paymentDueAt", "createdAt" }
+//                "feeRate": 0.1, "holdDays": 7, "paymentDueAt", "createdAt" }
 // ComplaintDto { "id": "cp_tram_tam", "bookingId": "b_tram_tam", "reason": "health_risk", "description": "…",
 //                "requestedOutcome": "PartialRefund", "requestedAmount": 500000, "status": "Open",
 //                "evidence": [{ "id", "kind": "Link" | "Image", "url", "caption", "submittedBy": "member" | "chef",
@@ -80,9 +106,20 @@
 // POST /admin/complaints/{id}/decision { decision, refundAmount?, note } → AdminComplaintDto
 //      400 note_too_short (< 20) | invalid_refund_amount ; 409 already_decided ; 503 (#fail in the mock)
 // GET  /admin/escrow/summary                           → EscrowSummary
-// GET  /admin/escrow/holds?status=active|Held|Frozen|Released|Refunded|PartiallyRefunded&search= → AdminEscrowHold[]
+// GET  /admin/escrow/holds?status=active|stuck|Held|Frozen|Released|Refunded|PartiallyRefunded&search= → AdminEscrowHold[]
+// POST /admin/escrow/holds/{id}/resolve { decision, refundAmount?, note } → EscrowHoldDto
+//      400 note_too_short (< 20) | invalid_refund_amount (Split only: 1.000 ≤ X < price) ; 404 ; 409 not_stuck
+//      (also for a hold already decided) ; 503 (#fail in the mock)
+//      ReleaseToChef: hold Released, releasedAt, releasedAmount = amount, feeAmount, chef wallet + net,
+//                     booking Completed, completedAt = now if null.
+//      RefundMember:  hold Refunded, refundedAt, member wallet + price, order Refunded,
+//                     booking Cancelled, cancelReason = note.
+//      Split:         hold PartiallyRefunded, member wallet + X, chef wallet + (price − X) × 90 %, refundedAt,
+//                     booking Completed, completedAt = now if null, order PartiallyRefunded.
+//      All three: resolvedBy = the admin's name, resolutionNote = note, a system chat message, and the
+//      order's resolution.action = "admin_resolve". Afterwards /complete → 409 not_active, a complaint → 409 not_open.
 // AdminComplaintDto = ComplaintDto + { "booking": BookingDto (its "complaint" is null), "planDays": [...], "messages": [...] }
-// AdminEscrowHold   = EscrowHoldDto + { "booking": BookingRef }
+// AdminEscrowHold   = EscrowHoldDto + { "isStuck": false, "booking": BookingRef } (no isStuck reads as false)
 import type { ISODateString } from "./moderation";
 import { ESCROW_HOLD_DAYS, PLATFORM_FEE_RATE } from "./payouts";
 
@@ -101,6 +138,8 @@ export const MIN_DECISION_NOTE = 20;
 export const MIN_PARTIAL_REFUND = 1_000;
 /** Member pays within this window after accepting an offer, otherwise the booking expires. */
 export const PAYMENT_WINDOW_HOURS = 48;
+/** A chef who never confirms: the booking completes by itself this many days after the plan's end date. */
+export const AUTO_COMPLETE_DAYS = 3;
 
 /** Asia/Ho_Chi_Minh is UTC+7 all year (no DST). */
 const VN_OFFSET_MS = 7 * 60 * 60_000;
@@ -121,10 +160,17 @@ export const vnTime = (date: DateOnly, hhmm: string): ISODateString => new Date(
 /** endDate = startDate + planDays − 1 */
 export const planEndDate = (startDate: DateOnly, planDays: number): DateOnly => addDays(startDate, planDays - 1);
 
-/** releaseAt = endDate 23:59 (Asia/Ho_Chi_Minh) + holdDays. */
-export const escrowReleaseAt = (endDate: DateOnly, holdDays = ESCROW_HOLD_DAYS): ISODateString => vnTime(addDays(endDate, holdDays), "23:59");
+/** releaseAt = the moment the chef confirmed completion + holdDays (exactly, not end of day). */
+export const escrowReleaseAt = (completedAt: ISODateString, holdDays = ESCROW_HOLD_DAYS): ISODateString =>
+  new Date(Date.parse(completedAt) + holdDays * 24 * 60 * 60_000).toISOString();
+
+/** When a Held booking with every day delivered and no open complaint completes without the chef: endDate 23:59 VN + 3 days. */
+export const autoCompleteAt = (endDate: DateOnly): ISODateString => vnTime(addDays(endDate, AUTO_COMPLETE_DAYS), "23:59");
 
 /* ---------------------------------------------------------------- enums */
+
+export const BOOKING_AUDIENCES = ["Self", "Family"] as const;
+export type BookingAudience = (typeof BOOKING_AUDIENCES)[number];
 
 export const BOOKING_TYPES = ["OneShot", "DailyFeedback"] as const;
 export type BookingType = (typeof BOOKING_TYPES)[number];
@@ -154,7 +200,7 @@ export const BOOKING_STATUS_LABEL: Record<BookingStatus, string> = {
   Negotiating: "Đang thoả thuận giá",
   AwaitingPayment: "Chờ thanh toán",
   Active: "Đang thực hiện",
-  Ended: "Đã kết thúc · chờ giải ngân",
+  Ended: `Đã hoàn thành · giữ ${ESCROW_HOLD_DAYS} ngày`,
   Disputed: "Đang khiếu nại",
   Completed: "Hoàn tất",
   Resolved: "Đã xử lý khiếu nại",
@@ -182,8 +228,8 @@ export type EscrowStatus = (typeof ESCROW_STATUSES)[number];
 export const ESCROW_STATUS_LABEL: Record<EscrowStatus, string> = {
   Held: "Đang giữ",
   Frozen: "Tạm giữ do khiếu nại",
-  Released: "Đã chuyển cho chuyên gia",
-  Refunded: "Đã hoàn cho thành viên",
+  Released: "Đã vào ví chuyên gia",
+  Refunded: "Đã hoàn vào ví thành viên",
   PartiallyRefunded: "Hoàn một phần",
 };
 
@@ -342,14 +388,19 @@ export interface EscrowHold {
   amount: number;
   status: EscrowStatus;
   heldAt: ISODateString;
-  releaseAt: ISODateString;
+  /** When the contract completed; null until the chef confirms or the system does it for them. */
+  completedAt: ISODateString | null;
+  /** completedAt + holdDays; null until then, so there is no release date yet. */
+  releaseAt: ISODateString | null;
   releasedAt: ISODateString | null;
-  /** Gross that went to the chef (before the fee). */
+  /** Gross that went to the chef wallet (before the fee). */
   releasedAmount: number;
   feeAmount: number;
-  /** Sent back to the member's original payment method. */
+  /** Credited to the member's wallet. */
   refundedAmount: number;
-  /** Admin name, or null for the automatic release. */
+  /** When it was credited: a complaint decision, or the member cancelling after paying. */
+  refundedAt: ISODateString | null;
+  /** Admin name, or null for the automatic release and a member's cancellation. */
   resolvedBy: string | null;
   resolutionNote: string | null;
 }
@@ -428,15 +479,24 @@ export interface Booking {
   bookingType: BookingType;
   planDays: number;
   startDate: DateOnly;
-  goal: string;
+  audience: BookingAudience;
+  /** Family only: 2–20 people. */
+  familySize: number | null;
+  /** Null for a family and when the member does not share a health profile. */
+  goal: string | null;
   allergies: string[];
   mealPattern: MealSlot[];
   budgetPerDay: number | null;
+  /** May be empty for a family. */
   needs: string;
   shareHealthProfile: boolean;
   status: BookingStatus;
   /** Plan days with status Sent. */
   deliveredDays: number;
+  /** When the contract completed: the chef confirmed, or the system did it for them (autoCompleted). */
+  completedAt: ISODateString | null;
+  /** The chef never confirmed and the system completed the booking 3 days after the plan's end. */
+  autoCompleted: boolean;
   currentOffer: BookingOffer | null;
   contract: BookingContract | null;
   escrow: EscrowHold | null;
@@ -457,8 +517,13 @@ export interface BookingRef {
   planDays: number;
   startDate: DateOnly;
   endDate: DateOnly | null;
+  audience: BookingAudience;
+  familySize: number | null;
+  allergies: string[];
   status: BookingStatus;
   deliveredDays: number;
+  completedAt: ISODateString | null;
+  autoCompleted: boolean;
   complaintId: string | null;
   paymentOrderId: string | null;
 }
@@ -473,6 +538,8 @@ export interface AdminComplaint extends Complaint {
 }
 
 export interface AdminEscrowHold extends EscrowHold {
+  /** Past the auto-complete moment with no way out but an admin; see the header. Missing on the wire reads as false. */
+  isStuck: boolean;
   booking: BookingRef;
 }
 
@@ -481,9 +548,15 @@ export interface EscrowSummary {
   /** Held + Frozen. */
   totalHeld: number;
   totalHeldCount: number;
-  /** Held (no complaint) with releaseAt within the next ESCROW_HOLD_DAYS days. */
+  /** Held with releaseAt within the next RELEASING_SOON_DAYS days. */
   releasingSoon: number;
   releasingSoonCount: number;
+  /** Held with no release date: the chef has not confirmed completion yet. */
+  awaitingCompletion: number;
+  awaitingCompletionCount: number;
+  /** Rows with isStuck. */
+  stuckAmount: number;
+  stuckCount: number;
   frozen: number;
   frozenCount: number;
   /** Fee of releases (full or split) whose releasedAt falls in the current month (server time zone). */
@@ -504,8 +577,8 @@ export interface ComplaintQuery {
   search: string;
 }
 
-/** "active" = Held + Frozen. */
-export type EscrowHoldFilter = EscrowStatus | "active" | "all";
+/** "active" = Held + Frozen; "stuck" = rows with isStuck. */
+export type EscrowHoldFilter = EscrowStatus | "active" | "stuck" | "all";
 
 export interface EscrowHoldQuery {
   status: EscrowHoldFilter;
@@ -521,10 +594,19 @@ export interface ComplaintDecisionInput {
   note: string;
 }
 
+/** POST /admin/escrow/holds/{id}/resolve */
+export interface ResolveHoldInput {
+  holdId: string;
+  decision: ComplaintDecision;
+  /** Split only: 1.000 ≤ refundAmount < price. */
+  refundAmount?: number;
+  note: string;
+}
+
 /* ---------------------------------------------------------------- decision math */
 
 export interface DecisionOutcome {
-  /** Back to the member's original payment method. */
+  /** Credited to the member's wallet. */
   refund: number;
   /** Released to the chef before the fee: price − refund. */
   chefGross: number;
@@ -561,6 +643,14 @@ export function decisionErrors(
   if (input.note.trim().length < MIN_DECISION_NOTE) errors.note = `Ghi chú cần ít nhất ${MIN_DECISION_NOTE} ký tự.`;
   return errors;
 }
+
+/** "Gia đình · 4 người" / "Cá nhân". */
+export const audienceLabel = (b: { audience: BookingAudience; familySize: number | null }) =>
+  b.audience === "Family" ? `Gia đình${b.familySize ? ` · ${b.familySize} người` : ""}` : "Cá nhân";
+
+/** A family has no personal profile, so its row names the head count and allergies: "Gia đình · 3 người · Dị ứng: Đậu phộng". */
+export const familySummary = (b: { audience: BookingAudience; familySize: number | null; allergies: string[] }) =>
+  `${audienceLabel(b)} · ${b.allergies.length ? `Dị ứng: ${b.allergies.map(allergenLabel).join(", ")}` : "Không có dị ứng"}`;
 
 /** "10 ngày · Có phản hồi mỗi ngày" */
 export const planSummary = (b: Pick<Booking, "planDays" | "bookingType">) => `${b.planDays} ngày · ${BOOKING_TYPE_LABEL[b.bookingType]}`;

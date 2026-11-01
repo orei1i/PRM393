@@ -10,6 +10,7 @@ import '../../../core/session/mock_persona.dart';
 import '../../../core/session/session_controller.dart';
 import '../../../core/utils/formatters.dart';
 import '../../recipe/data/recipe_catalog.dart';
+import '../domain/body_progress.dart';
 import '../domain/entities/health_profile.dart';
 import '../domain/entities/meal_plan.dart';
 import 'mock/mock_recipe_book.dart';
@@ -90,6 +91,14 @@ abstract interface class MealPlannerApiService {
 
   Future<RecipeDto> createMyRecipe(CreateRecipeRequestDto request);
 
+  /// "Sửa" on an own recipe, in place. Only when
+  /// [BackendModules.myRecipeEdit]; the real BE has no PUT `/recipes/{id}`.
+  Future<RecipeDto> updateMyRecipe(String id, CreateRecipeRequestDto request);
+
+  /// "Xoá" on an own recipe. Only when [BackendModules.myRecipeEdit]; the real
+  /// BE has no DELETE `/recipes/{id}`.
+  Future<void> deleteMyRecipe(String id);
+
   /// Dishes chefs suggested to this member ("Từ chuyên gia"); may be empty.
   Future<List<ChefSuggestionDto>> getChefSuggestions();
 
@@ -104,17 +113,15 @@ abstract interface class MealPlannerApiService {
   });
 }
 
-/// The real BE, with the app working around what it lacks: see the plan's §7.
+/// The real BE, with the app working around what it lacks (see the README).
 class RemoteMealPlannerApiService implements MealPlannerApiService {
   RemoteMealPlannerApiService(
     this._dio, {
     this.userId,
     this.personaId,
-    DateTime Function() clock = DateTime.now,
     PlanItemSnapshots? snapshots,
     RecipeCatalog Function()? catalog,
-  })  : _clock = clock,
-        _snapshots = snapshots ?? PlanItemSnapshots(),
+  })  : _snapshots = snapshots ?? PlanItemSnapshots(),
         _catalog = catalog;
 
   final Dio _dio;
@@ -124,18 +131,17 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
 
   /// Who the member is in the mock stores still used in a hybrid build.
   final String? personaId;
-  final DateTime Function() _clock;
   final PlanItemSnapshots _snapshots;
   final RecipeCatalog Function()? _catalog;
 
   MealPlanDto _plan(Map<String, dynamic> json) {
     _snapshots.registerPlan(json);
-    return MealPlanDto.fromJson(json);
+    return MealPlanDto.fromJson(json).withPortionsApplied();
   }
 
   MealPlanDayDto _day(Map<String, dynamic> json) {
     _snapshots.registerDay(json);
-    return MealPlanDayDto.fromJson(json);
+    return MealPlanDayDto.fromJson(json).withPortionsApplied();
   }
 
   List<T> _list<T>(Object? data, T Function(Map<String, dynamic> json) parse) =>
@@ -159,14 +165,9 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
   Future<HealthProfileDto> updateHealthProfile(
           UpdateHealthProfileRequestDto request) =>
       guardApi(() async {
-        // A PUT resets what it doesn't get, so missing fields keep their
-        // saved value. `null` for a first profile.
-        final saved = request.gender == null ||
-                request.birthYear == null ||
-                request.activityLevel == null ||
-                request.mealPattern == null
-            ? await getHealthProfile()
-            : null;
+        // A PUT resets a missing activity level. `null` for a first profile.
+        final saved =
+            request.activityLevel == null ? await getHealthProfile() : null;
         final res = await _dio.put<Map<String, dynamic>>(
             ApiEndpoints.healthProfile,
             data: request.toBackendJson(saved: saved));
@@ -187,48 +188,48 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
         }
       });
 
-  /// The BE has no POST here: saving the profile with the new weight logs the
-  /// row, but only when the weight really changed. A row it didn't add comes
-  /// back as a `local_` one that isn't part of the history.
+  /// The BE checks nothing here (a weight of -5 is stored and overwrites the
+  /// profile, B36; without a profile it logs a made-up height), so the rules of
+  /// the sheet are checked again first. Its POST logs the row but leaves BMR,
+  /// TDEE, the target and the week as they were (B37): the PUT that follows, at
+  /// the weight the profile now has, recomputes them and adds no second row.
+  /// The row is saved even if that PUT fails.
   @override
   Future<LogMeasurementResultDto> logBodyMeasurement(
           LogMeasurementRequestDto request) =>
       guardApi(() async {
+        final problem = BodyProgress.validateMeasurement(request.weightKg);
+        if (problem != null) {
+          throw ApiException(
+              message: problem, statusCode: 400, code: 'invalid_measurement');
+        }
         final saved = await getHealthProfile();
         if (saved == null) {
           throw const ApiException(
               message: 'Bạn chưa tạo hồ sơ sức khỏe.', statusCode: 404);
         }
-        final before = (await getBodyMeasurements(limit: 1)).firstOrNull;
-        final res = await _dio.put<Map<String, dynamic>>(
-          ApiEndpoints.healthProfile,
-          data: UpdateHealthProfileRequestDto(
-            heightCm: saved.heightCm,
-            weightKg: request.weightKg,
-            goal: HealthGoal.fromApi(saved.goal),
-            allergies: saved.allergies,
-            dietaryRestrictions: saved.dietaryRestrictions,
-          ).toBackendJson(saved: saved),
-        );
-        final profile = HealthProfileDto.fromJson(res.data!);
-        final latest = (await getBodyMeasurements(limit: 1)).firstOrNull;
-        final isNew = latest != null &&
-            (latest.weightKg - request.weightKg).abs() < 0.01 &&
-            (before == null || latest.loggedAt.isAfter(before.loggedAt));
-        final now = _clock();
+        final logged = await _dio.post<Map<String, dynamic>>(
+            ApiEndpoints.healthMetrics,
+            data: request.toJson());
+        final measurement = BodyMeasurementDto.fromJson(logged.data!);
+        HealthProfileDto profile;
+        try {
+          final res = await _dio.put<Map<String, dynamic>>(
+            ApiEndpoints.healthProfile,
+            data: UpdateHealthProfileRequestDto(
+              heightCm: saved.heightCm,
+              weightKg: request.weightKg,
+              goal: HealthGoal.fromApi(saved.goal),
+              allergies: saved.allergies,
+              dietaryRestrictions: saved.dietaryRestrictions,
+            ).toBackendJson(saved: saved),
+          );
+          profile = HealthProfileDto.fromJson(res.data!);
+        } on DioException {
+          profile = saved;
+        }
         return LogMeasurementResultDto(
-          measurement: isNew
-              ? latest
-              : BodyMeasurementDto(
-                  id: 'local_${now.millisecondsSinceEpoch}',
-                  weightKg: request.weightKg,
-                  heightCm: profile.heightCm,
-                  bmi: profile.bmi,
-                  loggedAt: now,
-                  source: 'check_in',
-                ),
-          profile: profile,
-        );
+            measurement: measurement, profile: profile);
       });
 
   @override
@@ -236,9 +237,7 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
         try {
           final res = await _dio
               .get<Map<String, dynamic>>(ApiEndpoints.currentMealPlan);
-          // The BE falls back to the latest old plan, and its week is in UTC.
-          final plan = _plan(res.data!);
-          return isSameDay(plan.startDate, startOfWeek(_clock())) ? plan : null;
+          return _plan(res.data!);
         } on DioException catch (e) {
           if (e.response?.statusCode == 404) return null;
           rethrow;
@@ -283,8 +282,7 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
           queryParameters: {
             'date': toApiDate(date),
             'slot': slot.apiValue,
-            // One more than the sheet shows: the BE includes the current dish.
-            'limit': 4
+            'limit': 3,
           },
         );
         return _list(res.data, RecipeDto.fromJson);
@@ -327,7 +325,12 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
               .whereType<Map<String, dynamic>>()
               .forEach(_snapshots.registerDay);
         }
-        return AddMealsResultDto.fromJson(res.data!);
+        final result = AddMealsResultDto.fromJson(res.data!);
+        return AddMealsResultDto(
+          placed: result.placed,
+          skipped: result.skipped,
+          days: [for (final d in result.days) d.withPortionsApplied()],
+        );
       });
 
   @override
@@ -373,6 +376,17 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
         _catalog?.call().invalidate();
         return _myRecipe(res.data!);
       });
+
+  /// Never reached: the UI asks [BackendModules.myRecipeEdit] first.
+  static const _noRecipeEdit = ApiException(
+      message: 'Máy chủ chưa hỗ trợ sửa hoặc xoá công thức.', statusCode: 501);
+
+  @override
+  Future<RecipeDto> updateMyRecipe(String id, CreateRecipeRequestDto request) =>
+      throw _noRecipeEdit;
+
+  @override
+  Future<void> deleteMyRecipe(String id) => throw _noRecipeEdit;
 
   /// Chefs' plans are still mock while bookings are, and so are their dishes.
   @override
@@ -459,7 +473,6 @@ final mealPlannerApiProvider = Provider<MealPlannerApiService>((ref) {
     ref.watch(dioProvider),
     userId: ref.watch(plannerUserIdProvider),
     personaId: persona,
-    clock: clock,
     snapshots: ref.watch(planItemSnapshotsProvider),
     catalog: () => ref.read(recipeCatalogProvider),
   );

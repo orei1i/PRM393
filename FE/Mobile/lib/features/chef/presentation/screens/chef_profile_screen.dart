@@ -307,7 +307,7 @@ class _BookingOffer extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             'Bạn gửi nhu cầu, trao đổi và thoả thuận giá trong chat. Tiền được VeganLife giữ '
-            'đến 3 ngày sau khi kế hoạch kết thúc; có vấn đề thì bạn khiếu nại kèm bằng chứng.',
+            'đến 7 ngày sau khi chuyên gia hoàn thành; có vấn đề thì bạn khiếu nại kèm bằng chứng.',
             style: context.textStyles.bodySmall?.copyWith(color: vl.muted),
           ),
           const SizedBox(height: 12),

@@ -3,28 +3,50 @@
 // (mock_commerce.ts) and /payouts (mock_payouts.ts) derive from: offers, contracts, booking
 // orders + PaymentOS payments, escrow holds, plan days, chat and complaints.
 //
+// Money flow: the member pays (PaymentOS or wallet) → VeganLife holds it (Held, no release date) →
+// the chef delivers and confirms the work is done, which completes the contract (completedAt, status
+// Ended) → the hold runs ESCROW_HOLD_DAYS (7) days from that moment (releaseAt) → no complaint:
+// released to the chef's wallet at net 90% (status Completed). A complaint, before or after
+// completion, freezes the hold until an admin decides; a refund goes to the member's wallet
+// (mock_payouts.ts). Confirming and cancelling happen in the app, so here they only exist as seeds
+// (`confirmedAt`, `cancelledAfterPay`); the seeds respect the rule that a chef confirms only once
+// every day is delivered and today is on or after the plan's end.
+//
+// A chef who never confirms: `settle` completes a Held booking at endDate 23:59 VN + 3 days when every
+// day was delivered by then and no complaint is open (`autoCompleted`), and the normal hold follows. With
+// days missing at that moment, even if they are sent later, it stays Held: a stuck hold (`isStuck`), which
+// an admin decides on /disputes (`resolveEscrowHold`) unless the chef confirms or the member complains first.
+//
 // Seed ids mirror the mobile MockBookingDb (plan P5): Minh Anh (u_me) — b_ma_tam_nego (Tâm,
 // 10 ngày có phản hồi, chef offer 1.500.000đ open), b_ma_thuha_active (Thu Hà, 7 ngày giao một
-// lần, paid, all days sent, day 3 is today), b_ma_tam_done (Tâm, 5 ngày, released 2 days ago).
-// Lê Quang Tâm (u_chef_tam) — b_nam_tam_req (Hoàng Nam, Requested), b_vy_tam_active (Thảo Vy,
-// today's day still a draft), b_tram_tam + cp_tram_tam (Ngọc Trâm, health_risk, 1 link + 1 image,
-// Frozen), b_han_tam_done (Gia Hân, released). Other chefs' rows are web-only (the stores are
-// independent, only ids are aligned).
+// lần, paid, all days sent, day 3 is today), b_ma_tam_done (Tâm, 5 ngày, released 3 days ago),
+// b_ma_tam_hold (Tâm, in the 7-day hold). Lê Quang Tâm (u_chef_tam) — b_nam_tam_req (Hoàng Nam,
+// Requested), b_vy_tam_active (Thảo Vy, today's day still a draft), b_chau_tam_ready (family of 3,
+// all delivered, not confirmed: auto-completes in 3 days), b_tram_tam + cp_tram_tam (Ngọc Trâm,
+// health_risk, 1 link + 1 image, confirmed, then Frozen), b_han_tam_done (Gia Hân, family of 4,
+// released). Other chefs' rows are web-only (the stores are independent, only ids are aligned).
+// b_chi_lan_soon releases about 90 s after page load, so a hold can be watched moving to the wallet.
+// b_giang_lan_auto: auto-completed, in the hold. b_khanh_minh_auto: auto-completed and released.
+// b_an_chau_short: days missing, stuck. b_linh_khoa_late: every day delivered, two after the moment, stuck.
+// b_yen_ha_cancel: cancelled after paying,
+// refunded to the wallet. b_yen_lan_wallet: paid from that wallet.
 //
 // Dates are relative to "today" in Asia/Ho_Chi_Minh, so the seeds keep their meaning on any day.
 // Rules are evaluated lazily on every read (like the mobile mock clock): an unpaid booking past
-// paymentDueAt expires; a Held escrow past releaseAt with no open complaint is released to the
-// chef (net 90%); a Frozen one stays frozen until an admin decides.
+// paymentDueAt expires; a Held escrow past its auto-complete moment completes; a Held escrow past
+// releaseAt is released to the chef; a Frozen one stays frozen until an admin decides.
 //
 // QA: `#fail` in the decision note, the complaint / hold search box → 503 (toast + rollback).
 // Deciding `cp_qa_409` → 409 `already_decided` (simulates another admin deciding first; the
 // row then shows as "Đã xử lý"). Note < 20 chars → 400. A partial refund ≥ price → 400.
+// `#409` in a stuck hold's note: another admin decides it first, so the answer is 409 `not_stuck`.
 import type { AdminSession } from "@/types/admin";
 import type {
   AdminComplaint,
   AdminEscrowHold,
   Adherence,
   Booking,
+  BookingAudience,
   BookingContract,
   BookingMessage,
   BookingOffer,
@@ -48,9 +70,12 @@ import type {
   PlanDay,
   PlanMeal,
   RequestedOutcome,
+  ResolveHoldInput,
 } from "@/types/bookings";
 import {
   addDays,
+  AUTO_COMPLETE_DAYS,
+  autoCompleteAt,
   BOOKING_TYPE_LABEL,
   COMPLAINT_DECISION_LABEL,
   COMPLAINT_REASON_LABEL,
@@ -66,7 +91,7 @@ import {
 } from "@/types/bookings";
 import type { AdminOrder, OrderResolution, OrderStatus, Payment, PaymentStatus } from "@/types/commerce";
 import type { ISODateString } from "@/types/moderation";
-import { ESCROW_HOLD_DAYS, PLATFORM_FEE_RATE, platformFee } from "@/types/payouts";
+import { ESCROW_HOLD_DAYS, PLATFORM_FEE_RATE, platformFee, RELEASING_SOON_DAYS } from "@/types/payouts";
 
 import { ApiError } from "./api_error";
 import { logAction } from "./mock_admin";
@@ -100,13 +125,14 @@ const ddmm = (d: DateOnly) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
 
 const person = (id: string, fullName: string, email: string): BookingPerson => ({ id, fullName, email });
 
-const MEMBERS = {
+export const MEMBERS = {
   u_me: person("u_me", "Minh Anh", "minhanh.nguyen@gmail.com"),
   u_hoang_nam: person("u_hoang_nam", "Hoàng Nam", "hoangnam.dev@gmail.com"),
   u_thao_vy: person("u_thao_vy", "Thảo Vy", "thaovy.nguyen@gmail.com"),
   u_ngoc_tram: person("u_ngoc_tram", "Ngọc Trâm", "ngoctram.k17@gmail.com"),
   u_duc_huy: person("u_duc_huy", "Đức Huy", "duchuy.q9@gmail.com"),
   u_gia_han: person("u_gia_han", "Gia Hân", "giahan.tran@gmail.com"),
+  u_bao_chau: person("u_bao_chau", "Bảo Châu", "baochau.le@gmail.com"),
   u_new_1: person("u_new_1", "Phan Gia Bảo", "giabao.chef@gmail.com"),
   u_new_3: person("u_new_3", "Đỗ Hải Yến", "haiyen.mebe@gmail.com"),
   u_gen_0: person("u_gen_0", "Nguyễn Thị An", "nguyen.thi.an0@gmail.com"),
@@ -203,6 +229,8 @@ interface Seed {
   days: number;
   /** Start date, days from today (VN). */
   start: number;
+  /** Set: a family booking (2–20 people, no goal or health profile). */
+  familySize?: number;
   /** Seeded status; the lazy rules may move it on read. */
   status: BookingStatus;
   goal: string;
@@ -219,10 +247,18 @@ interface Seed {
   qrAt?: number;
   /** A failed / expired payment attempt before the one that counts. */
   retry?: "Failed" | "Expired";
+  /** Paid in full from the member's wallet instead of PaymentOS. */
+  walletPaid?: boolean;
+  /** Status Cancelled, but paid first: the member cancelled before any day was delivered. */
+  cancelledAfterPay?: { at: number; reason: string };
   /** OneShot: hours after deliveryDueAt the plan was sent (late delivery). */
   sentLateHours?: number;
   /** Number of plan days sent (default: by date). */
   delivered?: number;
+  /** DailyFeedback: from this day on, the days were sent at `at` instead of the evening before. */
+  sentLate?: { fromDay: number; at: number };
+  /** When the chef confirmed the work is done. Unset: not confirmed (no release date). */
+  confirmedAt?: number;
   /** DailyFeedback: today's day is still a draft. */
   todayDraft?: boolean;
   /** Day index → [rating, adherence, body]. */
@@ -286,16 +322,35 @@ const SEEDS: Seed[] = [
     chef: "u_chef_tam",
     type: "DailyFeedback",
     days: 5,
-    start: -9,
+    start: -14,
     status: "Completed",
     goal: "eat_clean",
     allergies: ["peanut"],
     pattern: ["breakfast", "lunch", "dinner"],
     budget: 60_000,
     needs: "Thử ăn chay 5 ngày cho quen, món dễ nấu trong bếp nhỏ ở chung cư, không dùng lò nướng.",
-    created: atVn(-13, "19:10"),
+    created: atVn(-19, "19:10"),
     offers: [["chef", 900_000, "5 ngày có phản hồi mỗi ngày, 180.000đ/ngày.", 60]],
     orderId: "ord_602",
+    confirmedAt: atVn(-10, "20:00"),
+  },
+  {
+    id: "b_ma_tam_hold",
+    member: "u_me",
+    chef: "u_chef_tam",
+    type: "OneShot",
+    days: 3,
+    start: -6,
+    status: "Ended",
+    goal: "lean_muscle",
+    allergies: ["peanut"],
+    pattern: ["breakfast", "lunch", "dinner"],
+    budget: 60_000,
+    needs: "Thử thực đơn tăng cơ 3 ngày để xem có hợp không, ưu tiên món nấu một lần ăn được hai bữa.",
+    created: atVn(-11, "18:20"),
+    offers: [["chef", 450_000, "3 ngày × 150.000đ, giao trọn kế hoạch trước ngày bắt đầu.", 45]],
+    orderId: "ord_617",
+    confirmedAt: atVn(-4, "20:00"),
   },
   /* ------------------------------------------------ Lê Quang Tâm (u_chef_tam) */
   {
@@ -337,6 +392,24 @@ const SEEDS: Seed[] = [
     feedbackOverrides: { 2: [4, "Partly", "Bữa tối hơi nhiều dầu, mai anh cho em món hấp nhé."] },
   },
   {
+    id: "b_chau_tam_ready",
+    member: "u_bao_chau",
+    chef: "u_chef_tam",
+    type: "OneShot",
+    days: 5,
+    start: -6,
+    familySize: 3,
+    status: "Active",
+    goal: "maintain",
+    allergies: ["peanut"],
+    pattern: ["lunch", "dinner"],
+    budget: 200_000,
+    needs: "Nhà mình 3 người, ưu tiên món nấu một nồi ăn được cả nhà.",
+    created: atVn(-12, "14:00"),
+    offers: [["chef", 750_000, "5 ngày × 150.000đ, giao trọn kế hoạch trước ngày bắt đầu.", 60]],
+    orderId: "ord_618",
+  },
+  {
     id: "b_tram_tam",
     member: "u_ngoc_tram",
     chef: "u_chef_tam",
@@ -350,9 +423,10 @@ const SEEDS: Seed[] = [
     budget: 90_000,
     needs:
       "Mình đang uống thuốc huyết áp (nhóm chẹn kênh canxi) theo đơn bác sĩ, cần thực đơn ít muối và tránh hoàn toàn bưởi, nước ép bưởi. Ưu tiên món dễ nấu sau giờ làm.",
-    created: atVn(-12, "09:15"),
+    created: atVn(-13, "09:15"),
     offers: [["chef", 1_050_000, "7 ngày × 150.000đ, giao trọn kế hoạch trước ngày bắt đầu, ít muối theo yêu cầu.", 120]],
     orderId: "ord_604",
+    confirmedAt: atVn(-1, "21:00"),
     overrides: {
       "4:breakfast": { name: "Gỏi bưởi chay + nước ép bưởi", kcal: 280, note: "Có thể thay bưởi bằng cam nếu đang dùng thuốc." },
       "6:breakfast": { name: "Sinh tố bưởi hồng chuối", kcal: 260 },
@@ -386,6 +460,7 @@ const SEEDS: Seed[] = [
     type: "DailyFeedback",
     days: 30,
     start: -53,
+    familySize: 4,
     status: "Completed",
     goal: "maintain",
     allergies: [],
@@ -399,8 +474,28 @@ const SEEDS: Seed[] = [
       ["chef", 6_000_000, "Mình giữ 6.000.000đ nhưng tặng thêm danh sách đi chợ theo tuần và món ăn vặt cho bé.", 420],
     ],
     orderId: "ord_605",
+    confirmedAt: atVn(-23, "20:00"),
   },
   /* ------------------------------------------------ ThS. DD Phạm Thu Hà (web-only rows) */
+  {
+    id: "b_yen_ha_cancel",
+    member: "u_new_3",
+    chef: "u_thu_ha",
+    type: "OneShot",
+    days: 7,
+    start: 2,
+    status: "Cancelled",
+    goal: "maintain",
+    allergies: [],
+    pattern: ["breakfast", "lunch", "dinner"],
+    budget: 80_000,
+    needs: "Mẹ bầu 5 tháng ăn chay, cần thực đơn 7 ngày đủ sắt và canxi, chia nhỏ bữa, bớt cay.",
+    created: NOW - 8 * DAY,
+    offers: [["chef", 980_000, "7 ngày × 140.000đ, giao trọn một lần trước ngày bắt đầu.", 60]],
+    orderId: "ord_619",
+    delivered: 0,
+    cancelledAfterPay: { at: NOW - 6 * DAY, reason: "Bác sĩ đổi chế độ ăn của mình nên không cần thực đơn này nữa." },
+  },
   {
     id: "b_chi_ha_done",
     member: "u_gen_2",
@@ -417,6 +512,7 @@ const SEEDS: Seed[] = [
     created: atVn(-31, "14:00"),
     offers: [["chef", 1_680_000, "14 ngày × 120.000đ, giao trọn một lần kèm bảng kcal.", 100]],
     orderId: "ord_606",
+    confirmedAt: atVn(-12, "09:00"),
   },
   {
     id: "b_huy_ha",
@@ -512,6 +608,7 @@ const SEEDS: Seed[] = [
     created: atVn(-22, "09:30"),
     offers: [["chef", 1_800_000, "10 ngày có phản hồi mỗi ngày, 5 bữa nhỏ, 180.000đ/ngày.", 75]],
     orderId: "ord_609",
+    confirmedAt: atVn(-9, "20:00"),
   },
   /* ------------------------------------------------ Nguyễn Đăng Khoa */
   {
@@ -567,6 +664,42 @@ const SEEDS: Seed[] = [
       "2:snack_late": { name: "Chuối hấp nước cốt dừa", kcal: 140 },
     },
   },
+  {
+    id: "b_an_chau_short",
+    member: "u_gen_0",
+    chef: "u_chef_chau",
+    type: "DailyFeedback",
+    days: 7,
+    start: -15,
+    status: "Active",
+    goal: "eat_clean",
+    allergies: [],
+    pattern: ["breakfast", "lunch", "dinner"],
+    budget: 90_000,
+    needs: "Thực đơn món Huế chay 7 ngày, có phản hồi mỗi tối để điều chỉnh độ cay.",
+    created: atVn(-20, "15:30"),
+    offers: [["chef", 1_260_000, "7 ngày có phản hồi mỗi ngày, 180.000đ/ngày.", 70]],
+    orderId: "ord_623",
+    delivered: 4,
+  },
+  {
+    id: "b_linh_khoa_late",
+    member: "u_gen_1",
+    chef: "u_chef_khoa",
+    type: "DailyFeedback",
+    days: 5,
+    start: -12,
+    status: "Active",
+    goal: "eat_clean",
+    allergies: [],
+    pattern: ["breakfast", "lunch", "dinner"],
+    budget: 70_000,
+    needs: "Thực đơn 5 ngày có góp ý mỗi tối, ưu tiên món ít dầu vì mình đang cho con bú.",
+    created: atVn(-17, "10:15"),
+    offers: [["chef", 900_000, "5 ngày có phản hồi mỗi ngày, 180.000đ/ngày.", 55]],
+    orderId: "ord_624",
+    sentLate: { fromDay: 4, at: atVn(-2, "21:10") },
+  },
   /* ------------------------------------------------ Võ Thị Ngọc Lan */
   {
     id: "b_linh_lan",
@@ -574,18 +707,89 @@ const SEEDS: Seed[] = [
     chef: "u_chef_lan",
     type: "DailyFeedback",
     days: 7,
-    start: -7,
+    start: -12,
     status: "Ended",
     goal: "eat_clean",
     allergies: [],
     pattern: ["breakfast", "lunch", "dinner"],
     budget: 80_000,
     needs: "Thực đơn chay 7 ngày cho mẹ bỉm sữa đang cho con bú, cần lợi sữa và đủ chất.",
-    created: atVn(-11, "13:30"),
+    created: atVn(-16, "13:30"),
     offers: [["chef", 1_190_000, "7 ngày có phản hồi mỗi ngày, 170.000đ/ngày, món lợi sữa.", 65]],
     orderId: "ord_612",
+    confirmedAt: atVn(-5, "10:00"),
+  },
+  {
+    id: "b_chi_lan_soon",
+    member: "u_gen_2",
+    chef: "u_chef_lan",
+    type: "OneShot",
+    days: 5,
+    start: -13,
+    status: "Ended",
+    goal: "maintain",
+    allergies: [],
+    pattern: ["lunch", "dinner"],
+    budget: 70_000,
+    needs: "Thực đơn trưa và tối 5 ngày cho dân văn phòng, nấu sẵn được từ tối hôm trước.",
+    created: atVn(-17, "09:40"),
+    offers: [["chef", 500_000, "5 ngày × 100.000đ, giao trọn một lần.", 70]],
+    orderId: "ord_616",
+    confirmedAt: NOW - ESCROW_HOLD_DAYS * DAY + 90_000,
+  },
+  {
+    id: "b_yen_lan_wallet",
+    member: "u_new_3",
+    chef: "u_chef_lan",
+    type: "OneShot",
+    days: 5,
+    start: 3,
+    status: "Active",
+    goal: "maintain",
+    allergies: [],
+    pattern: ["lunch", "dinner"],
+    budget: 70_000,
+    needs: "Thực đơn trưa và tối 5 ngày theo chế độ bác sĩ mới dặn, ít muối, nhiều rau xanh.",
+    created: NOW - 4 * DAY,
+    offers: [["chef", 600_000, "5 ngày × 120.000đ, giao trọn một lần.", 50]],
+    orderId: "ord_620",
+    walletPaid: true,
+  },
+  {
+    id: "b_giang_lan_auto",
+    member: "u_gen_4",
+    chef: "u_chef_lan",
+    type: "OneShot",
+    days: 5,
+    start: -12,
+    status: "Active",
+    goal: "gain_muscle",
+    allergies: ["soy"],
+    pattern: ["lunch", "dinner"],
+    budget: 90_000,
+    needs: "Thử thực đơn tăng cơ 5 ngày, không đậu nành, món nấu sẵn được từ tối hôm trước.",
+    created: atVn(-17, "11:00"),
+    offers: [["chef", 700_000, "5 ngày × 140.000đ, không đậu nành, giao trọn một lần.", 80]],
+    orderId: "ord_621",
   },
   /* ------------------------------------------------ Trần Quốc Minh */
+  {
+    id: "b_khanh_minh_auto",
+    member: "u_gen_6",
+    chef: "u_chef_minh",
+    type: "OneShot",
+    days: 5,
+    start: -20,
+    status: "Active",
+    goal: "eat_clean",
+    allergies: [],
+    pattern: ["breakfast", "lunch"],
+    budget: 60_000,
+    needs: "Thực đơn thực dưỡng 5 ngày cho người mới, bữa sáng và bữa trưa, nguyên liệu dễ mua.",
+    created: atVn(-25, "09:00"),
+    offers: [["chef", 550_000, "5 ngày × 110.000đ, giao trọn một lần.", 55]],
+    orderId: "ord_622",
+  },
   {
     id: "b_khanh_minh_qa",
     member: "u_gen_6",
@@ -602,6 +806,7 @@ const SEEDS: Seed[] = [
     created: atVn(-10, "08:00"),
     offers: [["chef", 600_000, "5 ngày × 120.000đ, kèm hướng dẫn lên men.", 50]],
     orderId: "ord_613",
+    confirmedAt: atVn(-2, "20:00"),
     complaint: {
       id: "cp_qa_409",
       reason: "other",
@@ -664,7 +869,9 @@ interface BookingRow {
   bookingType: BookingType;
   planDays: number;
   startDate: DateOnly;
-  goal: string;
+  audience: BookingAudience;
+  familySize: number | null;
+  goal: string | null;
   allergies: string[];
   mealPattern: MealSlot[];
   budgetPerDay: number | null;
@@ -675,6 +882,8 @@ interface BookingRow {
   contract: BookingContract | null;
   escrow: EscrowHold | null;
   complaint: Complaint | null;
+  completedAt: ISODateString | null;
+  autoCompleted: boolean;
   days: PlanDay[];
   messages: BookingMessage[];
   orderId: string | null;
@@ -776,11 +985,16 @@ function buildDays(seed: Seed, row: BookingRow, paidAt: number, deliveryDueAt: n
     const offset = seed.start + i - 1;
     const date = dayOf(offset);
     let sentAt: number | null = null;
-    if (i <= delivered) sentAt = oneShot ? oneShotSentAt : Math.max(paidAt + HOUR, atVn(offset - 1, "20:30"));
+    if (i <= delivered) {
+      if (oneShot) sentAt = oneShotSentAt;
+      else sentAt = seed.sentLate && i >= seed.sentLate.fromDay ? seed.sentLate.at : Math.max(paidAt + HOUR, atVn(offset - 1, "20:30"));
+    }
     const sent = sentAt !== null && sentAt <= NOW;
     const draft = !sent && offset === 0 && !!seed.todayDraft;
     const fbSeed = seed.feedbackOverrides?.[i] ?? FEEDBACK[(i + h) % FEEDBACK.length];
     const feedbackAt = atVn(offset, "20:00");
+    // A day sent after its own evening has no feedback yet.
+    const hasFeedback = !oneShot && sent && sentAt !== null && feedbackAt <= NOW && feedbackAt >= sentAt;
     row.days.push({
       dayIndex: i,
       date,
@@ -788,14 +1002,11 @@ function buildDays(seed: Seed, row: BookingRow, paidAt: number, deliveryDueAt: n
       chefNote: sent ? (seed.dayNotes?.[i] ?? null) : null,
       sentAt: sent && sentAt !== null ? iso(sentAt) : null,
       meals: sent || draft ? mealsFor(seed, i, draft) : [],
-      feedback:
-        !oneShot && sent && feedbackAt <= NOW
-          ? { rating: fbSeed[0], adherence: fbSeed[1], body: fbSeed[2], createdAt: iso(feedbackAt) }
-          : null,
+      feedback: hasFeedback ? { rating: fbSeed[0], adherence: fbSeed[1], body: fbSeed[2], createdAt: iso(feedbackAt) } : null,
     });
     if (!oneShot && sent && sentAt !== null) {
       say(row, "system", `${row.chef.fullName} đã gửi kế hoạch ngày ${i} (${ddmm(date)}).`, sentAt);
-      if (feedbackAt <= NOW) say(row, "system", `${row.member.fullName} đã phản hồi ngày ${i}: ${fbSeed[0]}★ · ${fbSeed[2]}`, feedbackAt);
+      if (hasFeedback) say(row, "system", `${row.member.fullName} đã phản hồi ngày ${i}: ${fbSeed[0]}★ · ${fbSeed[2]}`, feedbackAt);
     }
   }
   if (oneShot && delivered > 0 && oneShotSentAt <= NOW) {
@@ -805,10 +1016,24 @@ function buildDays(seed: Seed, row: BookingRow, paidAt: number, deliveryDueAt: n
 
 const decisionDetail = (decision: ComplaintDecision, price: number, refund: number) => {
   const out = decisionOutcome(price, decision, refund);
-  if (decision === "ReleaseToChef") return `chuyên gia nhận ${vnd(out.chefNet)} sau phí`;
-  if (decision === "RefundMember") return `hoàn ${vnd(out.refund)} về phương thức thanh toán ban đầu`;
-  return `hoàn ${vnd(out.refund)} cho thành viên, chuyên gia nhận ${vnd(out.chefNet)} sau phí`;
+  if (decision === "ReleaseToChef") return `${vnd(out.chefNet)} vào ví chuyên gia sau phí`;
+  if (decision === "RefundMember") return `hoàn ${vnd(out.refund)} vào ví thành viên`;
+  return `hoàn ${vnd(out.refund)} vào ví thành viên, ${vnd(out.chefNet)} vào ví chuyên gia sau phí`;
 };
+
+/** Where the money goes on an admin's decision: the same for a complaint and for a stuck hold. */
+function settleEscrow(escrow: EscrowHold, decision: ComplaintDecision, price: number, refundAmount: number | undefined, note: string, actor: string, at: number) {
+  const out = decisionOutcome(price, decision, refundAmount);
+  escrow.status = decision === "ReleaseToChef" ? "Released" : decision === "RefundMember" ? "Refunded" : "PartiallyRefunded";
+  escrow.releasedAt = out.chefGross > 0 ? iso(at) : null;
+  escrow.releasedAmount = out.chefGross;
+  escrow.feeAmount = out.fee;
+  escrow.refundedAmount = out.refund;
+  escrow.refundedAt = out.refund > 0 ? iso(at) : null;
+  escrow.resolvedBy = actor;
+  escrow.resolutionNote = note;
+  return out;
+}
 
 /** Settles a complaint: escrow, booking and order follow the decision. Shared by seeds and the admin action. */
 function applyDecision(row: BookingRow, decision: ComplaintDecision, refundAmount: number | undefined, note: string, actor: string, at: number) {
@@ -816,32 +1041,91 @@ function applyDecision(row: BookingRow, decision: ComplaintDecision, refundAmoun
   const escrow = row.escrow;
   const contract = row.contract;
   if (!complaint || !escrow || !contract) return;
-  const out = decisionOutcome(contract.price, decision, refundAmount);
+  const out = settleEscrow(escrow, decision, contract.price, refundAmount, note, actor, at);
   complaint.status = "Resolved";
   complaint.decision = decision;
   complaint.refundAmount = out.refund;
   complaint.adminNote = note;
   complaint.decidedBy = actor;
   complaint.decidedAt = iso(at);
-  escrow.status = decision === "ReleaseToChef" ? "Released" : decision === "RefundMember" ? "Refunded" : "PartiallyRefunded";
-  escrow.releasedAt = out.chefGross > 0 ? iso(at) : null;
-  escrow.releasedAmount = out.chefGross;
-  escrow.feeAmount = out.fee;
-  escrow.refundedAmount = out.refund;
-  escrow.resolvedBy = actor;
-  escrow.resolutionNote = note;
   row.status = "Resolved";
   row.updatedAt = iso(at);
-  if (decision === "RefundMember" && row.orderId) {
-    for (const p of orders.get(row.orderId)?.payments ?? []) if (p.status === "Paid") p.status = "Refunded";
-  }
   say(row, "system", `Ban quản trị đã quyết định: ${COMPLAINT_DECISION_LABEL[decision]} — ${decisionDetail(decision, contract.price, out.refund)}. Ghi chú: “${note}”`, at);
+}
+
+/**
+ * Decides a stuck hold (no complaint). Release and split finish the booking; a full refund cancels it, and
+ * resolvedBy tells that apart from a member's own cancellation, which leaves it null.
+ */
+function resolveHold(row: BookingRow, decision: ComplaintDecision, refundAmount: number | undefined, note: string, actor: string, at: number) {
+  const escrow = row.escrow;
+  const contract = row.contract;
+  if (!escrow || !contract) return;
+  const out = settleEscrow(escrow, decision, contract.price, refundAmount, note, actor, at);
+  if (decision === "RefundMember") {
+    row.status = "Cancelled";
+    row.cancelReason = note;
+  } else {
+    row.status = "Completed";
+    row.completedAt ??= iso(at);
+    escrow.completedAt ??= iso(at);
+  }
+  row.updatedAt = iso(at);
+  say(row, "system", `Ban quản trị đã xử lý khoản giữ tiền: ${COMPLAINT_DECISION_LABEL[decision]} — ${decisionDetail(decision, contract.price, out.refund)}. Ghi chú: “${note}”`, at);
+}
+
+/** The chef confirms the work is done: the contract is complete and the hold's clock starts. */
+function confirmCompletion(row: BookingRow, at: number) {
+  const escrow = row.escrow;
+  if (!escrow) return;
+  const releaseAt = escrowReleaseAt(iso(at));
+  row.completedAt = iso(at);
+  escrow.completedAt = iso(at);
+  escrow.releaseAt = releaseAt;
+  row.updatedAt = iso(at);
+  say(
+    row,
+    "system",
+    `${row.chef.fullName} đã xác nhận hoàn thành hợp đồng. VeganLife giữ ${vnd(escrow.amount)} đến ${when(releaseAt)} (${ESCROW_HOLD_DAYS} ngày); không có khiếu nại thì tiền vào ví chuyên gia.`,
+    at,
+  );
+}
+
+/** The chef never confirmed: the system completes the contract and the normal hold starts from that moment. */
+function autoComplete(row: BookingRow, escrow: EscrowHold, at: ISODateString) {
+  const releaseAt = escrowReleaseAt(at);
+  row.completedAt = at;
+  row.autoCompleted = true;
+  row.status = "Ended";
+  row.updatedAt = at;
+  escrow.completedAt = at;
+  escrow.releaseAt = releaseAt;
+  say(
+    row,
+    "system",
+    `Chuyên gia chưa xác nhận sau ${AUTO_COMPLETE_DAYS} ngày kể từ ngày kết thúc kế hoạch, hệ thống tự hoàn tất hợp đồng. VeganLife giữ ${vnd(escrow.amount)} đến ${when(releaseAt)} (${ESCROW_HOLD_DAYS} ngày); không có khiếu nại thì tiền vào ví chuyên gia.`,
+    Date.parse(at),
+  );
+}
+
+/** The member cancels after paying, before any day was delivered: the whole price goes to their wallet. */
+function cancelAfterPayment(row: BookingRow, at: number, reason: string) {
+  const escrow = row.escrow;
+  if (!escrow) return;
+  escrow.status = "Refunded";
+  escrow.refundedAmount = escrow.amount;
+  escrow.refundedAt = iso(at);
+  escrow.resolutionNote = reason;
+  row.status = "Cancelled";
+  row.cancelReason = reason;
+  row.updatedAt = iso(at);
+  say(row, "system", `${row.member.fullName} đã huỷ yêu cầu: “${reason}”. ${vnd(escrow.amount)} đã hoàn vào ví của thành viên.`, at);
 }
 
 /** Automatic release at releaseAt (no complaint): net 90% to the chef wallet. */
 function autoRelease(row: BookingRow) {
   const escrow = row.escrow;
-  if (!escrow) return;
+  if (!escrow || !escrow.releaseAt) return;
   const at = Date.parse(escrow.releaseAt);
   escrow.status = "Released";
   escrow.releasedAt = escrow.releaseAt;
@@ -851,7 +1135,7 @@ function autoRelease(row: BookingRow) {
   escrow.resolutionNote = null;
   if (row.status === "Active" || row.status === "Ended") row.status = "Completed";
   row.updatedAt = escrow.releaseAt;
-  say(row, "system", `Hết hạn khiếu nại — đã chuyển ${vnd(escrow.amount - escrow.feeAmount)} cho chuyên gia (sau phí ${PLATFORM_FEE_RATE * 100}%).`, at);
+  say(row, "system", `Hết ${ESCROW_HOLD_DAYS} ngày giữ tiền, không có khiếu nại — ${vnd(escrow.amount - escrow.feeAmount)} đã vào ví chuyên gia (sau phí ${PLATFORM_FEE_RATE * 100}%).`, at);
 }
 
 function buildComplaint(row: BookingRow, c: ComplaintSeed) {
@@ -908,17 +1192,21 @@ function build(seed: Seed): BookingRow {
     bookingType: seed.type,
     planDays: seed.days,
     startDate,
-    goal: seed.goal,
+    audience: seed.familySize ? "Family" : "Self",
+    familySize: seed.familySize ?? null,
+    goal: seed.familySize ? null : seed.goal,
     allergies: [...seed.allergies],
     mealPattern: [...seed.pattern],
     budgetPerDay: seed.budget,
     needs: seed.needs,
-    shareHealthProfile: true,
+    shareHealthProfile: !seed.familySize,
     status: seed.status,
     offers: [],
     contract: null,
     escrow: null,
     complaint: null,
+    completedAt: null,
+    autoCompleted: false,
     days: [],
     messages: [],
     orderId: null,
@@ -968,7 +1256,7 @@ function build(seed: Seed): BookingRow {
   const startMs = Date.parse(vnTime(startDate, "00:00"));
   // The plan's start caps the window, as on mobile: paying after day 1 began would be pointless.
   const paymentDueAt = Math.min(contractAt + PAYMENT_WINDOW_HOURS * HOUR, Math.max(startMs, contractAt));
-  const paid = PAID_STATUSES.includes(seed.status);
+  const paid = PAID_STATUSES.includes(seed.status) || seed.cancelledAfterPay !== undefined;
   const qrAt = paid ? contractAt + 40 * MIN : (seed.qrAt ?? contractAt + 10 * MIN);
   const paidAt = qrAt + 2 * MIN;
   const deliveryDueAt = seed.type === "OneShot" ? Math.max(startMs, (paid ? paidAt : contractAt) + DAY) : Date.parse(vnTime(startDate, "06:00"));
@@ -1010,8 +1298,12 @@ function build(seed: Seed): BookingRow {
   }
 
   const payment = makePayment(order.id, qrAt, price, "Paid", paidAt);
+  if (seed.walletPaid) {
+    payment.provider = "Wallet";
+    payment.qrCodeUrl = null;
+    payment.expiresAt = iso(paidAt);
+  }
   order.payments.push(payment);
-  const releaseAt = escrowReleaseAt(endDate);
   row.escrow = {
     id: `eh_${order.id.replace(/^ord_/, "")}`,
     bookingId: seed.id,
@@ -1019,17 +1311,21 @@ function build(seed: Seed): BookingRow {
     amount: price,
     status: "Held",
     heldAt: iso(paidAt),
-    releaseAt,
+    completedAt: null,
+    releaseAt: null,
     releasedAt: null,
     releasedAmount: 0,
     feeAmount: 0,
     refundedAmount: 0,
+    refundedAt: null,
     resolvedBy: null,
     resolutionNote: null,
   };
   row.updatedAt = iso(paidAt);
-  say(row, "system", `Đã thanh toán ${vnd(price)} qua PaymentOS. VeganLife giữ tiền đến ${when(releaseAt)} (${ESCROW_HOLD_DAYS} ngày sau khi kết thúc kế hoạch).`, paidAt);
+  say(row, "system", `Đã thanh toán ${vnd(price)} ${seed.walletPaid ? "bằng ví VeganLife" : "qua PaymentOS"}. VeganLife giữ tiền đến ${ESCROW_HOLD_DAYS} ngày sau khi chuyên gia xác nhận hoàn thành.`, paidAt);
   buildDays(seed, row, paidAt, deliveryDueAt);
+  if (seed.cancelledAfterPay) cancelAfterPayment(row, seed.cancelledAfterPay.at, seed.cancelledAfterPay.reason);
+  if (seed.confirmedAt !== undefined) confirmCompletion(row, seed.confirmedAt);
   if (seed.complaint) buildComplaint(row, seed.complaint);
   if (seed.status === "Completed") autoRelease(row);
   return row;
@@ -1053,13 +1349,17 @@ function settle(now: number) {
       row.updatedAt = contract.paymentDueAt;
       say(row, "system", `Quá hạn thanh toán ${PAYMENT_WINDOW_HOURS} giờ — yêu cầu đã hết hiệu lực.`, Date.parse(contract.paymentDueAt));
     }
-    if (row.status === "Active" && contract && Date.parse(vnTime(addDays(contract.endDate, 1), "00:00")) <= now) {
-      row.status = "Ended";
-    }
     const escrow = row.escrow;
-    if (escrow && escrow.status === "Held" && Date.parse(escrow.releaseAt) <= now && row.complaint?.status !== "Open") {
-      autoRelease(row);
-    }
+    if (!escrow || escrow.status !== "Held") continue;
+    // A Held hold has no open complaint (a complaint freezes it); the check is the rule itself. Only days
+    // delivered by the moment count, so the answer doesn't depend on when this lazy rule happens to run.
+    const due = !escrow.completedAt && contract && row.complaint?.status !== "Open" ? autoCompleteAt(contract.endDate) : null;
+    const completes = due !== null && Date.parse(due) <= now && deliveredBy(row, due) >= row.planDays;
+    if (completes) autoComplete(row, escrow, due);
+    const releases = escrow.releaseAt !== null && Date.parse(escrow.releaseAt) <= now;
+    if (releases) autoRelease(row);
+    // These events can be days old by the first read.
+    if (completes || releases) row.messages.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 }
 
@@ -1070,6 +1370,22 @@ const hasFail = (text: string) => text.toLowerCase().includes("#fail");
 const unavailable = (what: string) => new ApiError(`Máy chủ đang bận, chưa ${what}. Thử lại sau.`, 503, "unavailable");
 
 const deliveredOf = (row: BookingRow) => row.days.filter((d) => d.status === "Sent").length;
+const deliveredBy = (row: BookingRow, at: ISODateString) => row.days.filter((d) => d.status === "Sent" && d.sentAt !== null && Date.parse(d.sentAt) <= Date.parse(at)).length;
+
+/** Past the auto-complete moment and nothing moves it on its own. `settle` has already completed the ones it could. */
+function isStuck(row: BookingRow, now: number) {
+  const escrow = row.escrow;
+  const contract = row.contract;
+  return (
+    escrow !== null &&
+    contract !== null &&
+    escrow.status === "Held" &&
+    escrow.completedAt === null &&
+    escrow.releaseAt === null &&
+    row.complaint?.status !== "Open" &&
+    Date.parse(autoCompleteAt(contract.endDate)) <= now
+  );
+}
 
 function bookingView(row: BookingRow): Booking {
   return structuredClone({
@@ -1079,6 +1395,8 @@ function bookingView(row: BookingRow): Booking {
     bookingType: row.bookingType,
     planDays: row.planDays,
     startDate: row.startDate,
+    audience: row.audience,
+    familySize: row.familySize,
     goal: row.goal,
     allergies: row.allergies,
     mealPattern: row.mealPattern,
@@ -1087,6 +1405,8 @@ function bookingView(row: BookingRow): Booking {
     shareHealthProfile: row.shareHealthProfile,
     status: row.status,
     deliveredDays: deliveredOf(row),
+    completedAt: row.completedAt,
+    autoCompleted: row.autoCompleted,
     currentOffer: row.offers[row.offers.length - 1] ?? null,
     contract: row.contract,
     escrow: row.escrow,
@@ -1108,8 +1428,13 @@ function bookingRef(row: BookingRow): BookingRef {
     planDays: row.planDays,
     startDate: row.startDate,
     endDate: row.contract?.endDate ?? null,
+    audience: row.audience,
+    familySize: row.familySize,
+    allergies: row.allergies,
     status: row.status,
     deliveredDays: deliveredOf(row),
+    completedAt: row.completedAt,
+    autoCompleted: row.autoCompleted,
     complaintId: row.complaint?.id ?? null,
     paymentOrderId: row.orderId,
   });
@@ -1168,11 +1493,20 @@ const isActiveHold = (s: EscrowStatus) => s === "Held" || s === "Frozen";
 export async function listEscrowHolds(query: EscrowHoldQuery): Promise<AdminEscrowHold[]> {
   await sleep(400);
   if (hasFail(query.search)) throw unavailable("tải được danh sách tiền đang giữ");
-  settle(Date.now());
+  const now = Date.now();
+  settle(now);
   const q = fold(query.search.trim());
   return bookings
     .filter((b): b is BookingRow & { escrow: EscrowHold } => b.escrow !== null)
-    .filter((b) => (query.status === "all" ? true : query.status === "active" ? isActiveHold(b.escrow.status) : b.escrow.status === query.status))
+    .filter((b) =>
+      query.status === "all"
+        ? true
+        : query.status === "active"
+          ? isActiveHold(b.escrow.status)
+          : query.status === "stuck"
+            ? isStuck(b, now)
+            : b.escrow.status === query.status,
+    )
     .filter(
       (b) =>
         !q || fold([b.id, b.orderId ?? "", b.complaint?.id ?? "", b.escrow.id, b.member.fullName, b.chef.fullName].join(" ")).includes(q),
@@ -1182,10 +1516,10 @@ export async function listEscrowHolds(query: EscrowHoldQuery): Promise<AdminEscr
       const ya = isActiveHold(y.escrow.status);
       if (xa !== ya) return xa ? -1 : 1;
       return xa
-        ? x.escrow.releaseAt.localeCompare(y.escrow.releaseAt)
-        : (y.escrow.releasedAt ?? y.complaint?.decidedAt ?? y.escrow.heldAt).localeCompare(x.escrow.releasedAt ?? x.complaint?.decidedAt ?? x.escrow.heldAt);
+        ? (x.escrow.releaseAt ?? "9999").localeCompare(y.escrow.releaseAt ?? "9999")
+        : (y.escrow.releasedAt ?? y.escrow.refundedAt ?? y.escrow.heldAt).localeCompare(x.escrow.releasedAt ?? x.escrow.refundedAt ?? x.escrow.heldAt);
     })
-    .map((b) => ({ ...structuredClone(b.escrow), booking: bookingRef(b) }));
+    .map((b) => ({ ...structuredClone(b.escrow), isStuck: isStuck(b, now), booking: bookingRef(b) }));
 }
 
 /** First instant of the current month in Asia/Ho_Chi_Minh. */
@@ -1201,16 +1535,20 @@ export async function getEscrowSummary(): Promise<EscrowSummary> {
   const sum = (list: EscrowHold[], pick: (e: EscrowHold) => number) => list.reduce((s, e) => s + pick(e), 0);
   const active = holds.filter((e) => isActiveHold(e.status));
   const frozen = holds.filter((e) => e.status === "Frozen");
-  const soon = holds.filter((e) => e.status === "Held" && Date.parse(e.releaseAt) <= now + ESCROW_HOLD_DAYS * DAY);
+  const soon = holds.filter((e) => e.status === "Held" && e.releaseAt !== null && Date.parse(e.releaseAt) <= now + RELEASING_SOON_DAYS * DAY);
+  const awaitingCompletion = holds.filter((e) => e.status === "Held" && e.releaseAt === null);
+  const stuck = bookings.filter((b) => isStuck(b, now));
   const releasedThisMonth = holds.filter((e) => e.releasedAt !== null && Date.parse(e.releasedAt) >= monthStart && e.releasedAmount > 0);
-  const refundedThisMonth = bookings.filter(
-    (b) => b.escrow && b.escrow.refundedAmount > 0 && b.complaint?.decidedAt && Date.parse(b.complaint.decidedAt) >= monthStart,
-  );
+  const refundedThisMonth = bookings.filter((b) => b.escrow?.refundedAt && Date.parse(b.escrow.refundedAt) >= monthStart);
   return {
     totalHeld: sum(active, (e) => e.amount),
     totalHeldCount: active.length,
     releasingSoon: sum(soon, (e) => e.amount),
     releasingSoonCount: soon.length,
+    awaitingCompletion: sum(awaitingCompletion, (e) => e.amount),
+    awaitingCompletionCount: awaitingCompletion.length,
+    stuckAmount: stuck.reduce((s, b) => s + (b.escrow?.amount ?? 0), 0),
+    stuckCount: stuck.length,
     frozen: sum(frozen, (e) => e.amount),
     frozenCount: frozen.length,
     feeThisMonth: sum(releasedThisMonth, (e) => e.feeAmount),
@@ -1227,8 +1565,8 @@ export async function getEscrowSummary(): Promise<EscrowSummary> {
 
 /**
  * POST /admin/complaints/{id}/decision { decision, refundAmount?, note }.
- * ReleaseToChef: escrow Released (chef nets 90%). RefundMember: Refunded in full to the original
- * payment method. Split: refundAmount back to the member, (price − refundAmount) × 90% to the chef.
+ * ReleaseToChef: escrow Released (chef nets 90%). RefundMember: Refunded in full to the member's
+ * wallet. Split: refundAmount to the member's wallet, (price − refundAmount) × 90% to the chef's.
  */
 export async function decideComplaint(input: ComplaintDecisionInput, session: AdminSession | null): Promise<AdminComplaint> {
   await sleep(700);
@@ -1272,6 +1610,44 @@ export async function decideComplaint(input: ComplaintDecisionInput, session: Ad
   return complaintView(row, true);
 }
 
+/**
+ * POST /admin/escrow/holds/{id}/resolve { decision, refundAmount?, note }: an admin decides a stuck hold.
+ * The money is the same as a complaint decision's. 409 not_stuck for anything that isn't stuck right now,
+ * a hold already decided included.
+ */
+export async function resolveEscrowHold(input: ResolveHoldInput, session: AdminSession | null): Promise<EscrowHold> {
+  await sleep(700);
+  const now = Date.now();
+  settle(now);
+  const note = input.note.trim();
+  const row = bookings.find((b) => b.escrow?.id === input.holdId);
+  if (!row || !row.escrow || !row.contract) throw new ApiError("Khoản giữ tiền không còn tồn tại.", 404, "not_found");
+  const errors = decisionErrors({ decision: input.decision, refundAmount: input.refundAmount, note }, row.contract.price);
+  if (errors.decision) throw new ApiError(errors.decision, 400, "validation");
+  if (errors.refundAmount) throw new ApiError(errors.refundAmount, 400, "invalid_refund_amount");
+  if (errors.note) throw new ApiError(errors.note, 400, "note_too_short");
+  if (hasFail(note)) throw unavailable("lưu được quyết định");
+
+  if (note.includes("#409") && isStuck(row, now)) {
+    resolveHold(row, "ReleaseToChef", undefined, "Chuyên gia đã gửi đủ kế hoạch qua chat, thành viên xác nhận đã nhận nên chuyển toàn bộ.", "Lê Minh Quân", now - 40_000);
+  }
+  if (!isStuck(row, now)) {
+    throw new ApiError(
+      row.escrow.resolvedBy
+        ? `Khoản này đã được ${row.escrow.resolvedBy} xử lý lúc ${when(row.escrow.releasedAt ?? row.escrow.refundedAt ?? now)}.`
+        : "Khoản này không còn chờ Ban quản trị xử lý.",
+      409,
+      "not_stuck",
+    );
+  }
+
+  const actor = session?.fullName ?? "Quản trị viên";
+  resolveHold(row, input.decision, input.refundAmount, note, actor, now);
+  const out = decisionOutcome(row.contract.price, input.decision, input.refundAmount);
+  logAction(actor, "xử lý khoản giữ tiền", `${row.id} · ${COMPLAINT_DECISION_LABEL[input.decision]}${out.refund > 0 ? ` · hoàn ${vnd(out.refund)}` : ""}`);
+  return structuredClone(row.escrow);
+}
+
 /* ---------------------------------------------------------------- orders (read by mock_commerce) */
 
 function orderView(order: OrderRow, now: number): AdminOrder {
@@ -1295,7 +1671,11 @@ function orderView(order: OrderRow, now: number): AdminOrder {
           at: complaint.decidedAt ?? row.updatedAt,
           complaintId: complaint.id,
         }
-      : null);
+      : !complaint && escrow?.resolvedBy
+        ? { action: "admin_resolve", note: escrow.resolutionNote ?? "", by: escrow.resolvedBy, at: escrow.releasedAt ?? escrow.refundedAt ?? row.updatedAt, complaintId: null }
+        : row.status === "Cancelled" && escrow?.status === "Refunded"
+          ? { action: "member_cancel", note: row.cancelReason ?? "", by: row.member.fullName, at: escrow.refundedAt ?? row.updatedAt, complaintId: null }
+          : null);
 
   return {
     id: order.id,
@@ -1310,8 +1690,13 @@ function orderView(order: OrderRow, now: number): AdminOrder {
       planDays: row.planDays,
       startDate: row.contract.startDate,
       endDate: row.contract.endDate,
+      audience: row.audience,
+      familySize: row.familySize,
+      allergies: [...row.allergies],
       status: row.status,
       deliveredDays: deliveredOf(row),
+      completedAt: row.completedAt,
+      autoCompleted: row.autoCompleted,
       complaintId: complaint?.id ?? null,
     },
     amount: row.contract.price,
@@ -1360,24 +1745,35 @@ export function cancelOrder(orderId: string, note: string, actor: string, now = 
 
 export interface EscrowLedgerEntry {
   chefId: string;
+  memberId: string;
   bookingId: string;
   orderId: string | null;
   memberName: string;
+  chefName: string;
   planTitle: string;
   transactionRef: string | null;
   amount: number;
   heldAt: ISODateString;
   status: EscrowStatus;
-  releaseAt: ISODateString;
+  releaseAt: ISODateString | null;
   releasedAt: ISODateString | null;
   releasedAmount: number;
   feeAmount: number;
   refundedAmount: number;
+  refundedAt: ISODateString | null;
   complaintId: string | null;
   decidedAt: ISODateString | null;
+  /** The member cancelled after paying. */
+  cancelled: boolean;
+  /** An admin decided the hold with no complaint (a stuck hold). */
+  adminResolved: boolean;
+  /** The system completed the contract because the chef never confirmed. */
+  autoCompleted: boolean;
+  /** Paid from the member's wallet rather than PaymentOS. */
+  walletPaid: boolean;
 }
 
-/** One entry per paid booking: what the chef wallet ledger is derived from. */
+/** One entry per paid booking: what the chef and member wallet ledgers are derived from. */
 export function escrowLedger(now = Date.now()): EscrowLedgerEntry[] {
   settle(now);
   return bookings
@@ -1387,9 +1783,11 @@ export function escrowLedger(now = Date.now()): EscrowLedgerEntry[] {
       const paid = order?.payments.find((p) => p.paidAt !== null);
       return {
         chefId: b.chef.id,
+        memberId: b.member.id,
         bookingId: b.id,
         orderId: b.orderId,
         memberName: b.member.fullName,
+        chefName: b.chef.fullName,
         planTitle: `Thực đơn ${b.planDays} ngày · ${BOOKING_TYPE_LABEL[b.bookingType]}`,
         transactionRef: paid?.transactionRef ?? null,
         amount: b.escrow.amount,
@@ -1400,8 +1798,13 @@ export function escrowLedger(now = Date.now()): EscrowLedgerEntry[] {
         releasedAmount: b.escrow.releasedAmount,
         feeAmount: b.escrow.feeAmount,
         refundedAmount: b.escrow.refundedAmount,
+        refundedAt: b.escrow.refundedAt,
         complaintId: b.complaint?.id ?? null,
         decidedAt: b.complaint?.decidedAt ?? null,
+        cancelled: b.status === "Cancelled" && !b.escrow.resolvedBy,
+        adminResolved: !b.complaint && !!b.escrow.resolvedBy,
+        autoCompleted: b.autoCompleted,
+        walletPaid: paid?.provider === "Wallet",
       };
     });
 }

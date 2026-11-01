@@ -5,7 +5,6 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:veganlife_mobile/core/config/backend_modules.dart';
-import 'package:veganlife_mobile/core/config/env.dart';
 import 'package:veganlife_mobile/core/network/api_exception.dart';
 import 'package:veganlife_mobile/features/scanner/data/models/scan_result_model.dart';
 import 'package:veganlife_mobile/features/scanner/data/scanner_api_service.dart';
@@ -14,10 +13,12 @@ import 'package:veganlife_mobile/features/scanner/presentation/controllers/scann
 
 import 'planner_test_support.dart';
 
-const _suggestions = '/meal-plans/000000000000000000000000/swap-suggestions';
+const _plan = '/meal-plans/current';
+const _suggestions = '/meal-plans/6ae5966f96695f5c139fa9c5/swap-suggestions';
+const _fromFridge = '/meal-plans/from-ingredients';
 const _mine = '/users/me/recipes';
 const _profile = '/health-profile/me';
-final _scan = '${Env.apiOrigin}/vision/scan';
+const _scan = '/vision/scan';
 
 Map<String, dynamic> _recipe(String id, String name, List<String> ingredients,
         {List<String> allergens = const []}) =>
@@ -38,6 +39,7 @@ DetectedIngredient _food(String name) =>
     DetectedIngredient(id: name, name: name, confidence: 1, isVegan: true);
 
 FakeBackend _catalog(List<Map<String, dynamic>> recipes) => FakeBackend()
+  ..on('GET $_plan', 200, fixture('planner_fixture_plan.json'))
   ..on('GET $_suggestions', 200, envelope(recipes))
   ..on('GET $_mine', 200, envelope(const <Object>[]));
 
@@ -46,7 +48,7 @@ void main() {
   tearDown(() => BackendModules.debugOverride(null));
 
   group('scan upload', () {
-    test('goes to the root route as multipart `image`; the result parses',
+    test('goes to /api/v1/vision/scan as multipart `image`; the result parses',
         () async {
       final backend = FakeBackend()
         ..on('POST $_scan', 200, fixture('scanner_fixture_scan.json'));
@@ -145,9 +147,23 @@ void main() {
         _recipe('1', 'Canh', ['Cà chua']),
       ]);
       await ideas(backend, ['Cà chua']);
-      expect(backend.calls, ['GET $_suggestions', 'GET $_mine']);
-      expect(backend.calls.where((p) => !p.startsWith('GET')), isEmpty);
-      expect(backend.calls.join(), isNot(contains('from-ingredients')));
+      expect(backend.calls, ['GET $_plan', 'GET $_suggestions', 'GET $_mine']);
+    });
+
+    test('no plan this week: what suits the fridge, and still no plan',
+        () async {
+      final backend = FakeBackend()
+        ..on('GET $_plan', 404, notFound('Bạn chưa có thực đơn cho tuần này.'))
+        ..on(
+            'POST $_fromFridge',
+            200,
+            envelope([
+              _recipe('1', 'Canh', ['Cà chua']),
+            ]))
+        ..on('GET $_mine', 200, envelope(const <Object>[]));
+      final menu = await ideas(backend, ['Cà chua']);
+      expect(menu.map((m) => m.name), ['Canh']);
+      expect(backend.calls, ['GET $_plan', 'POST $_fromFridge', 'GET $_mine']);
     });
 
     test('through the controller: confirmed vegan items, allergies excluded',
@@ -166,7 +182,6 @@ void main() {
       final state = c.read(scannerControllerProvider);
       expect(state.menuStatus, MenuStatus.ready);
       expect(state.menu.map((m) => m.name), ['Canh']);
-      expect(backend.calls.where((p) => !p.startsWith('GET')), isEmpty);
     });
   });
 }

@@ -36,7 +36,7 @@ enum BookingStatus {
   negotiating('Negotiating', 'Đang thoả thuận giá'),
   awaitingPayment('AwaitingPayment', 'Chờ thanh toán'),
   active('Active', 'Đang thực hiện'),
-  ended('Ended', 'Đã kết thúc · chờ giải ngân'),
+  ended('Ended', 'Đã hoàn thành · đang giữ tiền'),
   disputed('Disputed', 'Đang khiếu nại'),
   completed('Completed', 'Hoàn tất'),
   resolved('Resolved', 'Đã xử lý khiếu nại'),
@@ -67,6 +67,20 @@ enum BookingStatus {
   bool get canNegotiate => this == requested || this == negotiating;
 
   static BookingStatus fromApi(Object? value) =>
+      _fromApi(values, (e) => e.apiValue, value);
+}
+
+/// `chef_bookings.audience`: whom the plan is for. A request without the field
+/// (older data) reads as "Cho tôi".
+enum BookingAudience {
+  self('Self', 'Cho tôi'),
+  family('Family', 'Cho gia đình');
+
+  const BookingAudience(this.apiValue, this.label);
+  final String apiValue;
+  final String label;
+
+  static BookingAudience fromApi(Object? value) =>
       _fromApi(values, (e) => e.apiValue, value);
 }
 

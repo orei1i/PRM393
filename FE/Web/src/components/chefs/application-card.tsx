@@ -10,11 +10,11 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label, Textarea } from "@/components/ui/form-controls";
 import { useReviewChefApplication } from "@/lib/hooks/use-admin";
-import { formatAge } from "@/lib/utils";
+import { dateFormat, formatAge } from "@/lib/utils";
 import { CHEF_APPLICATION_STATUS_LABEL, type ChefApplication } from "@/types/admin";
 
 const MIN_NOTE = 10;
-const dateVi = new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+const dateVi = dateFormat({ day: "2-digit", month: "2-digit", year: "numeric" });
 
 export function ApplicationCard({ application }: { application: ChefApplication }) {
   const review = useReviewChefApplication();

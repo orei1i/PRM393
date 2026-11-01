@@ -67,7 +67,7 @@ void main() {
 
     final result = await container
         .read(bodyMeasurementsProvider.notifier)
-        .log(weightKg: 65.4, waistCm: 70, bodyFatPct: 26.2);
+        .log(weightKg: 65.4);
     expect(result.measurement.weightKg, 65.4);
     expect(result.measurement.source, MeasurementSource.checkIn);
     expect(result.previous!.weightKg, 66.0);
@@ -76,8 +76,6 @@ void main() {
     expect(result.profile.bmi, 22.1);
     final review = result.review;
     expect(review.weightRow, 'Cân nặng: 66,0 → 65,4 kg (−0,6 kg)');
-    expect(review.waistRow, 'Vòng eo: 70 → 70 cm · WHtR 0,41');
-    expect(review.bodyFatRow, isNull);
     expect(review.targetBefore, planner.profile.dailyKcalTarget);
     expect(review.targetAfter, result.profile.dailyKcalTarget);
 

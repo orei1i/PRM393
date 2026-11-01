@@ -27,6 +27,10 @@ class IngredientAlternative {
   final bool? isVegan;
 }
 
+/// "Độ tin cậy 96%" for a recognizer score of 0.96.
+String confidenceLabelOf(double confidence) =>
+    'Độ tin cậy ${(confidence * 100).round()}%';
+
 /// One food seen in the fridge. Confirm-only on purpose: the scan says
 /// *what* is there (name, how sure the model is) and whether it is vegan,
 /// never how much, matching `user_ingredients`, which has no quantity. Only
@@ -71,6 +75,9 @@ class DetectedIngredient {
   /// Low-confidence detection the user confirmed (or renamed) in the review
   /// sheet. The model score no longer matters, so the UI shows "Đã xác nhận".
   final bool userVerified;
+
+  /// "Độ tin cậy 96%": how sure the recognizer is, in words.
+  String get confidenceLabel => confidenceLabelOf(confidence);
 
   /// Can go into the fridge: confirmed and vegan.
   bool get savable => confirmed && isVegan;

@@ -1,6 +1,6 @@
 // src/lib/auth.ts
 // Admin session kept in a cookie so `middleware.ts` can guard every route.
-// The backend issues a JWT (AuthResponse.accessToken) — only role "Admin" may sign in here.
+// The backend issues a JWT and a refresh token (AuthResponse) — only role "Admin" may sign in here.
 import type { AdminSession } from "@/types/admin";
 
 export const SESSION_COOKIE = "vl_admin_session";
@@ -20,6 +20,7 @@ export function decodeSession(raw: string | undefined | null): AdminSession | nu
       email: parsed.email,
       fullName: parsed.fullName ?? parsed.email,
       accessToken: parsed.accessToken,
+      refreshToken: parsed.refreshToken,
     };
   } catch {
     return null;

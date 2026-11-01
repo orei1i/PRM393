@@ -201,31 +201,16 @@ class UpdateHealthProfileRequestDto {
         'dietaryRestrictions': dietaryRestrictions,
       };
 
-  /// What the real BE needs. Its goal adjustment only knows `lose` and `gain`
-  /// (`lose_weight` silently means 0 %), and a PUT without gender or birth
-  /// year resets them to `Other` / 1998, so fields left `null` here are taken
-  /// from [saved]. They are omitted only for a first profile.
+  /// What the real BE needs. It keeps a saved gender, birth year and meal
+  /// pattern when they are left out, but a PUT without an activity level resets
+  /// it to `light` (B9), so that one is taken from [saved]. A first profile
+  /// must have a gender and a birth year (400 otherwise; the form asks for
+  /// them).
   Map<String, dynamic> toBackendJson({HealthProfileDto? saved}) {
-    final genderValue = gender?.apiValue ?? saved?.gender;
-    final year = birthYear ?? saved?.birthYear;
     final activity = activityLevel?.apiValue ?? saved?.activityLevel;
-    final pattern = mealPattern == null
-        ? saved?.mealPattern
-        : MealPattern.toApi(mealPattern!);
     return {
-      'heightCm': heightCm,
-      'weightKg': weightKg,
-      'goal': switch (goal) {
-        HealthGoal.loseWeight => 'lose',
-        HealthGoal.gainWeight => 'gain',
-        _ => goal.apiValue,
-      },
-      if (genderValue != null) 'gender': genderValue,
-      if (year != null) 'birthYear': year,
+      ...toJson(),
       if (activity != null) 'activityLevel': activity,
-      if (pattern != null) 'mealPattern': pattern,
-      'allergies': HealthProfileDto.allergiesToJson(allergies),
-      'dietaryRestrictions': dietaryRestrictions,
     };
   }
 }

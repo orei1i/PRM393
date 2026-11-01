@@ -7,6 +7,7 @@ import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/widgets/vl_card.dart';
+import '../../../commerce/data/member_wallet_api_service.dart';
 import '../../../commerce/presentation/controllers/commerce_controllers.dart';
 import '../../data/chef_wallet_api_service.dart';
 import '../../data/models/wallet_models.dart';
@@ -14,20 +15,30 @@ import '../../domain/wallet_rules.dart';
 import '../widgets/chef_only_gate.dart';
 import 'bank_account_form_screen.dart';
 
-/// "Rút tiền": amount (≥ 100.000đ, ≤ "Có thể rút") to the saved bank
-/// account, confirmed in a dialog. Pops the created withdrawal.
+/// "Rút tiền": amount (≥ 100.000đ, ≤ the balance) to the saved bank account,
+/// confirmed in a dialog, for a chef's or a member's wallet. An admin approves
+/// every request. Pops the created withdrawal.
 class WithdrawScreen extends ConsumerStatefulWidget {
-  const WithdrawScreen(
-      {super.key, required this.available, required this.account});
+  const WithdrawScreen({
+    super.key,
+    required this.available,
+    required this.account,
+    this.owner = WalletOwner.chef,
+  });
 
   final int available;
   final BankAccountDto account;
+  final WalletOwner owner;
 
-  static Route<WithdrawalDto> route(
-          {required int available, required BankAccountDto account}) =>
+  static Route<WithdrawalDto> route({
+    required int available,
+    required BankAccountDto account,
+    WalletOwner owner = WalletOwner.chef,
+  }) =>
       MaterialPageRoute<WithdrawalDto>(
         fullscreenDialog: true,
-        builder: (_) => WithdrawScreen(available: available, account: account),
+        builder: (_) => WithdrawScreen(
+            available: available, account: account, owner: owner),
       );
 
   @override
@@ -60,8 +71,8 @@ class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
   }
 
   Future<void> _changeAccount() async {
-    final saved = await Navigator.of(context)
-        .push(BankAccountFormScreen.route(initial: _account));
+    final saved = await Navigator.of(context).push(
+        BankAccountFormScreen.route(initial: _account, owner: widget.owner));
     if (saved != null && mounted) setState(() => _account = saved);
   }
 
@@ -88,9 +99,11 @@ class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
     if (ok != true || !mounted) return;
     setState(() => _sending = true);
     try {
-      final created = await ref
-          .read(chefWalletApiProvider)
-          .requestWithdrawal(WithdrawalRequestDto(amount: amount));
+      final WalletWithdrawalApi api = widget.owner == WalletOwner.chef
+          ? ref.read(chefWalletApiProvider)
+          : ref.read(memberWalletApiProvider);
+      final created =
+          await api.requestWithdrawal(WithdrawalRequestDto(amount: amount));
       ref.read(commerceRevisionProvider.notifier).bump();
       if (mounted) Navigator.of(context).pop(created);
     } catch (e) {
@@ -106,110 +119,107 @@ class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
     final vl = context.vl;
     final value = _value;
     final enough = widget.available >= kMinWithdrawal;
-    final needsApproval = value != null && value > kAutoApproveLimit;
+    final form = _buildForm(vl, value, enough);
     return Scaffold(
       appBar: AppBar(title: const Text('Rút tiền')),
-      body: ChefOnlyGate(
-        child: Form(
-          key: _form,
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-                16, 8, 16, 24 + MediaQuery.paddingOf(context).bottom),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                VLCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Có thể rút',
-                          style: context.textStyles.bodyMedium
-                              ?.copyWith(color: vl.muted)),
-                      Text(formatVnd(widget.available),
-                          style: context.textStyles.headlineSmall?.copyWith(
-                              color: context.colors.primary,
-                              fontWeight: FontWeight.w800)),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                VLCard(
-                  child: Row(
-                    children: [
-                      Icon(Icons.account_balance_outlined,
-                          color: context.colors.primary),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('${_account.bankName} ${_account.masked}',
-                                style: context.textStyles.titleSmall),
-                            Text(_account.accountHolder,
-                                style: context.textStyles.bodySmall
-                                    ?.copyWith(color: vl.muted)),
-                          ],
-                        ),
-                      ),
-                      TextButton(
-                          onPressed: _sending ? null : _changeAccount,
-                          child: const Text('Đổi')),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _amount,
-                  enabled: enough,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  autovalidateMode: AutovalidateMode.onUserInteraction,
-                  onChanged: (_) => setState(() {}),
-                  decoration: InputDecoration(
-                    labelText: 'Số tiền rút (đ)',
-                    hintText: '$kMinWithdrawal',
-                    helperText: value == null ? null : formatVnd(value),
-                    border: const OutlineInputBorder(),
-                    suffixIcon: TextButton(
-                      onPressed: !enough
-                          ? null
-                          : () => setState(
-                              () => _amount.text = widget.available.toString()),
-                      child: const Text('Rút hết'),
-                    ),
-                  ),
-                  validator: _validate,
-                ),
-                const SizedBox(height: 12),
-                VLCard(
-                  color: needsApproval
-                      ? vl.cautionContainer
-                      : context.colors.secondaryContainer,
-                  borderColor: Colors.transparent,
-                  child: Text(
-                    !enough
-                        ? 'Cần ít nhất ${formatVnd(kMinWithdrawal)} có thể rút để tạo yêu cầu.'
-                        : needsApproval
-                            ? 'Trên ${formatVnd(kAutoApproveLimit)} cần Ban quản trị duyệt (1–2 ngày làm việc).'
-                            : 'Tiền về tài khoản sau vài phút (mô phỏng: khoảng 10 giây).',
-                    style: context.textStyles.bodyMedium?.copyWith(
-                        color: needsApproval
-                            ? vl.onCautionContainer
-                            : context.colors.onSecondaryContainer),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                FilledButton(
-                  onPressed: !enough || _sending ? null : _submit,
-                  style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(52)),
-                  child: Text(_sending ? 'Đang gửi…' : 'Tiếp tục'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+      body: widget.owner == WalletOwner.chef ? ChefOnlyGate(child: form) : form,
     );
   }
+
+  Widget _buildForm(VLColors vl, int? value, bool enough) => Form(
+        key: _form,
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+              16, 8, 16, 24 + MediaQuery.paddingOf(context).bottom),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              VLCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                        widget.owner == WalletOwner.chef
+                            ? 'Có thể rút'
+                            : 'Số dư ví',
+                        style: context.textStyles.bodyMedium
+                            ?.copyWith(color: vl.muted)),
+                    Text(formatVnd(widget.available),
+                        style: context.textStyles.headlineSmall?.copyWith(
+                            color: context.colors.primary,
+                            fontWeight: FontWeight.w800)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              VLCard(
+                child: Row(
+                  children: [
+                    Icon(Icons.account_balance_outlined,
+                        color: context.colors.primary),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('${_account.bankName} ${_account.masked}',
+                              style: context.textStyles.titleSmall),
+                          Text(_account.accountHolder,
+                              style: context.textStyles.bodySmall
+                                  ?.copyWith(color: vl.muted)),
+                        ],
+                      ),
+                    ),
+                    TextButton(
+                        onPressed: _sending ? null : _changeAccount,
+                        child: const Text('Đổi')),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _amount,
+                enabled: enough,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: 'Số tiền rút (đ)',
+                  hintText: '$kMinWithdrawal',
+                  helperText: value == null ? null : formatVnd(value),
+                  border: const OutlineInputBorder(),
+                  suffixIcon: TextButton(
+                    onPressed: !enough
+                        ? null
+                        : () => setState(
+                            () => _amount.text = widget.available.toString()),
+                    child: const Text('Rút hết'),
+                  ),
+                ),
+                validator: _validate,
+              ),
+              const SizedBox(height: 12),
+              VLCard(
+                color: vl.cautionContainer,
+                borderColor: Colors.transparent,
+                child: Text(
+                  !enough
+                      ? 'Cần ít nhất ${formatVnd(kMinWithdrawal)} trong ví để tạo yêu cầu.'
+                      : 'Ban quản trị duyệt yêu cầu trong 1–2 ngày làm việc, rồi tiền về tài khoản của bạn.',
+                  style: context.textStyles.bodyMedium
+                      ?.copyWith(color: vl.onCautionContainer),
+                ),
+              ),
+              const SizedBox(height: 24),
+              FilledButton(
+                onPressed: !enough || _sending ? null : _submit,
+                style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(52)),
+                child: Text(_sending ? 'Đang gửi…' : 'Tiếp tục'),
+              ),
+            ],
+          ),
+        ),
+      );
 }

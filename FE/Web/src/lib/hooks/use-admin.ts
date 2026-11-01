@@ -60,6 +60,16 @@ function usePatchUser() {
   };
 }
 
+export function useUpdateUser() {
+  const qc = useQueryClient();
+  const patch = usePatchUser();
+  return useMutation({
+    mutationFn: ({ userId, ...input }: { userId: string; fullName: string; phone: string | null }) => usersApi.update(userId, input),
+    onSuccess: patch,
+    onSettled: () => qc.invalidateQueries({ queryKey: ["users"] }),
+  });
+}
+
 export function useSetUserRole() {
   const qc = useQueryClient();
   const patch = usePatchUser();

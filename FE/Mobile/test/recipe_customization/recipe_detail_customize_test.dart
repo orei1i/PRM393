@@ -389,7 +389,10 @@ void main() {
     expect(find.textContaining('bạn đã khai báo dị ứng'), findsNothing);
     final bun = find.ancestor(
         of: find.text('Bún tươi'), matching: find.byType(RecipeIngredientRow));
-    await _tap(tester, find.descendant(of: bun, matching: find.text('Đổi')));
+    await _tap(
+        tester,
+        find.descendant(
+            of: bun, matching: find.text(RecipeIngredientRow.swapLabel)));
     expect(find.text('Đổi Bún tươi'), findsOneWidget);
     expect(find.text('Chưa rõ năng lượng'), findsOneWidget);
     await _tap(tester, find.text('Bánh phở tươi · 400 g'), 300);

@@ -20,7 +20,7 @@ export default function OrdersPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Đơn hàng & thanh toán"
-        description="Thanh toán đặt chuyên gia thiết kế thực đơn qua PaymentOS. Tiền được giữ đến khi hết hạn khiếu nại; hoàn tiền xử lý ở “Khiếu nại & giữ tiền”."
+        description="Thanh toán đặt chuyên gia qua PaymentOS hoặc bằng ví. Tiền nằm ở VeganLife đến 7 ngày sau khi hợp đồng hoàn thành; hoàn tiền xử lý ở “Khiếu nại & giữ tiền”."
         actions={
           <Button variant="outline" onClick={() => qc.invalidateQueries({ queryKey: commerceKeys.all })} disabled={fetching}>
             <RefreshCw className={fetching ? "animate-spin" : undefined} aria-hidden />

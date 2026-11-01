@@ -1,10 +1,10 @@
 // lib/features/chatbot/presentation/widgets/citation_drawer.dart
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
+import '../../../../core/utils/open_url.dart';
 import '../../domain/entities/chat_message.dart';
 
 IconData citationIcon(CitationSourceType type) => switch (type) {
@@ -31,8 +31,7 @@ class _CitationDrawer extends StatelessWidget {
   Future<void> _open(BuildContext context) async {
     final url = citation.url;
     if (url == null) return;
-    final ok =
-        await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    final ok = await openExternalUrl(url);
     if (!ok && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Không mở được liên kết.')));

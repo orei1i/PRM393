@@ -194,7 +194,7 @@ export default function AdsPage() {
             <option value="national">Toàn quốc</option>
           </NativeSelect>
           <p className="w-full text-sm text-muted-foreground" aria-live="polite">
-            {ads.data ? `${formatNumber(ads.data.length)} chiến dịch · bấm một dòng để sửa` : "Đang tải…"}
+            {ads.data ? `${formatNumber(ads.data.length)} chiến dịch · bấm một dòng để sửa` : ads.isError ? "" : "Đang tải…"}
           </p>
         </div>
 

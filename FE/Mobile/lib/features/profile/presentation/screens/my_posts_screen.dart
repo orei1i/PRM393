@@ -150,7 +150,7 @@ class _MyPostsTabState extends ConsumerState<_MyPostsTab> {
     ),
     PostStatus.pending: (
       'Không có bài nào chờ duyệt',
-      'Bài bị AI gắn cờ sẽ chờ Ban quản trị xem xét ở đây.'
+      'Bài mới và bài đã sửa sẽ chờ Ban quản trị duyệt ở đây.'
     ),
     PostStatus.rejected: (
       'Không có bài bị từ chối',

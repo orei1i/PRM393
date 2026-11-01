@@ -19,6 +19,7 @@ import 'package:veganlife_mobile/features/restaurant/domain/food_match.dart';
 import 'package:veganlife_mobile/features/restaurant/domain/geo.dart';
 import 'package:veganlife_mobile/features/restaurant/presentation/controllers/restaurant_controllers.dart';
 import 'package:veganlife_mobile/features/restaurant/presentation/maps_launcher.dart';
+import 'package:veganlife_mobile/features/restaurant/presentation/screens/my_restaurant_suggestions_screen.dart';
 import 'package:veganlife_mobile/features/restaurant/presentation/screens/restaurant_detail_screen.dart';
 import 'package:veganlife_mobile/features/restaurant/presentation/screens/restaurant_nearby_screen.dart';
 import 'package:veganlife_mobile/features/restaurant/presentation/screens/restaurant_route_screen.dart';
@@ -375,7 +376,7 @@ void main() {
           repo.getRestaurant('rs_khong_co'), throwsA(apiError(404)));
     });
 
-    test('a suggested restaurant: uncertified, created by me, listed',
+    test('a suggested restaurant: uncertified, created by me, not public yet',
         () async {
       await expectLater(
           _repo(signedIn: false).createRestaurant(
@@ -397,7 +398,10 @@ void main() {
       expect(created.averageRating, isNull);
 
       final list = await repo.listRestaurants(near: _q1);
-      final listed = list.firstWhere((r) => r.id == created.id);
+      expect(list.map((r) => r.id), isNot(contains(created.id)));
+      await repo.demoDecide(created.id, approve: true);
+      final listed = (await repo.listRestaurants(near: _q1))
+          .firstWhere((r) => r.id == created.id);
       expect(listed.distanceKm, isNull);
 
       final withCoords = await repo.createRestaurant(CreateRestaurantRequestDto(
@@ -745,13 +749,15 @@ void main() {
       await _wait(tester, 5000);
     });
 
-    testWidgets('submitting a restaurant opens its detail', (tester) async {
+    testWidgets('submitting a restaurant: it waits in "Quán tôi đã gợi ý"',
+        (tester) async {
       await _pumpApp(tester, const SubmitRestaurantScreen(),
           size: const Size(411, 1200));
       expect(find.text('Gợi ý quán mới'), findsOneWidget);
       expect(
-          find.text('Quán mới hiển thị ngay với nhãn Chưa chứng nhận. '
-              'Ban quản trị sẽ xác minh trước khi gắn nhãn Chứng nhận chay.'),
+          find.text(
+              'Gợi ý của bạn sẽ chờ Ban quản trị duyệt và chỉ hiển thị công khai sau khi được duyệt. '
+              'Theo dõi trạng thái ở "Quán tôi đã gợi ý".'),
           findsOneWidget);
 
       await tester.tap(find.text('Gửi gợi ý'));
@@ -765,18 +771,19 @@ void main() {
           '9 Lý Tự Trọng, P. Bến Nghé, Q.1');
       await tester.tap(find.text('Gửi gợi ý'));
       await _wait(tester, 3000);
-      expect(find.byType(RestaurantDetailScreen), findsOneWidget);
-      expect(find.text('Được gợi ý bởi Minh Anh'), findsOneWidget);
-      expect(find.text('Chưa chứng nhận — Ban quản trị đang xác minh'),
+      expect(find.byType(MyRestaurantSuggestionsScreen), findsOneWidget);
+      expect(
+          find.text(
+              'Đã gửi gợi ý «Cơm chay Hoa Sen». Quán sẽ hiển thị công khai sau khi Ban quản trị duyệt.'),
           findsOneWidget);
-      expect(find.textContaining('Chưa có vị trí'), findsWidgets);
-      expect(find.text('Chưa có đánh giá'), findsWidgets);
+      expect(find.text('Cơm chay Hoa Sen'), findsOneWidget);
+      expect(find.text('Chờ duyệt'), findsOneWidget);
       await _wait(tester, 5000); // snackbar
     });
 
     testWidgets(
-        'suggesting with "Dùng vị trí hiện tại" and a photo: the detail '
-        'shows the map and the photo', (tester) async {
+        'suggesting with the current location and a photo: once approved, the '
+        'detail shows the map and the photo', (tester) async {
       await _pumpApp(tester, const SubmitRestaurantScreen(),
           size: const Size(411, 1800),
           overrides: [
@@ -793,9 +800,20 @@ void main() {
 
       await tester.enterText(
           find.widgetWithText(TextFormField, 'Tên quán'), 'Chay Góc Phố');
-      await tester.tap(find.text('Dùng vị trí hiện tại'));
+      // One control, no separate buttons: the rest is in the picker.
+      expect(find.text('Chọn trên bản đồ'), findsNothing);
+      expect(find.text('Tìm địa chỉ'), findsNothing);
+      expect(find.text('Dùng vị trí hiện tại'), findsNothing);
+      await tester.tap(find.text('Chọn vị trí quán'));
       await _wait(tester, 500);
+      expect(find.widgetWithText(AppBar, 'Vị trí quán'), findsOneWidget);
+      await tester.tap(find.text('Dùng vị trí hiện tại (mô phỏng)'));
+      await _wait(tester, 800);
       expect(find.textContaining('Chưa có vị trí trên bản đồ —'), findsNothing);
+      expect(find.textContaining('vị trí mô phỏng'), findsOneWidget,
+          reason: 'still says it is simulated');
+      expect(find.text('Đổi'), findsOneWidget);
+      expect(find.text('Bỏ vị trí'), findsOneWidget);
       // The address was filled in and stays editable.
       expect(find.text('7 Công trường Lam Sơn, P. Bến Nghé, Q.1, TP.HCM'),
           findsOneWidget);
@@ -826,6 +844,11 @@ void main() {
 
       await tester.tap(find.text('Gửi gợi ý'));
       await _wait(tester, 3000);
+      expect(find.byType(MyRestaurantSuggestionsScreen), findsOneWidget);
+      await tester.tap(find.text('Duyệt thử').first);
+      await _wait(tester, 1500);
+      await tester.tap(find.text('Chay Góc Phố'));
+      await _wait(tester, 1500);
       expect(find.byType(RestaurantDetailScreen), findsOneWidget);
       expect(find.text('Được gợi ý bởi Minh Anh'), findsOneWidget);
       expect(find.byTooltip('Mở bản đồ lớn'), findsOneWidget);

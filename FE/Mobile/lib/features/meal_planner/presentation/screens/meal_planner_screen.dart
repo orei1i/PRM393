@@ -26,6 +26,7 @@ import '../widgets/meal_picker_sheet.dart';
 import '../widgets/meal_planner_skeleton.dart';
 import '../widgets/meal_slot_card.dart';
 import '../widgets/pantry_summary_card.dart';
+import '../widgets/planner_shortcuts.dart';
 import '../widgets/week_date_picker.dart';
 import 'body_metrics_screen.dart';
 import 'health_profile_edit_screen.dart';
@@ -170,6 +171,8 @@ class _Loaded extends ConsumerWidget {
                 EdgeInsets.fromLTRB(16, 4, 16, floatingBarClearance(context)),
             sliver: SliverList.list(
               children: [
+                const PlannerShortcutsRow(),
+                const SizedBox(height: 12),
                 if (state.healthProfile case final profile?) ...[
                   HealthHeaderCard(
                     profile: profile,

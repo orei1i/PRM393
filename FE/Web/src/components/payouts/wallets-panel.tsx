@@ -10,12 +10,14 @@ import { InitialsAvatar } from "@/components/admin/initials-avatar";
 import { dateVi, formatVnd } from "@/components/orders/order-badges";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input, Skeleton } from "@/components/ui/form-controls";
+import { Input, NativeSelect, Skeleton } from "@/components/ui/form-controls";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useChefWallets } from "@/lib/hooks/use-payouts";
+import { useWallets } from "@/lib/hooks/use-payouts";
 import { maskAccountNumber } from "@/lib/payouts_api";
 import { cn, formatNumber, formatPercent } from "@/lib/utils";
-import { ESCROW_HOLD_DAYS, PLATFORM_FEE_RATE } from "@/types/payouts";
+import { ESCROW_HOLD_DAYS, PLATFORM_FEE_RATE, WALLET_ROLE_LABEL, WALLET_ROLES, type WalletRoleFilter } from "@/types/payouts";
+
+import { WalletRoleBadge } from "./payout-badges";
 
 const fold = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[Đđ]/g, "d").toLowerCase();
 
@@ -33,17 +35,21 @@ function Money({ value, strong, tone }: { value: number; strong?: boolean; tone?
   );
 }
 
-export function WalletsPanel() {
-  const wallets = useChefWallets();
-  const [searchInput, setSearchInput] = React.useState("");
+export function WalletsPanel({ initialSearch = "" }: { initialSearch?: string }) {
+  const wallets = useWallets();
+  const [searchInput, setSearchInput] = React.useState(initialSearch);
   const search = React.useDeferredValue(searchInput);
+  const [role, setRole] = React.useState<WalletRoleFilter>("all");
 
   const rows = React.useMemo(() => {
     const q = fold(search.trim());
-    return wallets.data?.filter((w) => !q || fold(`${w.chef.fullName} ${w.chef.email} ${w.bankAccount?.bankName ?? ""}`).includes(q));
-  }, [wallets.data, search]);
+    return wallets.data
+      ?.filter((w) => role === "all" || w.role === role)
+      .filter((w) => !q || fold(`${w.user.fullName} ${w.user.email} ${w.bankAccount?.bankName ?? ""}`).includes(q));
+  }, [wallets.data, search, role]);
 
-  const missingBank = wallets.data?.filter((w) => !w.bankAccount).length ?? 0;
+  const missingBank = rows?.filter((w) => !w.bankAccount).length ?? 0;
+  const filtered = search.trim().length > 0 || role !== "all";
 
   return (
     <Card className="gap-0 py-0">
@@ -54,31 +60,45 @@ export function WalletsPanel() {
             type="search"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Tìm chuyên gia, ngân hàng…"
-            aria-label="Tìm ví chuyên gia"
+            placeholder="Tìm tên, ngân hàng…"
+            aria-label="Tìm ví"
             className="pl-9"
           />
         </div>
+        <NativeSelect aria-label="Lọc ví theo vai trò" value={role} onChange={(e) => setRole(e.target.value as WalletRoleFilter)} className="w-full sm:w-44">
+          <option value="all">Mọi vai trò</option>
+          {WALLET_ROLES.map((r) => (
+            <option key={r} value={r}>
+              {WALLET_ROLE_LABEL[r]}
+            </option>
+          ))}
+        </NativeSelect>
         <p className="w-full text-sm text-muted-foreground" aria-live="polite">
           {wallets.data
-            ? `${formatNumber(rows?.length ?? 0)} ví${missingBank ? ` · ${formatNumber(missingBank)} chuyên gia chưa thêm tài khoản ngân hàng` : ""}. ` +
-              `Có thể rút = tiền đã giải ngân − phí ${formatPercent(PLATFORM_FEE_RATE)} − đã rút − đang xử lý rút. ` +
-              `Đang giữ: chưa hết ${ESCROW_HOLD_DAYS} ngày sau khi kế hoạch kết thúc.`
-            : "Đang tải…"}
+            ? `${formatNumber(rows?.length ?? 0)} ví${missingBank ? ` · ${formatNumber(missingBank)} chưa thêm tài khoản ngân hàng` : ""}. ` +
+              `Chuyên gia: có thể rút = tiền đã giải ngân − phí ${formatPercent(PLATFORM_FEE_RATE)} − đã rút − chờ duyệt rút; đang giữ = VeganLife giữ đến ${ESCROW_HOLD_DAYS} ngày sau khi hoàn thành. ` +
+              `Thành viên: có thể rút = tiền được hoàn − đã trả bằng ví − đã rút − chờ duyệt rút.`
+            : wallets.isError ? "" : "Đang tải…"}
         </p>
       </div>
 
       {wallets.isError && !wallets.data ? (
-        <ErrorState error={wallets.error} onRetry={() => wallets.refetch()} title="Chưa tải được ví chuyên gia" />
+        <ErrorState error={wallets.error} onRetry={() => wallets.refetch()} title="Chưa tải được ví" />
       ) : rows?.length === 0 ? (
         <EmptyState
           icon={Wallet}
-          title={search.trim() ? "Không có ví khớp từ khoá" : "Chưa có ví chuyên gia"}
-          description={search.trim() ? "Thử tên chuyên gia hoặc ngân hàng khác." : "Ví được tạo khi chuyên gia có lượt đặt đầu tiên được thanh toán."}
+          title={filtered ? "Không có ví khớp bộ lọc" : "Chưa có ví nào"}
+          description={filtered ? "Thử vai trò, tên hoặc ngân hàng khác." : "Ví được tạo khi chuyên gia có lượt đặt được thanh toán, hoặc khi thành viên được hoàn tiền."}
           action={
-            search.trim() ? (
-              <Button variant="outline" onClick={() => setSearchInput("")}>
-                Xoá từ khoá
+            filtered ? (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSearchInput("");
+                  setRole("all");
+                }}
+              >
+                Xoá bộ lọc
               </Button>
             ) : undefined
           }
@@ -87,13 +107,13 @@ export function WalletsPanel() {
         <Table className="min-w-[1160px]">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead>Chuyên gia</TableHead>
+              <TableHead>Chủ ví</TableHead>
               <TableHead className="text-right">Có thể rút</TableHead>
-              <TableHead className="text-right">Đang xử lý rút</TableHead>
+              <TableHead className="text-right">Chờ duyệt rút</TableHead>
               <TableHead className="text-right">Đang giữ</TableHead>
               <TableHead className="text-right">Tạm giữ do khiếu nại</TableHead>
               <TableHead className="text-right">Đã rút</TableHead>
-              <TableHead className="text-right">Doanh thu · phí</TableHead>
+              <TableHead className="text-right">Nguồn tiền</TableHead>
               <TableHead>Tài khoản nhận</TableHead>
               <TableHead>Chi trả gần nhất</TableHead>
             </TableRow>
@@ -108,13 +128,16 @@ export function WalletsPanel() {
                   </TableRow>
                 ))
               : rows?.map((w) => (
-                  <TableRow key={w.chefId}>
+                  <TableRow key={`${w.role}_${w.userId}`}>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <InitialsAvatar name={w.chef.fullName} className="size-8" />
+                        <InitialsAvatar name={w.user.fullName} className="size-8" />
                         <span className="min-w-0">
-                          <span className="block max-w-48 truncate font-semibold">{w.chef.fullName}</span>
-                          <span className="block max-w-48 truncate text-xs text-muted-foreground">{w.chef.email}</span>
+                          <span className="block max-w-48 truncate font-semibold">{w.user.fullName}</span>
+                          <span className="block max-w-48 truncate text-xs text-muted-foreground">{w.user.email}</span>
+                          <span className="mt-1 block">
+                            <WalletRoleBadge role={w.role} />
+                          </span>
                         </span>
                       </div>
                     </TableCell>
@@ -143,8 +166,20 @@ export function WalletsPanel() {
                       <Money value={w.withdrawn} />
                     </TableCell>
                     <TableCell className="text-right">
-                      <span className="block font-mono tabular">{formatVnd(w.grossSales)}</span>
-                      <span className="block font-mono text-xs text-muted-foreground tabular">phí {formatVnd(w.feeTotal)}</span>
+                      {w.role === "chef" ? (
+                        <>
+                          <span className="block font-mono tabular">{formatVnd(w.grossSales)}</span>
+                          <span className="block font-mono text-xs text-muted-foreground tabular">phí {formatVnd(w.feeTotal)}</span>
+                          {w.refundTotal > 0 && <span className="block font-mono text-xs text-muted-foreground tabular">được hoàn {formatVnd(w.refundTotal)}</span>}
+                          {w.walletPaymentTotal > 0 && <span className="block font-mono text-xs text-muted-foreground tabular">đã trả bằng ví {formatVnd(w.walletPaymentTotal)}</span>}
+                        </>
+                      ) : (
+                        <>
+                          <span className="block font-mono tabular">{formatVnd(w.refundTotal)}</span>
+                          <span className="block text-xs text-muted-foreground">tiền được hoàn</span>
+                          {w.walletPaymentTotal > 0 && <span className="block font-mono text-xs text-muted-foreground tabular">đã trả bằng ví {formatVnd(w.walletPaymentTotal)}</span>}
+                        </>
+                      )}
                     </TableCell>
                     <TableCell>
                       {w.bankAccount ? (

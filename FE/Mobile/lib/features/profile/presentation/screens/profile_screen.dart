@@ -22,6 +22,7 @@ import '../../../booking/presentation/screens/chef_booking_inbox_screen.dart';
 import '../../../chef_studio/presentation/screens/chef_knowledge_docs_screen.dart';
 import '../../../chef_studio/presentation/screens/chef_profile_edit_screen.dart';
 import '../../../chef_studio/presentation/screens/chef_wallet_screen.dart';
+import '../../../commerce/presentation/screens/member_wallet_screen.dart';
 import '../../../commerce/presentation/widgets/commerce_ui.dart';
 import '../../../meal_planner/presentation/screens/body_metrics_screen.dart';
 import '../../../meal_planner/presentation/screens/health_profile_edit_screen.dart';
@@ -32,6 +33,7 @@ import '../controllers/profile_controller.dart';
 import 'chef_application_screen.dart';
 import 'edit_profile_screen.dart';
 import 'my_posts_screen.dart';
+import 'my_recipes_screen.dart';
 
 /// Tab "Tôi": account, health summary, my content, "Lịch sử tư vấn",
 /// settings; chefs also get the "Chuyên gia" section (requests, wallet,
@@ -213,12 +215,28 @@ class _Loaded extends ConsumerWidget {
                   .push(MyPostsScreen.route(initialTab: 1)),
             ),
             _MenuTile(
+              icon: Icons.menu_book_rounded,
+              title: 'Công thức của tôi',
+              trailing:
+                  'Công thức bạn viết hoặc lưu lại sau khi đổi nguyên liệu',
+              onTap: () => Navigator.of(context).push(MyRecipesScreen.route()),
+            ),
+            _MenuTile(
               icon: Icons.history_rounded,
               title: 'Lịch sử tư vấn',
               trailing: 'Chuyên gia bạn đã đặt, kế hoạch nhận được, khiếu nại',
               onTap: () =>
                   Navigator.of(context).push(BookingHistoryScreen.route()),
             ),
+            // A chef's "Ví của tôi" is in the Chuyên gia section: one wallet.
+            if (!isChef)
+              _MenuTile(
+                icon: Icons.account_balance_wallet_outlined,
+                title: 'Ví của tôi',
+                trailing: 'Tiền hoàn, thanh toán và rút về ngân hàng',
+                onTap: () =>
+                    Navigator.of(context).push(MemberWalletScreen.route()),
+              ),
           ],
         ),
         const SizedBox(height: 12),

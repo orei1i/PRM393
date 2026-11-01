@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
+import '../../../../core/utils/labels.dart';
 import '../../../../core/widgets/user_avatar.dart';
 import '../../../../core/widgets/vl_card.dart';
 import '../../../commerce/presentation/widgets/commerce_ui.dart';
@@ -17,6 +18,15 @@ import '../../domain/booking_views.dart';
 /// "20/10 – 29/10".
 String formatDateRange(DateTime start, DateTime end) =>
     '${formatDayMonth(start)} – ${formatDayMonth(end)}';
+
+/// "Dị ứng: Đậu phộng, lá lốt" / "Dị ứng: Không có".
+String allergySummary(List<String> allergies) =>
+    'Dị ứng: ${allergies.isEmpty ? 'Không có' : allergies.map(allergenLabel).join(', ')}';
+
+/// "Gia đình · 4 người · Dị ứng: Đậu phộng": what the chef works from on a
+/// family request, instead of a personal profile.
+String familySummary(BookingDto b) =>
+    '${b.audienceLabel} · ${allergySummary(b.allergies)}';
 
 Widget bookingStatusTag(BuildContext context, BookingStatus status) {
   final vl = context.vl;
@@ -163,7 +173,11 @@ class BookingCard extends StatelessWidget {
     final vl = context.vl;
     final other = asChef ? b.member : b.chef;
     final price = b.price;
-    final outcome = asChef ? null : memberOutcome(b);
+    final outcome = !asChef
+        ? memberOutcome(b)
+        : b.isAdminResolved
+            ? adminResolutionLine(b, BookingParty.chef)
+            : null;
     final muted = context.textStyles.bodySmall?.copyWith(color: vl.muted);
     final paid = b.escrow != null;
     return VLCard(
@@ -184,6 +198,12 @@ class BookingCard extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(planSummary(b.planDays, b.bookingType),
                     style: context.textStyles.bodyMedium),
+                if (b.isFamily) ...[
+                  const SizedBox(height: 2),
+                  Text(familySummary(b),
+                      style: context.textStyles.bodySmall
+                          ?.copyWith(fontWeight: FontWeight.w600)),
+                ],
                 const SizedBox(height: 2),
                 Text(
                   [

@@ -13,21 +13,21 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, Di
 import { Input, Label, Skeleton, Textarea } from "@/components/ui/form-controls";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { describeError } from "@/lib/api_error";
-import { useChefWallets, useWalletLedger, useWithdrawalAction } from "@/lib/hooks/use-payouts";
+import { useWalletLedger, useWallets, useWithdrawalAction } from "@/lib/hooks/use-payouts";
 import { maskAccountNumber } from "@/lib/payouts_api";
 import { cn } from "@/lib/utils";
 import { MIN_AUDIT_NOTE_LENGTH } from "@/types/moderation";
 import {
-  AUTO_APPROVE_LIMIT,
   LEDGER_ENTRY_TYPE_LABEL,
   TRANSFER_REF_MAX,
   TRANSFER_REF_MIN,
+  WALLET_ROLE_LABEL,
   type WalletTransaction,
   type WithdrawalAction,
   type WithdrawalRequest,
 } from "@/types/payouts";
 
-import { ApprovalRuleBadge, BankAccountNumber, formatSignedVnd, LedgerStatusBadge, WithdrawalStatusBadge } from "./payout-badges";
+import { BankAccountNumber, formatSignedVnd, LedgerStatusBadge, WalletRoleBadge, WithdrawalStatusBadge } from "./payout-badges";
 
 export function WithdrawalDrawer({
   withdrawal,
@@ -52,9 +52,10 @@ const refLooksOk = (ref: string) => new RegExp(`^\\S{${TRANSFER_REF_MIN},${TRANS
 
 function Detail({ withdrawal: w, onWithdrawalChange }: { withdrawal: WithdrawalRequest; onWithdrawalChange: (w: WithdrawalRequest) => void }) {
   const act = useWithdrawalAction();
-  const wallets = useChefWallets();
-  const ledger = useWalletLedger(w.chefId);
-  const wallet = wallets.data?.find((x) => x.chefId === w.chefId) ?? null;
+  const wallets = useWallets();
+  const ledger = useWalletLedger(w.userId);
+  const wallet = wallets.data?.find((x) => x.userId === w.userId && x.role === w.role) ?? null;
+  const roleLabel = WALLET_ROLE_LABEL[w.role].toLowerCase();
 
   const [action, setAction] = React.useState<WithdrawalAction>("complete");
   const [dialogOpen, setDialogOpen] = React.useState(false);
@@ -82,14 +83,14 @@ function Detail({ withdrawal: w, onWithdrawalChange }: { withdrawal: WithdrawalR
         : { withdrawalId: w.id, action, reason: reason.trim() };
     act.mutate(input, {
       onSuccess: (updated) => {
-        toast.success(action === "complete" ? "Đã ghi nhận chuyển tiền" : "Đã từ chối yêu cầu rút tiền", {
-          description: `${updated.chef.fullName} · ${formatVnd(updated.amount)}`,
+        toast.success(action === "complete" ? "Đã duyệt và ghi nhận chuyển tiền" : "Đã từ chối yêu cầu rút tiền", {
+          description: `${updated.user.fullName} · ${formatVnd(updated.amount)}`,
         });
         setDialogOpen(false);
         onWithdrawalChange(updated);
       },
       onError: (err) =>
-        toast.error(action === "complete" ? "Chưa ghi nhận được chuyển tiền" : "Chưa từ chối được yêu cầu", { description: describeError(err) }),
+        toast.error(action === "complete" ? "Chưa duyệt được yêu cầu" : "Chưa từ chối được yêu cầu", { description: describeError(err) }),
     });
   }
 
@@ -98,7 +99,7 @@ function Detail({ withdrawal: w, onWithdrawalChange }: { withdrawal: WithdrawalR
       <SheetHeader className="border-b">
         <div className="flex flex-wrap gap-1.5">
           <WithdrawalStatusBadge status={w.status} />
-          <ApprovalRuleBadge requiresApproval={w.requiresApproval} />
+          <WalletRoleBadge role={w.role} />
         </div>
         <SheetTitle className="mt-2 font-mono text-2xl leading-snug tabular">{formatVnd(w.amount)}</SheetTitle>
         <SheetDescription>
@@ -108,29 +109,25 @@ function Detail({ withdrawal: w, onWithdrawalChange }: { withdrawal: WithdrawalR
 
       <div className="flex flex-col gap-6 p-5">
         <div className="flex min-w-0 items-center gap-3 text-sm">
-          <InitialsAvatar name={w.chef.fullName} />
+          <InitialsAvatar name={w.user.fullName} />
           <div className="min-w-0">
-            <p className="text-xs text-muted-foreground">Chuyên gia</p>
-            <p className="truncate font-semibold">{w.chef.fullName}</p>
-            {w.chef.email && <p className="truncate text-xs text-muted-foreground">{w.chef.email}</p>}
+            <p className="text-xs text-muted-foreground">{WALLET_ROLE_LABEL[w.role]}</p>
+            <p className="truncate font-semibold">{w.user.fullName}</p>
+            {w.user.email && <p className="truncate text-xs text-muted-foreground">{w.user.email}</p>}
           </div>
         </div>
 
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
-          <Info
-            label="Quy tắc duyệt"
-            value={w.requiresApproval ? `Trên ${formatVnd(AUTO_APPROVE_LIMIT)} — Ban quản trị duyệt` : `Tối đa ${formatVnd(AUTO_APPROVE_LIMIT)} — tự động`}
-          />
           {w.status === "Processing" ? (
-            <Info label="Tự động chuyển" value={w.autoApproveAt ? formatDateTime(w.autoApproveAt) : "Không — chờ duyệt"} />
+            <Info label="Tình trạng" value="Chờ Ban quản trị duyệt" />
           ) : (
             <Info label={w.status === "Completed" ? "Chuyển lúc" : "Từ chối lúc"} value={w.processedAt ? formatDateTime(w.processedAt) : "—"} />
           )}
-          {w.status !== "Processing" && <Info label="Người xử lý" value={w.processedBy ?? "Tự động (hệ thống)"} />}
+          {w.status !== "Processing" && <Info label="Người xử lý" value={w.processedBy ?? "—"} />}
           {w.status === "Completed" && <Info label="Mã giao dịch" value={w.transactionRef ?? "—"} mono />}
           {w.status === "Rejected" && (
             <div className="col-span-2 min-w-0">
-              <dt className="text-xs text-muted-foreground">Lý do từ chối (chuyên gia thấy trong ứng dụng)</dt>
+              <dt className="text-xs text-muted-foreground">Lý do từ chối ({roleLabel} thấy trong ứng dụng)</dt>
               <dd className="whitespace-pre-wrap break-words font-semibold">{w.reason ?? "—"}</dd>
             </div>
           )}
@@ -162,19 +159,25 @@ function Detail({ withdrawal: w, onWithdrawalChange }: { withdrawal: WithdrawalR
           ) : !wallets.data ? (
             <Skeleton className="h-20" />
           ) : !wallet ? (
-            <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">Không tìm thấy ví của chuyên gia này.</p>
+            <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">Không tìm thấy ví của người này.</p>
           ) : (
             <>
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border p-3 text-sm">
                 <Info label="Có thể rút" value={formatVnd(wallet.available)} mono />
-                <Info label="Đang xử lý rút" value={formatVnd(wallet.processing)} mono />
-                <Info label="Đang giữ" value={formatVnd(wallet.pending)} mono />
-                <Info label="Tạm giữ do khiếu nại" value={formatVnd(wallet.frozen)} mono />
+                <Info label="Chờ duyệt rút" value={formatVnd(wallet.processing)} mono />
+                {wallet.role === "chef" ? (
+                  <>
+                    <Info label="VeganLife đang giữ" value={formatVnd(wallet.pending)} mono />
+                    <Info label="Tạm giữ do khiếu nại" value={formatVnd(wallet.frozen)} mono />
+                  </>
+                ) : (
+                  <Info label="Đã được hoàn" value={formatVnd(wallet.refundTotal)} mono />
+                )}
                 <Info label="Đã rút" value={formatVnd(wallet.withdrawn)} mono />
               </dl>
               {w.status === "Processing" && (
                 <p className="text-xs text-muted-foreground">
-                  Số tiền yêu cầu đang được giữ trong “Đang xử lý rút”. Nếu từ chối, {formatVnd(w.amount)} trở lại số dư có thể rút (
+                  Số tiền yêu cầu đang nằm trong “Chờ duyệt rút”. Nếu từ chối, {formatVnd(w.amount)} trở lại số dư có thể rút (
                   {formatVnd(wallet.available + w.amount)}).
                 </p>
               )}
@@ -214,14 +217,12 @@ function Detail({ withdrawal: w, onWithdrawalChange }: { withdrawal: WithdrawalR
           {w.status === "Processing" ? (
             <>
               <p className="text-xs text-muted-foreground">
-                {w.requiresApproval
-                  ? "Chuyển khoản qua ngân hàng trước, rồi xác nhận kèm mã giao dịch. Từ chối khi thông tin tài khoản sai hoặc có dấu hiệu bất thường."
-                  : "Yêu cầu nhỏ được chi trả tự động. Bạn vẫn có thể xác nhận thủ công hoặc từ chối nếu phát hiện bất thường."}
+                Mọi yêu cầu đều do Ban quản trị duyệt. Chuyển khoản qua ngân hàng trước, rồi duyệt kèm mã giao dịch. Từ chối khi thông tin tài khoản sai hoặc có dấu hiệu bất thường.
               </p>
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" disabled={act.isPending} onClick={() => openDialog("complete")}>
                   <Send aria-hidden />
-                  Đánh dấu đã chuyển
+                  Duyệt & đánh dấu đã chuyển
                 </Button>
                 <Button size="sm" variant="destructive" disabled={act.isPending} onClick={() => openDialog("reject")}>
                   <Ban aria-hidden />
@@ -239,21 +240,21 @@ function Detail({ withdrawal: w, onWithdrawalChange }: { withdrawal: WithdrawalR
 
       <Dialog open={dialogOpen} onOpenChange={(open) => !act.isPending && setDialogOpen(open)}>
         <DialogContent>
-          <DialogTitle>{action === "complete" ? "Xác nhận đã chuyển tiền?" : "Từ chối yêu cầu rút tiền?"}</DialogTitle>
+          <DialogTitle>{action === "complete" ? "Duyệt và xác nhận đã chuyển tiền?" : "Từ chối yêu cầu rút tiền?"}</DialogTitle>
           <DialogDescription>
-            {w.chef.fullName} · {formatVnd(w.amount)} → {w.bankAccount.bankName} {maskAccountNumber(w.bankAccount.accountNumber)}
+            {w.user.fullName} ({roleLabel}) · {formatVnd(w.amount)} → {w.bankAccount.bankName || "—"} {maskAccountNumber(w.bankAccount.accountNumber)}
           </DialogDescription>
           <form className="flex flex-col gap-4" onSubmit={submit}>
             <ul className="list-disc space-y-1 pl-5 text-sm">
               {action === "complete" ? (
                 <>
                   <li>Yêu cầu chuyển sang “Đã chuyển”, số tiền cộng vào “Đã rút”</li>
-                  <li>Chuyên gia thấy mã giao dịch trong ứng dụng</li>
+                  <li>{WALLET_ROLE_LABEL[w.role]} thấy mã giao dịch trong ứng dụng</li>
                 </>
               ) : (
                 <>
-                  <li>{formatVnd(w.amount)} trở lại số dư có thể rút của chuyên gia</li>
-                  <li>Chuyên gia thấy lý do trong ứng dụng và có thể gửi lại</li>
+                  <li>{formatVnd(w.amount)} trở lại số dư có thể rút của {roleLabel}</li>
+                  <li>{WALLET_ROLE_LABEL[w.role]} thấy lý do trong ứng dụng và có thể gửi lại</li>
                 </>
               )}
             </ul>
@@ -295,13 +296,13 @@ function Detail({ withdrawal: w, onWithdrawalChange }: { withdrawal: WithdrawalR
                   id={`${ids}-reason`}
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
-                  placeholder="VD: Tên chủ tài khoản không khớp hồ sơ chuyên gia, nhờ cập nhật tài khoản rồi gửi lại."
+                  placeholder="VD: Tên chủ tài khoản không khớp hồ sơ, nhờ cập nhật tài khoản rồi gửi lại."
                   aria-describedby={`${ids}-reason-hint`}
                   aria-invalid={reason.length > 0 && !reasonOk ? true : undefined}
                   disabled={act.isPending}
                 />
                 <p id={`${ids}-reason-hint`} className="flex justify-between gap-3 text-xs text-muted-foreground">
-                  <span>Gửi cho chuyên gia và lưu vào nhật ký quản trị · tối thiểu {MIN_AUDIT_NOTE_LENGTH} ký tự</span>
+                  <span>Gửi cho {roleLabel} và lưu vào nhật ký quản trị · tối thiểu {MIN_AUDIT_NOTE_LENGTH} ký tự</span>
                   <span className="font-mono tabular">{reason.trim().length}</span>
                 </p>
               </div>
@@ -313,7 +314,7 @@ function Detail({ withdrawal: w, onWithdrawalChange }: { withdrawal: WithdrawalR
                 </Button>
               </DialogClose>
               <Button type="submit" variant={action === "complete" ? "default" : "destructive"} disabled={!canSubmit || act.isPending}>
-                {act.isPending ? "Đang lưu…" : action === "complete" ? "Xác nhận đã chuyển" : "Từ chối yêu cầu"}
+                {act.isPending ? "Đang lưu…" : action === "complete" ? "Duyệt & xác nhận đã chuyển" : "Từ chối yêu cầu"}
               </Button>
             </DialogFooter>
           </form>
@@ -325,7 +326,7 @@ function Detail({ withdrawal: w, onWithdrawalChange }: { withdrawal: WithdrawalR
 
 function LedgerLine({ t, highlight }: { t: WalletTransaction; highlight: boolean }) {
   const detail =
-    t.type === "Withdrawal" ? (t.bankName ?? "Rút về ngân hàng") : [t.planTitle, t.memberName].filter(Boolean).join(" · ") || "—";
+    t.type === "Withdrawal" ? (t.bankName ?? "Rút về ngân hàng") : [t.planTitle, t.counterpartName].filter(Boolean).join(" · ") || "—";
   return (
     <li className={cn("flex flex-col gap-1 px-3 py-2.5", highlight && "bg-ai-soft")}>
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
@@ -340,7 +341,7 @@ function LedgerLine({ t, highlight }: { t: WalletTransaction; highlight: boolean
       <p className="line-clamp-1 break-all text-xs text-muted-foreground">{detail}</p>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="font-mono text-xs text-muted-foreground">{formatDateTime(t.createdAt)}</span>
-        <LedgerStatusBadge status={t.status} />
+        <LedgerStatusBadge status={t.status} label={t.type === "Payment" ? "Đã thanh toán" : undefined} />
       </div>
       {t.type === "Income" && t.gross !== null && t.fee !== null && (
         <p className="text-xs text-muted-foreground">
@@ -349,7 +350,7 @@ function LedgerLine({ t, highlight }: { t: WalletTransaction; highlight: boolean
         </p>
       )}
       {t.note && <p className="text-xs text-muted-foreground">{t.note}</p>}
-      {t.status === "Frozen" && t.complaintId && (
+      {(t.status === "Frozen" || t.type === "Refund") && t.complaintId && (
         <Link
           href={`/disputes?open=${encodeURIComponent(t.complaintId)}`}
           className="inline-flex w-fit items-center gap-1 text-xs font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"

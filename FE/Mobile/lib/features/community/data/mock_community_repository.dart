@@ -4,7 +4,6 @@ import 'dart:math' as math;
 import '../../../core/models/author_summary.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/utils/mock_delay.dart';
-import '../../../core/utils/text_search.dart';
 import '../../video/data/mock/mock_video_store.dart';
 import '../domain/entities/post.dart';
 import 'community_api_service.dart';
@@ -17,9 +16,9 @@ import 'models/post_model.dart';
 /// Likes, saves and "my posts" belong to the signed-in member: guests see
 /// the public view, like the real API without a bearer token.
 ///
-/// Posts follow the "publish unless AI flags" rule: [preScreenFlags] holds a
-/// new or edited post as `Pending` (hidden from the feed, shown to its
-/// author); an edited `Rejected` post always goes back to `Pending`.
+/// Every new or edited post waits for an admin: it is `Pending` (hidden from
+/// the feed, shown to its author) until [demoDecide], which stands in for the
+/// web console so the flow can be shown without one.
 ///
 /// Comments are one flat list per post with `parentId` (one level deep),
 /// paged like the API: top-level newest first with a 2-reply preview,
@@ -44,21 +43,9 @@ class MockCommunityRepository implements CommunityApiService {
   /// Replies shown under each top-level comment before "Xem thêm".
   static const replyPreview = 2;
 
-  /// What the server's synchronous AI pre-screen flags (matched on folded
-  /// text, so "chua khoi" counts too).
-  static const flagTriggers = [
-    '#flag',
-    'chữa khỏi',
-    'giảm cân thần tốc',
-    'inbox',
-    'zalo',
-    'cam kết hoàn tiền',
-  ];
-
-  static bool preScreenFlags(String title, String body) {
-    final text = foldVietnamese('$title\n$body');
-    return flagTriggers.any((w) => text.contains(foldVietnamese(w)));
-  }
+  /// The reason "Từ chối thử" gives ([demoDecide]).
+  static const demoRejectionReason =
+      'Bài cần ghi rõ nguồn tham khảo (từ chối thử ở bản demo).';
 
   static bool _fails(String text) => text.toLowerCase().contains('#fail');
 
@@ -303,7 +290,6 @@ class MockCommunityRepository implements CommunityApiService {
           url: url,
           durationSeconds: duration);
     }
-    final flagged = preScreenFlags(request.title, request.body);
     final restaurant = request.restaurant;
     final post = PostDto(
       id: id,
@@ -317,7 +303,7 @@ class MockCommunityRepository implements CommunityApiService {
       videoId: videoId,
       videoDurationSeconds: duration,
       videoAiStatus: videoId == null ? null : 'queued',
-      status: (flagged ? PostStatus.pending : PostStatus.published).apiValue,
+      status: PostStatus.pending.apiValue,
       mediaType: mediaType.apiValue,
       mediaUrl: url,
       restaurant: restaurant == null
@@ -337,13 +323,6 @@ class MockCommunityRepository implements CommunityApiService {
       throw const ApiException(
           message: 'Chưa lưu được bài viết. Thử lại nhé.', statusCode: 503);
     }
-    final before = PostStatus.fromApi(post.status);
-    final flagged = preScreenFlags(request.title, request.body);
-    final after = switch (before) {
-      // Re-review: the moderation decision is upserted.
-      PostStatus.rejected || PostStatus.pending => PostStatus.pending,
-      PostStatus.published => flagged ? PostStatus.pending : before,
-    };
     final restaurant = request.restaurant;
     final updated = PostDto.fromJson(post.toJson()
       ..['title'] = request.title
@@ -352,11 +331,24 @@ class MockCommunityRepository implements CommunityApiService {
       ..['restaurant'] = restaurant == null
           ? null
           : TaggedRestaurantDto.fromEntity(restaurant).toJson()
-      ..['status'] = after.apiValue
+      ..['status'] = PostStatus.pending.apiValue
       ..['rejectionReason'] = null
       ..['updatedAt'] = DateTime.now().toUtc().toIso8601String());
     _db.replace(updated);
     return _decorate(updated);
+  }
+
+  /// The admin's decision on a post waiting for review, for the demo: approved
+  /// reaches the feed, rejected comes back with a reason. Not part of
+  /// [CommunityApiService]: the real one happens on the web console.
+  Future<PostDto> demoDecide(String id, {required bool approve}) async {
+    await mockDelay(300);
+    final decided = PostDto.fromJson(_db.find(id).toJson()
+      ..['status'] =
+          (approve ? PostStatus.published : PostStatus.rejected).apiValue
+      ..['rejectionReason'] = approve ? null : demoRejectionReason);
+    _db.replace(decided);
+    return _decorate(decided);
   }
 
   @override

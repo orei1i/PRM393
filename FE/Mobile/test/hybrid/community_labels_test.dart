@@ -160,12 +160,11 @@ void main() {
       );
     }
 
-    testWidgets('real: replies past the preview are a statement', (t) async {
+    testWidgets('real: replies past the preview can be opened', (t) async {
       BackendModules.debugOverride(_realModules);
       await open(t);
-      expect(find.text('Còn 1 phản hồi khác, chưa xem được trên bản này'),
-          findsOneWidget);
-      expect(find.textContaining('Xem thêm'), findsNothing);
+      expect(find.text('Xem thêm 1 phản hồi'), findsOneWidget);
+      expect(find.textContaining('chưa xem được'), findsNothing);
     });
 
     testWidgets('real: "Sửa" is gone, "Xoá" stays, nothing reads as edited',

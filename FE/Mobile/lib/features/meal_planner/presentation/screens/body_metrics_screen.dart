@@ -451,7 +451,6 @@ class _HistoryRow extends StatelessWidget {
     final date = day.year == now.year
         ? formatLongDate(day)
         : '${formatLongDate(day)}/${day.year}';
-    final ratio = m.waistToHeight;
     final p = previous;
     // The real BE's rows don't say where they came from: without this, every
     // one of them would read as a profile save.
@@ -489,30 +488,9 @@ class _HistoryRow extends StatelessWidget {
               ),
             ],
           ),
-          if (m.waistCm != null || m.bodyFatPct != null || fromProfile) ...[
+          if (fromProfile) ...[
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                if (m.waistCm case final waist? when ratio != null)
-                  BodyProgress.whtrNeedsCaution(ratio)
-                      ? MetricPill.tone(
-                          context,
-                          'Eo ${BodyProgress.formatTrim(waist)} cm · '
-                          'WHtR ${BodyProgress.formatWhtr(ratio)}',
-                          VerdictTone.caution)
-                      : MetricPill.neutral(
-                          context,
-                          'Eo ${BodyProgress.formatTrim(waist)} cm · '
-                          'WHtR ${BodyProgress.formatWhtr(ratio)}'),
-                if (m.bodyFatPct case final fat?)
-                  MetricPill.neutral(
-                      context, 'Mỡ ${BodyProgress.formatTrim(fat)} %'),
-                if (fromProfile)
-                  MetricPill.neutral(context, 'Từ Hồ sơ sức khoẻ'),
-              ],
-            ),
+            MetricPill.neutral(context, 'Từ Hồ sơ sức khoẻ'),
           ],
         ],
       ),

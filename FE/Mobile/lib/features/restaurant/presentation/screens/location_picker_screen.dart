@@ -14,20 +14,24 @@ import '../widgets/vl_map.dart';
 
 /// Opens "Chọn vị trí" and, when the user picks a place, makes it the
 /// location every "gần bạn" list measures from. Returns the new location.
-Future<UserLocation?> pickUserLocation(BuildContext context, WidgetRef ref,
-    {bool startOnMap = false}) async {
+Future<UserLocation?> pickUserLocation(
+    BuildContext context, WidgetRef ref) async {
   final current = ref.read(userLocationProvider).valueOrNull;
-  final picked = await Navigator.of(context).push(
-      LocationPickerScreen.route(initial: current, startOnMap: startOnMap));
+  final picked = await Navigator.of(context)
+      .push(LocationPickerScreen.route(initial: current));
   if (picked == null) return null;
   await ref.read(userLocationProvider.notifier).setLocation(picked);
   return picked;
 }
 
-/// "Chọn vị trí": address search ("Tìm địa chỉ") with "Dùng vị trí hiện tại
-/// (mô phỏng)" and "Vị trí gần đây", or "Chọn trên bản đồ" (a fixed centre
-/// pin; the address under it updates when the map stops). Pops the chosen
-/// [UserLocation]; the caller decides what to do with it.
+/// "Chọn vị trí", one screen: the address search with "Dùng vị trí hiện tại
+/// (mô phỏng)" and "Vị trí gần đây", and a floating "Tìm trên bản đồ" at the
+/// bottom-left that turns the screen into the map (a fixed centre pin: drag the
+/// map or tap a point; the address under it updates when the map stops). The
+/// back arrow, the system back and the search box on the map return to the
+/// search with what was typed. Failed tiles only get a note: a point still
+/// confirms with its coordinates. Pops the chosen [UserLocation]; the caller
+/// decides what to do with it.
 class LocationPickerScreen extends ConsumerStatefulWidget {
   const LocationPickerScreen({
     super.key,
@@ -58,56 +62,23 @@ class LocationPickerScreen extends ConsumerStatefulWidget {
 }
 
 class _LocationPickerScreenState extends ConsumerState<LocationPickerScreen> {
-  @override
-  Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      initialIndex: widget.startOnMap ? 1 : 0,
-      child: Scaffold(
-        appBar: AppBar(
-          leading: IconButton(
-            tooltip: 'Đóng',
-            onPressed: () => Navigator.of(context).maybePop(),
-            icon: const Icon(Icons.close_rounded),
-          ),
-          title: Text(widget.title),
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Tìm địa chỉ'),
-              Tab(text: 'Chọn trên bản đồ'),
-            ],
-          ),
-        ),
-        body: TabBarView(
-          // Horizontal drags belong to the map.
-          physics: const NeverScrollableScrollPhysics(),
-          children: [
-            const _SearchTab(),
-            _MapTab(initial: widget.initial),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SearchTab extends ConsumerStatefulWidget {
-  const _SearchTab();
-
-  @override
-  ConsumerState<_SearchTab> createState() => _SearchTabState();
-}
-
-class _SearchTabState extends ConsumerState<_SearchTab> {
   final _query = TextEditingController();
+  final _queryFocus = FocusNode();
   Timer? _debounce;
   Future<List<GeoPlace>>? _results;
   bool _locating = false;
+
+  late bool _onMap = widget.startOnMap;
+
+  /// Where the pin was, so going back to the map finds it again.
+  late GeoPoint _mapCenter =
+      widget.initial?.point ?? MockLocationService.location.point;
 
   @override
   void dispose() {
     _debounce?.cancel();
     _query.dispose();
+    _queryFocus.dispose();
     super.dispose();
   }
 
@@ -143,9 +114,69 @@ class _SearchTabState extends ConsumerState<_SearchTab> {
     }
   }
 
+  void _showMap() {
+    _queryFocus.unfocus();
+    setState(() => _onMap = true);
+  }
+
+  void _showSearch({bool focus = false}) {
+    setState(() => _onMap = false);
+    if (focus) _queryFocus.requestFocus();
+  }
+
   @override
   Widget build(BuildContext context) {
+    return PopScope<Object?>(
+      canPop: !_onMap,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _showSearch();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: _onMap
+              ? IconButton(
+                  tooltip: 'Quay lại tìm địa chỉ',
+                  onPressed: _showSearch,
+                  icon: const Icon(Icons.arrow_back_rounded),
+                )
+              : IconButton(
+                  tooltip: 'Đóng',
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+          title: Text(widget.title),
+          actions: [
+            if (_onMap)
+              IconButton(
+                tooltip: 'Đóng',
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close_rounded),
+              ),
+          ],
+        ),
+        floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
+        floatingActionButton: _onMap
+            ? null
+            : FloatingActionButton.extended(
+                onPressed: _showMap,
+                icon: const Icon(Icons.map_outlined),
+                label: const Text('Tìm trên bản đồ'),
+              ),
+        body: _onMap
+            ? _MapPane(
+                center: _mapCenter,
+                onMoved: (point) => _mapCenter = point,
+                onSearch: () => _showSearch(focus: true),
+              )
+            : _searchPane(context),
+      ),
+    );
+  }
+
+  Widget _searchPane(BuildContext context) {
     final recent = ref.watch(recentLocationsProvider);
+    // Room for the floating button under the last row.
+    final bottom = 88 + MediaQuery.paddingOf(context).bottom;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -153,6 +184,7 @@ class _SearchTabState extends ConsumerState<_SearchTab> {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           child: TextField(
             controller: _query,
+            focusNode: _queryFocus,
             onChanged: _onChanged,
             onSubmitted: (_) {
               _debounce?.cancel();
@@ -180,6 +212,7 @@ class _SearchTabState extends ConsumerState<_SearchTab> {
         Expanded(
           child: _results == null
               ? ListView(
+                  padding: EdgeInsets.only(bottom: bottom),
                   children: [
                     ListTile(
                       leading: _locating
@@ -227,16 +260,14 @@ class _SearchTabState extends ConsumerState<_SearchTab> {
                     }
                     final places = snap.data ?? const [];
                     if (places.isEmpty) {
-                      return _Message(
+                      return const _Message(
                         icon: Icons.location_searching_rounded,
                         text: 'Không tìm thấy địa chỉ phù hợp. Thử tên đường, '
-                            'phường hoặc quận, hoặc chọn trên bản đồ.',
-                        actionLabel: 'Chọn trên bản đồ',
-                        onAction: () =>
-                            DefaultTabController.of(context).animateTo(1),
+                            'phường hoặc quận, hoặc tìm trên bản đồ.',
                       );
                     }
                     return ListView.separated(
+                      padding: EdgeInsets.only(bottom: bottom),
                       itemCount: places.length,
                       separatorBuilder: (_, __) => const Divider(height: 1),
                       itemBuilder: (context, i) {
@@ -262,53 +293,63 @@ class _Message extends StatelessWidget {
   const _Message({
     required this.icon,
     required this.text,
-    required this.actionLabel,
-    required this.onAction,
+    this.actionLabel,
+    this.onAction,
   });
 
   final IconData icon;
   final String text;
-  final String actionLabel;
-  final VoidCallback onAction;
+  final String? actionLabel;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
+    final label = actionLabel;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Icon(icon, size: 40, color: context.vl.muted),
           const SizedBox(height: 12),
           Text(text, textAlign: TextAlign.center),
-          const SizedBox(height: 12),
-          OutlinedButton(onPressed: onAction, child: Text(actionLabel)),
+          if (label != null) ...[
+            const SizedBox(height: 12),
+            Center(
+              child: OutlinedButton(onPressed: onAction, child: Text(label)),
+            ),
+          ],
         ],
       ),
     );
   }
 }
 
-class _MapTab extends ConsumerStatefulWidget {
-  const _MapTab({this.initial});
+/// The map side of the screen: drag or tap to move the pin, "Dùng vị trí này"
+/// to confirm, the box at the top to go back to searching.
+class _MapPane extends ConsumerStatefulWidget {
+  const _MapPane({
+    required this.center,
+    required this.onMoved,
+    required this.onSearch,
+  });
 
-  final UserLocation? initial;
+  final GeoPoint center;
+  final ValueChanged<GeoPoint> onMoved;
+  final VoidCallback onSearch;
 
   @override
-  ConsumerState<_MapTab> createState() => _MapTabState();
+  ConsumerState<_MapPane> createState() => _MapPaneState();
 }
 
-class _MapTabState extends ConsumerState<_MapTab>
-    with AutomaticKeepAliveClientMixin {
+class _MapPaneState extends ConsumerState<_MapPane> {
   final _map = MapController();
   Timer? _idle;
-  late GeoPoint _center =
-      widget.initial?.point ?? MockLocationService.location.point;
+  late GeoPoint _center = widget.center;
   GeoPlace? _place;
   bool _resolving = true;
+  bool _tilesFailed = false;
   int _request = 0;
-
-  @override
-  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -323,6 +364,14 @@ class _MapTabState extends ConsumerState<_MapTab>
     super.dispose();
   }
 
+  void _moved(GeoPoint point) {
+    _center = point;
+    widget.onMoved(point);
+    _idle?.cancel();
+    _idle = Timer(const Duration(milliseconds: 400), _resolve);
+    if (!_resolving) setState(() => _resolving = true);
+  }
+
   void _onMapEvent(MapEvent event) {
     // Only the user's moves: not the first layout or programmatic ones.
     if (event is! MapEventWithMove ||
@@ -331,10 +380,17 @@ class _MapTabState extends ConsumerState<_MapTab>
         event.source == MapEventSource.fitCamera) {
       return;
     }
-    _center = event.camera.center.geoPoint;
-    _idle?.cancel();
-    _idle = Timer(const Duration(milliseconds: 400), _resolve);
-    if (!_resolving) setState(() => _resolving = true);
+    _moved(event.camera.center.geoPoint);
+  }
+
+  /// A tap brings that point under the pin.
+  void _onTapPoint(GeoPoint point) {
+    _map.move(point.latLng, _map.camera.zoom);
+    _moved(point);
+  }
+
+  void _onTileError() {
+    if (mounted && !_tilesFailed) setState(() => _tilesFailed = true);
   }
 
   /// Reverse geocodes the point under the pin.
@@ -368,18 +424,39 @@ class _MapTabState extends ConsumerState<_MapTab>
 
   @override
   Widget build(BuildContext context) {
-    super.build(context);
     final place = _place;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Expanded(
-          child: VLMap(
-            controller: _map,
-            center: _center,
-            zoom: 16,
-            onMapEvent: _onMapEvent,
-            overlays: const [CenterPin()],
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              VLMap(
+                controller: _map,
+                center: widget.center,
+                zoom: 16,
+                onMapEvent: _onMapEvent,
+                onTapPoint: _onTapPoint,
+                onTileError: _onTileError,
+                overlays: const [CenterPin()],
+              ),
+              Positioned(
+                left: 12,
+                right: 12,
+                top: 12,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _SearchBox(onTap: widget.onSearch),
+                    if (_tilesFailed) ...[
+                      const SizedBox(height: 8),
+                      const _TilesFailedNote(),
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
         Material(
@@ -392,7 +469,7 @@ class _MapTabState extends ConsumerState<_MapTab>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('Kéo bản đồ để đặt ghim vào đúng vị trí',
+                  Text('Kéo bản đồ hoặc chạm vào một điểm để đặt ghim',
                       style: context.textStyles.labelMedium
                           ?.copyWith(color: context.vl.muted)),
                   const SizedBox(height: 6),
@@ -421,6 +498,84 @@ class _MapTabState extends ConsumerState<_MapTab>
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Looks like the search field; a tap goes back to it.
+class _SearchBox extends StatelessWidget {
+  const _SearchBox({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Quay lại tìm địa chỉ',
+      excludeSemantics: true,
+      child: Material(
+        color: context.colors.surface,
+        elevation: 3,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 48),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                children: [
+                  Icon(Icons.search_rounded, color: context.vl.muted),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Tìm địa chỉ, phường, quận…',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.textStyles.bodyLarge
+                          ?.copyWith(color: context.vl.muted),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Tiles didn't load (no internet on the emulator): not a dead end.
+class _TilesFailedNote extends StatelessWidget {
+  const _TilesFailedNote();
+
+  @override
+  Widget build(BuildContext context) {
+    final vl = context.vl;
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: vl.cautionContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.cloud_off_rounded, size: 18, color: vl.onCautionContainer),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Chưa tải được bản đồ nền. Bạn vẫn chọn được điểm (có toạ độ) '
+              'hoặc tìm địa chỉ ở ô phía trên.',
+              style: context.textStyles.bodySmall
+                  ?.copyWith(color: vl.onCautionContainer),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

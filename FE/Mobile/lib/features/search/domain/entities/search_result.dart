@@ -1,5 +1,6 @@
 // lib/features/search/domain/entities/search_result.dart
 import '../../../community/domain/entities/post.dart';
+import '../../../ingredient/domain/entities/ingredient.dart';
 import '../../../restaurant/domain/entities/restaurant.dart';
 
 /// `type` query value of `GET /search`.
@@ -12,6 +13,21 @@ enum SearchType {
 
   const SearchType(this.apiValue);
   final String apiValue;
+}
+
+/// How much of the recipes a search could look at.
+enum RecipeSearchScope {
+  /// Every recipe the caller may read.
+  full,
+
+  /// A guest: the BE only gives recipes to members.
+  signedOut,
+
+  /// No meal plan this week: the BE then lists at most 10 dishes for the fridge.
+  fridgeOnly,
+
+  /// The catalogue didn't load this time.
+  unavailable,
 }
 
 /// A catalogue dish, opened with `RecipeDetailScreen.route(id, name:)`.
@@ -55,8 +71,11 @@ class SearchResult {
     this.posts = const [],
     this.videos = const [],
     this.recipes = const [],
+    this.ingredients = const [],
     this.restaurants = const [],
     this.suggestion,
+    this.recipeScope = RecipeSearchScope.full,
+    this.postsTruncated = false,
   });
 
   final String query;
@@ -67,13 +86,21 @@ class SearchResult {
   /// Published video posts.
   final List<Post> videos;
   final List<RecipeSummary> recipes;
+  final List<IngredientSummary> ingredients;
   final List<Restaurant> restaurants;
   final SearchSuggestion? suggestion;
+
+  /// Says when [recipes] can't be the whole answer.
+  final RecipeSearchScope recipeScope;
+
+  /// Only the newest posts were looked at: the client pages the feed itself.
+  final bool postsTruncated;
 
   bool get isEmpty =>
       posts.isEmpty &&
       videos.isEmpty &&
       recipes.isEmpty &&
+      ingredients.isEmpty &&
       restaurants.isEmpty &&
       suggestion == null;
 }
@@ -83,6 +110,7 @@ enum SuggestKind {
   query('query'),
   recipe('recipe'),
   post('post'),
+  ingredient('ingredient'),
   restaurant('restaurant');
 
   const SuggestKind(this.apiValue);
@@ -105,7 +133,7 @@ class SearchSuggestItem {
   final SuggestKind kind;
   final String text;
 
-  /// The recipe, post or restaurant to open; `null` for a query.
+  /// The recipe, post, ingredient or restaurant to open; `null` for a query.
   final String? id;
   final String? subtitle;
 }
@@ -173,7 +201,8 @@ class RecentView {
         subtitle: json['subtitle'] as String?,
       );
 
-  /// [SuggestKind.recipe], [SuggestKind.post] or [SuggestKind.restaurant].
+  /// [SuggestKind.recipe], [SuggestKind.post], [SuggestKind.ingredient] or
+  /// [SuggestKind.restaurant].
   final SuggestKind kind;
   final String id;
   final String title;

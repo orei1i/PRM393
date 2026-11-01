@@ -24,6 +24,7 @@ import 'package:veganlife_mobile/features/meal_planner/data/mock_meal_planner_re
 import 'package:veganlife_mobile/features/meal_planner/presentation/screens/body_metrics_screen.dart';
 import 'package:veganlife_mobile/features/meal_planner/presentation/screens/meal_planner_screen.dart';
 import 'package:veganlife_mobile/features/meal_planner/presentation/widgets/check_in_card.dart';
+import 'package:veganlife_mobile/features/meal_planner/presentation/widgets/check_in_sheet.dart';
 import 'package:veganlife_mobile/features/meal_planner/presentation/widgets/progress_review_sheet.dart';
 import 'package:veganlife_mobile/features/meal_planner/presentation/widgets/weight_chart.dart';
 import 'package:veganlife_mobile/features/profile/data/profile_api_service.dart';
@@ -160,8 +161,17 @@ void main() {
       expect(find.text('Lần trước: 66,0 kg · 21/10'), findsOneWidget);
       expect(find.text('Chiều cao 172 cm · đổi trong Hồ sơ sức khoẻ'),
           findsOneWidget);
-      expect(_field('Vòng eo (cm) — không bắt buộc'), findsOneWidget);
-      expect(_field('Tỉ lệ mỡ cơ thể (%) — không bắt buộc'), findsOneWidget);
+      expect(find.textContaining('Vòng eo'), findsNothing);
+      expect(find.textContaining('Tỉ lệ mỡ'), findsNothing);
+      expect(find.byType(TextFormField), findsOneWidget);
+
+      // The BMI chart: Minh Anh's six weigh-ins, nothing typed yet.
+      expect(find.text('BMI theo thời gian'), findsOneWidget);
+      expect(find.byType(WeightChart), findsOneWidget);
+      expect(_chartLabelled('BMI từ 22,0 đến 22,3 từ 03/09 đến 21/10'),
+          findsOneWidget);
+      expect(find.text('Vùng xanh: BMI bình thường (18,5 – 22,9)'),
+          findsOneWidget);
 
       await tester.tap(find.widgetWithText(FilledButton, 'Lưu'));
       await tester.pump();
@@ -173,16 +183,6 @@ void main() {
       await tester.enterText(_field('Cân nặng (kg)'), '25');
       await tester.pump();
       expect(find.text('Cân nặng từ 30 đến 250 kg'), findsOneWidget);
-      await tester.enterText(_field('Vòng eo (cm) — không bắt buộc'), '30');
-      await tester.enterText(
-          _field('Tỉ lệ mỡ cơ thể (%) — không bắt buộc'), '80');
-      await tester.pump();
-      expect(find.text('Vòng eo từ 40 đến 200 cm'), findsOneWidget);
-      expect(find.text('Tỉ lệ mỡ từ 3 đến 70 %'), findsOneWidget);
-
-      await tester.enterText(_field('Vòng eo (cm) — không bắt buộc'), '70');
-      await tester.enterText(
-          _field('Tỉ lệ mỡ cơ thể (%) — không bắt buộc'), '26,2');
       await tester.enterText(_field('Cân nặng (kg)'), '99.9');
       await tester.pump();
       await _save(tester);
@@ -194,6 +194,15 @@ void main() {
       await tester.enterText(_field('Cân nặng (kg)'), '65,4');
       await tester.pump();
       expect(find.text('BMI mới ≈ 22,1 · Bình thường'), findsOneWidget);
+      // The typed weight is the chart's last point.
+      expect(
+          _chartLabelled(
+              'BMI từ 22,0 đến 22,3 từ 03/09 đến 29/10, đang nhập 22,1'),
+          findsOneWidget);
+      expect(
+          find.text('Vùng xanh: BMI bình thường (18,5 – 22,9). '
+              'Chấm đậm: số bạn đang nhập.'),
+          findsOneWidget);
       await _save(tester);
 
       expect(find.byType(ProgressReviewSheet), findsOneWidget);
@@ -201,9 +210,8 @@ void main() {
       expect(find.text('So với lần cân 21/10 (8 ngày trước)'), findsOneWidget);
       expect(find.text('Cân nặng: 66,0 → 65,4 kg (−0,6 kg)'), findsOneWidget);
       expect(find.text('BMI: 22,3 → 22,1 · Bình thường'), findsOneWidget);
-      expect(find.text('Vòng eo: 70 → 70 cm · WHtR 0,41'), findsOneWidget);
-      expect(find.textContaining('Tỉ lệ mỡ:'), findsNothing,
-          reason: 'the previous weigh-in has no body fat');
+      expect(find.textContaining('Vòng eo'), findsNothing);
+      expect(find.textContaining('Tỉ lệ mỡ'), findsNothing);
       final before = _target(66), after = _target(65.4);
       expect(
           find.text('Mục tiêu năng lượng: ≈ ${Energy.formatKcal(before)} → '
@@ -302,9 +310,8 @@ void main() {
       expect(find.text('Thứ Tư, 21/10'), findsOneWidget);
       expect(find.text('66,0 kg'), findsOneWidget);
       expect(find.text('+0,2 kg'), findsWidgets);
-      expect(find.text('Eo 70 cm · WHtR 0,41'), findsOneWidget);
-      expect(find.text('Mỡ 27 %'), findsOneWidget);
-      expect(find.text('Mỡ 27,8 %'), findsOneWidget);
+      expect(find.textContaining('WHtR'), findsNothing);
+      expect(find.textContaining('Mỡ '), findsNothing);
       expect(find.text('Từ Hồ sơ sức khoẻ'), findsOneWidget);
 
       // Reminder cadence, kept per account.
@@ -385,11 +392,11 @@ void main() {
     await _openCheckInFromPlanner(tester);
     expect(tester.takeException(), isNull, reason: 'sheet');
     await tester.enterText(_field('Cân nặng (kg)'), '64');
-    await tester.enterText(_field('Vòng eo (cm) — không bắt buộc'), '90');
     await tester.pump();
+    expect(find.byType(WeightChart), findsOneWidget);
+    expect(tester.takeException(), isNull, reason: 'sheet with a typed weight');
     await _save(tester);
     expect(find.text('Tiến độ của bạn'), findsOneWidget);
-    expect(find.text('Vòng eo/chiều cao ≥ 0,5 — nên lưu ý'), findsOneWidget);
     expect(find.textContaining('Bạn đang giảm hơn 1 kg mỗi tuần.'),
         findsOneWidget);
     expect(tester.takeException(), isNull, reason: 'review');
@@ -402,6 +409,50 @@ void main() {
     await tester.tap(find.text('Tất cả'));
     await tester.pump();
     expect(find.byType(WeightChart), findsOneWidget);
-    expect(find.text('Eo 90 cm · WHtR 0,52'), findsOneWidget);
+  });
+
+  group('the sheet\'s chart with little history', () {
+    Future<void> openSheet(WidgetTester tester, String userId) async {
+      await _pump(
+          tester,
+          Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => CheckInSheet.open(context,
+                    heightCm: 172, origin: ReviewOrigin.other),
+                child: const Text('Mở'),
+              ),
+            ),
+          ),
+          session: _session(userId, 'Thử'),
+          size: const Size(360, 800),
+          textScale: 1.3,
+          theme: AppTheme.dark());
+      await _wait(tester, 500);
+      await tester.tap(find.text('Mở'));
+      // The sheet's history: the mock's latency, with its jitter.
+      await _wait(tester, 2000);
+    }
+
+    testWidgets('no weigh-in: a message, then a single point', (tester) async {
+      await openSheet(tester, _newUserId);
+      expect(find.byType(WeightChart), findsNothing);
+      expect(find.textContaining('Chưa có lần cân nào.'), findsOneWidget);
+      await tester.enterText(_field('Cân nặng (kg)'), '65,4');
+      await tester.pump();
+      expect(find.byType(WeightChart), findsOneWidget);
+      expect(_chartLabelled('BMI 22,1 ngày 29/10, đang nhập 22,1'),
+          findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('one weigh-in draws without a typed weight', (tester) async {
+      await openSheet(tester, 'u_chef_tam');
+      expect(_chartLabelled('BMI 22,3 ngày 09/10'), findsOneWidget);
+      await tester.enterText(_field('Cân nặng (kg)'), '64');
+      await tester.pump();
+      expect(find.byType(WeightChart), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   });
 }

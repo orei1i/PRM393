@@ -59,8 +59,8 @@ class RemoteScannerApiService implements ScannerApiService {
       });
 
   /// Picked here from the recipe catalogue, by how many of the ingredients a
-  /// recipe uses. The BE's own endpoint for this would overwrite the member's
-  /// whole week, so it must never be called.
+  /// recipe uses: the BE's own suggestions go by what is saved in the fridge,
+  /// not by this scan. Without a plan this week the catalogue is only those.
   @override
   Future<List<MenuSuggestionDto>> generateMenu(
       GenerateMenuRequestDto request) async {

@@ -5,7 +5,7 @@ import { InitialsAvatar } from "@/components/admin/initials-avatar";
 import { formatVnd } from "@/components/orders/order-badges";
 import { Skeleton } from "@/components/ui/form-controls";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { planSummary, type AdminComplaint } from "@/types/bookings";
+import { familySummary, planSummary, type AdminComplaint } from "@/types/bookings";
 
 import { ComplaintReasonBadge, DecisionBadge, EscrowStatusBadge, formatVnDate, formatVnDateTime, timeLeft } from "./booking-badges";
 
@@ -75,6 +75,7 @@ export function ComplaintTable({
                   <TableCell>
                     <span className="block font-mono text-xs font-semibold">{c.booking.id}</span>
                     <span className="block text-xs text-muted-foreground">{planSummary(c.booking)}</span>
+                    {c.booking.audience === "Family" && <span className="block text-xs font-semibold">{familySummary(c.booking)}</span>}
                   </TableCell>
                   <TableCell>
                     <Person name={c.booking.member.fullName} />
@@ -93,7 +94,7 @@ export function ComplaintTable({
                         <div className="flex flex-col items-start gap-1">
                           <EscrowStatusBadge status={escrow.status} />
                           <span className="whitespace-nowrap text-xs text-muted-foreground">
-                            Hạn gốc {formatVnDate(escrow.releaseAt)} · {timeLeft(escrow.releaseAt)}
+                            {escrow.releaseAt ? `Hạn gốc ${formatVnDate(escrow.releaseAt)} · ${timeLeft(escrow.releaseAt)}` : "Chưa xác nhận hoàn thành"}
                           </span>
                         </div>
                       ) : (

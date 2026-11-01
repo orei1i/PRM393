@@ -39,7 +39,113 @@ void main() {
           .read(pantryApiProvider)
           .addItems(const [AddPantryItemDto(ingredient: 'Đậu hũ')]);
       expect(list.length, 4);
+      expect(backend.calls, ['GET $_pantry', 'POST $_pantry', 'GET $_pantry']);
+    });
+
+    test('a second add keeps the amount of the row (B38)', () async {
+      final backend = _fridge();
+      final rows = fixtureData<List<dynamic>>('pantry_fixture_list.json')
+          .cast<Map<String, dynamic>>();
+      final row = rows.firstWhere((r) => r['quantity'] != null);
+      final c = await backendContainer(backend);
+      await c.read(pantryApiProvider).addItems([
+        AddPantryItemDto(
+            ingredient: (row['ingredient'] as String).toUpperCase()),
+        const AddPantryItemDto(ingredient: 'Tên chưa có trong tủ'),
+      ]);
+      final items = backend.bodyOf('POST $_pantry')['items'] as List;
+      expect((items.first as Map)['quantity'], row['quantity']);
+      expect((items.last as Map).containsKey('quantity'), isFalse);
+    });
+
+    test('with an amount given the list is not read first', () async {
+      final backend = _fridge();
+      final c = await backendContainer(backend);
+      await c.read(pantryApiProvider).addItems(
+          const [AddPantryItemDto(ingredient: 'Đậu hũ', quantity: 300)]);
       expect(backend.calls, ['POST $_pantry', 'GET $_pantry']);
+      expect((backend.bodyOf('POST $_pantry')['items'] as List).single,
+          containsPair('quantity', 300.0));
+    });
+
+    group('a row the BE calls non-vegan (B13)', () {
+      FakeBackend refusing() {
+        var rows = <Map<String, dynamic>>[];
+        final backend = FakeBackend();
+        backend.routes['GET $_pantry'] = (_) => (200, envelope(rows));
+        backend.routes['POST $_pantry'] = (request) {
+          final items =
+              ((request.data as Map<String, dynamic>)['items'] as List)
+                  .cast<Map<String, dynamic>>();
+          final added = [
+            for (final item in items)
+              {
+                'id': 'id_${item['ingredient']}',
+                'ingredient': item['ingredient'],
+                'quantity': 1,
+                'unit': 'phần',
+                'isVegan': item['ingredient'] != 'Bơ',
+              },
+          ];
+          rows = [...rows, ...added];
+          return (200, envelope(added));
+        };
+        backend.routes['DELETE $_pantry/id_Bơ'] = (_) {
+          rows = rows.where((r) => r['id'] != 'id_Bơ').toList();
+          return (200, envelope(null));
+        };
+        return backend;
+      }
+
+      test('it is taken back out and refused, saying who decided', () async {
+        final backend = refusing();
+        final c = await backendContainer(backend);
+        await c.read(pantryControllerProvider.future);
+        final verdict =
+            await c.read(pantryControllerProvider.notifier).addManual('Bơ');
+        expect(verdict.isVegan, isFalse);
+        expect(verdict.byServerOnly, isTrue);
+        expect(verdict.veganAlternatives, isEmpty);
+        expect(backend.requests('DELETE $_pantry/id_Bơ'), hasLength(1));
+        expect(c.read(pantryControllerProvider).requireValue, isEmpty);
+      });
+
+      test('the rest of a scan stays, and the message names the refused one',
+          () async {
+        final backend = refusing();
+        final c = await backendContainer(backend);
+        await c.read(pantryControllerProvider.future);
+        await expectLater(
+          c.read(pantryControllerProvider.notifier).addFromScan(const [
+            ScannedPantryItem(name: 'Cà chua', isVegan: true),
+            ScannedPantryItem(name: 'Bơ', isVegan: true),
+          ]),
+          throwsA(isA<PantryRefusedException>()
+              .having((e) => e.names, 'names', ['Bơ'])
+              .having((e) => e.statusCode, 'status', 422)
+              .having((e) => e.message, 'message', contains('Máy chủ xếp Bơ'))),
+        );
+        expect(
+            c
+                .read(pantryControllerProvider)
+                .requireValue
+                .map((p) => p.ingredient),
+            ['Cà chua']);
+      });
+
+      test('a row that is already there says so', () {
+        final row = PantryItemDto.fromJson({
+          'id': 'x',
+          'ingredient': 'Bơ',
+          'isVegan': false,
+        }).toEntity();
+        expect(row.serverSaysNotVegan, isTrue);
+        expect(
+            PantryItemDto.fromJson({'id': 'x', 'ingredient': 'Cà'})
+                .toEntity()
+                .serverSaysNotVegan,
+            isFalse);
+      });
     });
 
     test('a food that is not vegan is refused before any request', () async {
@@ -192,7 +298,8 @@ void main() {
       final backend = FakeBackend()
         ..on('GET /ingredients/$id', 200,
             fixture('pantry_fixture_ingredient.json'))
-        ..on('GET /meal-plans/000000000000000000000000/swap-suggestions', 200,
+        ..on('GET /meal-plans/current', 404, notFound('Chưa có.'))
+        ..on('POST /meal-plans/from-ingredients', 200,
             fixture('recipe_fixture_swap.json'))
         ..on('GET /users/me/recipes', 200, envelope(const <Object>[]));
       final c = await backendContainer(backend);
@@ -204,8 +311,7 @@ void main() {
       final guest = FakeBackend()
         ..on('GET /ingredients/$id', 200,
             fixture('pantry_fixture_ingredient.json'))
-        ..on('GET /meal-plans/000000000000000000000000/swap-suggestions', 401,
-            null);
+        ..on('GET /meal-plans/current', 401, null);
       final g = await backendContainer(guest, signedIn: false);
       expect((await g.read(ingredientApiProvider).detail(id)).recipes, isEmpty);
     });

@@ -9,8 +9,10 @@ export interface AdminSession {
   userId: string;
   fullName: string;
   email: string;
-  /** JWT from POST /auth/login (mock: a fake token). */
+  /** JWT from POST /auth/admin/login (mock: a fake token). */
   accessToken: string;
+  /** For POST /auth/refresh; rotates on every use. Absent on a mock session. */
+  refreshToken?: string;
 }
 
 /* ------------------------------------------------------------------ users */
@@ -200,7 +202,8 @@ export interface ContentQuery {
   authorId?: string;
 }
 
-export type ContentAction = "hide" | "unhide" | "pin" | "unpin" | "delete" | "retry_ai";
+/** "restore" (Rejected → Published) exists in real mode only. */
+export type ContentAction = "hide" | "unhide" | "restore" | "pin" | "unpin" | "delete" | "retry_ai";
 
 /** POST /admin/posts/{id}/review — `note` is required (≥ 10 chars) when rejecting. */
 export interface PostReviewInput {

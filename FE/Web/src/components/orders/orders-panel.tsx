@@ -97,7 +97,7 @@ export function OrdersPanel({ summary }: { summary: CommerceSummary | undefined 
           />
         </div>
         <p className="w-full text-sm text-muted-foreground" aria-live="polite">
-          {orders.data ? `${formatNumber(orders.data.length)} đơn thanh toán đặt chuyên gia` : "Đang tải…"}
+          {orders.data ? `${formatNumber(orders.data.length)} đơn thanh toán đặt chuyên gia` : orders.isError ? "" : "Đang tải…"}
         </p>
       </div>
 

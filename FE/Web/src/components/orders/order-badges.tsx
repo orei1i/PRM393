@@ -4,6 +4,7 @@
 import { Ban, ChefHat, CircleCheck, CircleX, Hourglass, RotateCcw, Timer, Undo2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { dateFormat } from "@/lib/utils";
 import { ORDER_STATUS_LABEL, ORDER_TYPE_LABEL, PAYMENT_STATUS_LABEL, type OrderStatus, type PaymentStatus } from "@/types/commerce";
 
 const vnd = new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 });
@@ -11,8 +12,8 @@ const vnd = new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND",
 /** 350000 → "350.000 ₫" */
 export const formatVnd = (amount: number) => vnd.format(amount);
 
-export const dateVi = new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
-export const dateTimeVi = new Intl.DateTimeFormat("vi-VN", {
+export const dateVi = dateFormat({ day: "2-digit", month: "2-digit", year: "numeric" });
+export const dateTimeVi = dateFormat({
   hour: "2-digit",
   minute: "2-digit",
   day: "2-digit",

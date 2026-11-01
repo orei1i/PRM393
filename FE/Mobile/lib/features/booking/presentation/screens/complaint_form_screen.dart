@@ -184,8 +184,8 @@ class _ComplaintFormScreenState extends ConsumerState<ComplaintFormScreen> {
               borderColor: Colors.transparent,
               child: Text(
                 'Khi gửi khiếu nại, ${formatVnd(_price)} được tạm giữ'
-                '${escrow == null ? '' : ' (thay vì chuyển cho chuyên gia lúc ${formatVnStamp(escrow.releaseAt)})'}'
-                ' cho đến khi Ban quản trị quyết định. Tiền hoàn về phương thức thanh toán ban đầu.',
+                '${escrow?.releaseAt == null ? '' : ' (thay vì chuyển cho chuyên gia lúc ${formatVnStamp(escrow!.releaseAt!)})'}'
+                ' cho đến khi Ban quản trị quyết định. Tiền hoàn vào Ví của tôi.',
                 style: context.textStyles.bodyMedium
                     ?.copyWith(color: context.vl.onAiContainer),
               ),

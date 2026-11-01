@@ -3,7 +3,14 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { decisionOutcome, type AdminComplaint, type ComplaintDecisionInput, type ComplaintQuery, type EscrowHoldQuery } from "@/types/bookings";
+import {
+  decisionOutcome,
+  type AdminComplaint,
+  type ComplaintDecisionInput,
+  type ComplaintQuery,
+  type EscrowHoldQuery,
+  type ResolveHoldInput,
+} from "@/types/bookings";
 
 import { bookingsApi } from "../bookings_api";
 
@@ -45,6 +52,20 @@ export function useEscrowHolds(query: EscrowHoldQuery, enabled = true) {
     queryFn: () => bookingsApi.listHolds(query),
     placeholderData: keepPreviousData,
     enabled,
+  });
+}
+
+/** Decide a stuck hold. Not optimistic: the row's money only changes once the server has said so. */
+export function useResolveHold() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ResolveHoldInput) => bookingsApi.resolveHold(input),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: bookingKeys.all });
+      qc.invalidateQueries({ queryKey: ["commerce"] });
+      qc.invalidateQueries({ queryKey: ["payouts"] });
+      qc.invalidateQueries({ queryKey: ["overview"] });
+    },
   });
 }
 

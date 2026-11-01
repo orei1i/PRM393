@@ -163,13 +163,14 @@ void main() {
       expect(find.textContaining('Mã hết hạn sau 1'), findsOneWidget);
       expect(find.text('Mã QR mô phỏng'), findsOneWidget);
       expect(find.text('Đang chờ thanh toán…'), findsOneWidget);
-      expect(find.textContaining('tiền được giữ đến'), findsOneWidget);
+      expect(
+          find.textContaining('VeganLife giữ tiền đến 7 ngày'), findsOneWidget);
 
       await tester.ensureVisible(find.text('Mô phỏng đã thanh toán'));
       await tester.tap(find.text('Mô phỏng đã thanh toán'));
       await tester.pump(const Duration(seconds: 3));
       expect(find.text('Thanh toán thành công'), findsOneWidget);
-      expect(find.textContaining('Đang giữ đến'), findsOneWidget);
+      expect(find.textContaining('VeganLife đang giữ tiền'), findsOneWidget);
       expect(find.text('Về kế hoạch'), findsOneWidget);
       expect(find.text('Lịch sử tư vấn'), findsOneWidget);
       await _dispose(tester);
@@ -183,7 +184,7 @@ void main() {
       expect(find.text('Rời màn thanh toán?'), findsOneWidget);
       expect(
           find.text(
-              'Bạn có thể thanh toán tiếp trong Lịch sử tư vấn trước hạn thanh toán.'),
+              'Bạn có thể thanh toán tiếp ngay trong yêu cầu này, trước hạn thanh toán.'),
           findsOneWidget);
       await tester.tap(find.text('Rời đi'));
       await tester.pumpAndSettle();
@@ -292,7 +293,7 @@ void main() {
       ]) {
         expect(find.text(label), findsWidgets, reason: label);
       }
-      expect(find.text('1.134.000'), findsOneWidget, reason: 'held net');
+      expect(find.text('2.934.000'), findsOneWidget, reason: 'held net');
       for (final gone in [
         'Đơn hàng của tôi',
         'Lịch tư vấn',
@@ -323,7 +324,8 @@ void main() {
       (tester) async {
     await _pump(tester, const BookingHistoryScreen(), session: _minhAnh);
     await _wait(tester);
-    expect(find.text('Lê Quang Tâm'), findsOneWidget);
+    expect(find.text('Lê Quang Tâm'), findsAtLeast(2),
+        reason: 'b_ma_tam_nego, b_ma_tam_short, b_ma_tam_hold, b_ma_tam_auto');
     expect(find.text('ThS. DD Phạm Thu Hà'), findsOneWidget);
     expect(find.text('Chờ bạn'), findsOneWidget,
         reason: "Tâm's offer waits for Minh Anh");
@@ -365,10 +367,10 @@ void main() {
   });
 
   testWidgets(
-      'booking detail: the chef offer in the chat, accepting creates the '
-      'contract and asks for payment', (tester) async {
+      'booking detail: the offer is answered on its card in the chat, accepting '
+      'opens the payment screen, Back returns to the booking', (tester) async {
     await _pump(tester, const BookingDetailScreen(bookingId: 'b_ma_tam_nego'),
-        session: _minhAnh);
+        session: _minhAnh, size: const Size(411, 1800));
     await _wait(tester);
     expect(find.text('Lê Quang Tâm'), findsOneWidget);
     expect(find.text('Đang thoả thuận giá'), findsOneWidget);
@@ -378,24 +380,37 @@ void main() {
     expect(find.text('Đề xuất giá · 1.500.000đ'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, 'Đồng ý'), findsOneWidget,
         reason: 'answer from the offer card');
+    expect(find.text('Đề xuất giá khác'), findsOneWidget,
+        reason: 'on the card, not above the chat');
+    expect(find.text('Đồng ý 1.500.000đ'), findsNothing);
+    expect(find.text('Huỷ yêu cầu'), findsOneWidget);
 
-    await tester.ensureVisible(find.text('Đồng ý 1.500.000đ'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Đồng ý 1.500.000đ'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Đồng ý'));
     await tester.pumpAndSettle();
     expect(find.text('Đồng ý 1.500.000đ?'), findsOneWidget);
     await tester.tap(find.descendant(
         of: find.byType(AlertDialog),
         matching: find.widgetWithText(FilledButton, 'Đồng ý')));
     await _wait(tester, 4);
+    expect(find.byType(PaymentScreen), findsOneWidget);
+    expect(find.text('Đang chờ thanh toán…'), findsOneWidget);
+
+    // Back to the booking, which can still be paid.
+    await tester.pageBack();
+    await tester.pump();
+    await tester.tap(find.text('Rời đi'));
+    await _wait(tester, 2);
+    expect(find.byType(PaymentScreen), findsNothing);
     expect(find.text('Chờ thanh toán'), findsOneWidget);
     expect(find.text('Thanh toán 1.500.000đ'), findsOneWidget);
 
     await tester.tap(find.text('Hợp đồng'));
     await tester.pumpAndSettle();
     expect(find.text('Hồ sơ hợp đồng'), findsOneWidget);
-    expect(
-        find.textContaining('3 ngày sau khi kết thúc kế hoạch'), findsWidgets);
+    expect(find.textContaining('7 ngày sau khi hợp đồng hoàn thành'),
+        findsWidgets);
+    expect(find.text('Chưa thanh toán'), findsOneWidget,
+        reason: 'who holds it');
     await _dispose(tester);
   });
 
@@ -455,17 +470,11 @@ void main() {
     await _pumpPushed(tester, const BookChefPlanScreen(chef: _tamChef),
         session: _minhAnh, size: const Size(411, 2400));
     await _wait(tester);
-    expect(
-        find.text(
-            '≈ 7 ngày × 180.000đ = 1.260.000đ (giá cuối do hai bên thoả thuận)'),
-        findsOneWidget);
+    expect(find.text('1.260.000đ'), findsOneWidget);
     await tester.tap(find.text('Giao trọn kế hoạch một lần'));
     await tester.pump();
-    expect(
-        find.text(
-            '≈ 7 ngày × 150.000đ = 1.050.000đ (giá cuối do hai bên thoả thuận)'),
-        findsOneWidget);
-    expect(find.text('Đậu phộng'), findsOneWidget,
+    expect(find.text('1.050.000đ'), findsOneWidget);
+    expect(find.text('Đậu phộng'), findsWidgets,
         reason: 'allergies from the health profile');
 
     await tester.tap(find.text('Gửi yêu cầu'));
@@ -502,13 +511,14 @@ void main() {
         session: _tam, size: const Size(411, 2600));
     await _wait(tester, 4);
     expect(find.text('110.000đ'), findsOneWidget);
-    expect(find.text('1.134.000đ'), findsWidgets);
+    expect(find.text('2.934.000đ'), findsWidgets);
     expect(find.text('945.000đ'), findsWidgets);
     expect(find.text('Tạm giữ do khiếu nại'), findsWidgets);
     expect(find.text('Vietcombank •••• 6789'), findsOneWidget);
     expect(find.text('Thu nhập · Thực đơn 7 ngày · Có phản hồi mỗi ngày'),
         findsWidgets);
-    expect(find.textContaining('Giữ đến'), findsOneWidget);
+    expect(find.textContaining('Giữ đến'), findsNWidgets(2),
+        reason: 'b_ma_tam_hold, b_ma_tam_auto');
     expect(find.text('Gộp 1.260.000đ · Phí 126.000đ · Thực nhận 1.134.000đ'),
         findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -516,14 +526,15 @@ void main() {
   });
 
   testWidgets(
-      'chef view: a new request offers "Báo giá" / "Từ chối" and shows the '
-      'shared health profile', (tester) async {
+      'chef view: a new request offers "Báo giá" in the chat, "Không đồng ý" '
+      'above it, and shows the shared health profile', (tester) async {
     await _pump(tester, const BookingDetailScreen(bookingId: 'b_nam_tam_req'),
         session: _tam);
     await _wait(tester);
     expect(find.text('Hoàng Nam'), findsOneWidget);
     expect(find.text('Báo giá'), findsOneWidget);
-    expect(find.text('Từ chối'), findsOneWidget);
+    expect(find.text('Không đồng ý'), findsOneWidget);
+    expect(find.text('Từ chối'), findsNothing);
     expect(find.text('Thành viên chờ bạn báo giá.'), findsOneWidget);
     await tester.tap(find.text('Hợp đồng'));
     await tester.pumpAndSettle();

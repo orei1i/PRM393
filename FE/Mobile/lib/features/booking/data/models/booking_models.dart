@@ -13,9 +13,14 @@
 //   "member": { "id": "u_me", "fullName": "Minh Anh", "email": "minhanh.nguyen@gmail.com" },
 //   "chef":   { "id": "u_chef_tam", "fullName": "Lê Quang Tâm", "email": "tam.chefchay@gmail.com" },
 //   "bookingType": "DailyFeedback", "planDays": 10, "startDate": "2026-10-20",
-//   "goal": "lose_weight", "allergies": ["peanut"], "mealPattern": ["breakfast","lunch","dinner"],
+//   "audience": "Self" | "Family",   // missing (older data) reads as "Self"
+//   "familySize": null | 4,          // Family only
+//   "goal": "lose_weight" | null,    // null for Family, or Self without sharing
+//   "allergies": ["peanut"], "mealPattern": ["breakfast","lunch","dinner"],
 //   "budgetPerDay": 80000, "needs": "…", "shareHealthProfile": true,
 //   "status": "Negotiating", "deliveredDays": 0,
+//   "completedAt": null | "…",       // completed; the hold runs from here
+//   "autoCompleted": false,          // true: the system did it, not the chef
 //   "currentOffer": OfferDto | null, "contract": ContractDto | null,
 //   "escrow": EscrowHoldDto | null, "complaint": ComplaintDto | null,
 //   "paymentOrderId": "ord_601" | null, "declineReason": null, "cancelReason": null,
@@ -23,7 +28,7 @@
 //                     "age": 29, "activityLevel": "light", "dailyKcalTarget": 1600 } | null,
 //   "createdAt": "2026-10-16T03:00:00Z", "updatedAt": "…" }
 //   memberHealth (mobile addition, computed by BE): sent only when shareHealthProfile
-//   is true, to the two parties. The web console ignores it.
+//   is true (never for Family), to the two parties. The web console ignores it.
 //
 // OfferDto     { "id": "of_b_ma_tam_nego_1", "proposedBy": "chef" | "member", "price": 1500000,
 //                "planDays": 10, "bookingType": "DailyFeedback", "startDate": "2026-10-20",
@@ -31,13 +36,22 @@
 // ContractDto  { "id": "ct_…", "bookingId", "offerId", "price": 1500000, "planDays": 10,
 //                "bookingType": "DailyFeedback", "startDate": "2026-10-20", "endDate": "2026-10-29",
 //                "deliveryDueAt": "…", "dailySendCutoff": "06:00", "feedbackCutoff": "21:00",
-//                "scopeText": "…", "feeRate": 0.1, "holdDays": 3, "paymentDueAt": "…", "createdAt": "…" }
+//                "scopeText": "…", "feeRate": 0.1, "holdDays": 7, "paymentDueAt": "…", "createdAt": "…" }
 // EscrowHoldDto { "id": "eh_604", "bookingId": "b_tram_tam", "paymentId": "pay_…", "amount": 1050000,
 //                 "status": "Held" | "Frozen" | "Released" | "Refunded" | "PartiallyRefunded",
-//                 "heldAt": "…", "releaseAt": "2026-10-19T16:59:00.000Z", "releasedAt": null,
-//                 "releasedAmount": 0, "feeAmount": 0, "refundedAmount": 0,
+//                 "heldAt": "…", "completedAt": null | "…",
+//                 "releaseAt": null | "2026-10-19T16:59:00.000Z", "releasedAt": null,
+//                 "releasedAmount": 0, "feeAmount": 0, "refundedAmount": 0, "refundedAt": null,
 //                 "resolvedBy": null, "resolutionNote": null }
-//   releaseAt = endDate 23:59 Asia/Ho_Chi_Minh + 3 days. Released: net 90 % to the chef wallet.
+//   releaseAt is null until the contract is completed, then completedAt + 7 days (exact instant).
+//   The chef confirms; or, with every day delivered by then and no open complaint, the
+//   system completes it at endDate + 3 days 23:59 VN (completedAt = that moment,
+//   autoCompleted = true). With days missing at that moment nothing happens: the money
+//   stays held (a stuck hold) and the member is asked to complain.
+//   An admin decides a stuck hold on web `/disputes` (POST /admin/escrow/holds/{id}/resolve):
+//   resolvedBy and resolutionNote are set with no complaint, the booking is Completed
+//   (release, split) or Cancelled (refund). A member's own cancellation leaves resolvedBy null.
+//   Released: net 90 % to the chef wallet. Refunds go to the member's wallet.
 // ComplaintDto { "id": "cp_tram_tam", "bookingId": "b_tram_tam", "reason": "health_risk",
 //                "description": "…", "requestedOutcome": "PartialRefund", "requestedAmount": 500000,
 //                "status": "Open" | "Resolved",
@@ -62,15 +76,22 @@
 //                "offer": OfferDto | null, "attachmentUrl": null, "createdAt" }
 //
 // Requests:
-// POST /bookings { chefId, bookingType, planDays, startDate, goal, allergies, mealPattern,
-//                  budgetPerDay?, needs, shareHealthProfile } → BookingDto (Requested)
+// POST /bookings { chefId, bookingType, planDays, startDate, audience, familySize?, goal?,
+//                  allergies, mealPattern, budgetPerDay?, needs, shareHealthProfile }
+//      → BookingDto (Requested). Self: needs ≥ 20 characters, goal only when sharing.
+//      Family: familySize 2–20, needs optional, no goal, shareHealthProfile false.
 //      409 self_booking, 409 not_accepting, 400 validation, 401 guest
 // POST /bookings/{id}/messages { body, attachmentUrl? } → MessageDto ; GET ?after= → [MessageDto]
 // POST /bookings/{id}/offers { price, planDays, bookingType, startDate, note } → BookingDto
 // POST /bookings/{id}/offers/{offerId}/accept|reject → BookingDto
 //      accept: contract created, AwaitingPayment,
 //      paymentDueAt = min(now + 48 h, startDate 00:00 VN)
-// POST /bookings/{id}/cancel { reason } ; POST /chefs/me/bookings/{id}/decline { reason }
+// POST /bookings/{id}/cancel { reason }: before payment, or after it while no day was
+//      delivered (409 plan_started): the whole price goes to the member's wallet.
+// POST /chefs/me/bookings/{id}/decline { reason }: before payment ("Không đồng ý").
+// POST /chefs/me/bookings/{id}/complete → BookingDto (Ended, completedAt, escrow.releaseAt)
+//      every day delivered and today ≥ endDate, else 409 plan_not_delivered;
+//      409 not_active, 409 has_open_complaint
 // POST /bookings/{id}/payments → OrderDto (orders.booking_id, PaymentOS QR)
 // GET  /bookings/{id}/plan → [PlanDayDto]
 // PUT  /bookings/{id}/plan/days/{dayIndex}/feedback { rating, adherence, body } → PlanDayDto
@@ -83,11 +104,26 @@
 import '../../../../core/utils/energy.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/json_helpers.dart';
+import '../../../meal_planner/domain/entities/health_profile.dart';
 import '../../../meal_planner/domain/entities/meal_slot.dart';
 import '../../domain/booking_enums.dart';
 import '../../domain/booking_rules.dart';
 
 int? _intOrNull(Object? value) => value == null ? null : readInt(value);
+
+/// A name sent as a plain string or as `{ fullName }` (the web accepts both).
+String? _personName(Object? value) => switch (value) {
+      final String name => name,
+      {'fullName': final String name} => name,
+      _ => null,
+    };
+
+/// One text, or the list of steps a BE `RecipeResponse` sends: one per line.
+String? _instructionsText(Object? value) => switch (value) {
+      final String text => text,
+      final List<Object?> steps => steps.whereType<String>().join('\n'),
+      _ => null,
+    };
 
 double? _doubleOrNull(Object? value) =>
     value == null ? null : readDouble(value);
@@ -232,9 +268,6 @@ class ContractDto {
   final DateTime createdAt;
 
   int get fee => (price * feeRate).round();
-
-  /// endDate 23:59 VN + [holdDays].
-  DateTime get releaseAt => escrowReleaseAt(endDate, holdDays: holdDays);
 }
 
 class EscrowHoldDto {
@@ -243,13 +276,15 @@ class EscrowHoldDto {
     required this.amount,
     required this.status,
     required this.heldAt,
-    required this.releaseAt,
+    this.completedAt,
+    this.releaseAt,
     this.bookingId = '',
     this.paymentId = '',
     this.releasedAt,
     this.releasedAmount = 0,
     this.feeAmount = 0,
     this.refundedAmount = 0,
+    this.refundedAt,
     this.resolvedBy,
     this.resolutionNote,
   });
@@ -261,12 +296,14 @@ class EscrowHoldDto {
         amount: readInt(json['amount']),
         status: EscrowStatus.fromApi(json['status']),
         heldAt: readDateTime(json['heldAt']) ?? DateTime.now(),
-        releaseAt: readDateTime(json['releaseAt']) ?? DateTime.now(),
+        completedAt: readDateTime(json['completedAt']),
+        releaseAt: readDateTime(json['releaseAt']),
         releasedAt: readDateTime(json['releasedAt']),
         releasedAmount: readInt(json['releasedAmount']),
         feeAmount: readInt(json['feeAmount']),
         refundedAmount: readInt(json['refundedAmount']),
-        resolvedBy: json['resolvedBy'] as String?,
+        refundedAt: readDateTime(json['refundedAt']),
+        resolvedBy: _personName(json['resolvedBy']),
         resolutionNote: json['resolutionNote'] as String?,
       );
 
@@ -281,15 +318,21 @@ class EscrowHoldDto {
   final int amount;
   final EscrowStatus status;
   final DateTime heldAt;
-  final DateTime releaseAt;
+
+  /// When the chef confirmed; `null` before that.
+  final DateTime? completedAt;
+
+  /// `null` until the chef confirms: [completedAt] + 7 days.
+  final DateTime? releaseAt;
   final DateTime? releasedAt;
 
   /// Gross that went to the chef (before the fee).
   final int releasedAmount;
   final int feeAmount;
 
-  /// Sent back to the member's original payment method.
+  /// Sent back to the member's wallet.
   final int refundedAmount;
+  final DateTime? refundedAt;
   final String? resolvedBy;
   final String? resolutionNote;
 }
@@ -363,7 +406,7 @@ class ComplaintDto {
         decision: ComplaintDecision.fromApiOrNull(json['decision']),
         refundAmount: _intOrNull(json['refundAmount']),
         adminNote: json['adminNote'] as String?,
-        decidedBy: json['decidedBy'] as String?,
+        decidedBy: _personName(json['decidedBy']),
         decidedAt: readDateTime(json['decidedAt']),
         createdAt: readDateTime(json['createdAt']) ?? DateTime.now(),
       );
@@ -426,7 +469,7 @@ class PlanRecipeDto {
                   i['name'] as String,
             ]
           : const [],
-      instructions: json['instructions'] as String?,
+      instructions: _instructionsText(json['instructions']),
     );
   }
 
@@ -594,6 +637,17 @@ class MessageDto {
   final DateTime createdAt;
 }
 
+/// `memberHealth` from a health profile: exactly what the chef gets when the
+/// member shares it (the booking form lists the same fields).
+Map<String, dynamic> memberHealthFromProfile(HealthProfile p) => {
+      'heightCm': p.heightCm,
+      'weightKg': p.weightKg,
+      'bmi': p.bmi,
+      if (p.gender != null) 'gender': p.gender!.apiValue,
+      if (p.age != null) 'age': p.age,
+      if (p.dailyKcalTarget != null) 'dailyKcalTarget': p.dailyKcalTarget,
+    };
+
 /// The member's health profile as the chef sees it when it is shared.
 class MemberHealthDto {
   const MemberHealthDto({
@@ -630,22 +684,40 @@ class MemberHealthDto {
   final String? activityLevel;
   final int? dailyKcalTarget;
 
+  String? get _genderLabel => gender == null
+      ? null
+      : switch (gender) {
+          'Male' => 'Nam',
+          'Female' => 'Nữ',
+          _ => 'Khác',
+        };
+
+  // Same rounding as the member's "Hồ sơ sức khoẻ" (2.060, not 2.063).
+  String? get _kcal => dailyKcalTarget == null
+      ? null
+      : '≈ ${Energy.formatKcal(dailyKcalTarget!)} kcal/ngày';
+
   /// "160 cm · 55 kg · BMI 21,5 · Nữ · 29 tuổi · ≈ 1.600 kcal/ngày".
   String get summary => [
         if (heightCm != null) '${formatDecimal(heightCm!, digits: 0)} cm',
         if (weightKg != null) '${formatDecimal(weightKg!, digits: 0)} kg',
         if (bmi != null) 'BMI ${formatDecimal(bmi!)}',
-        if (gender != null)
-          switch (gender) {
-            'Male' => 'Nam',
-            'Female' => 'Nữ',
-            _ => 'Khác',
-          },
+        if (_genderLabel != null) _genderLabel!,
         if (age != null) '$age tuổi',
-        // Same rounding as the member's "Hồ sơ sức khoẻ" (2.060, not 2.063).
-        if (dailyKcalTarget != null)
-          '≈ ${Energy.formatKcal(dailyKcalTarget!)} kcal/ngày',
+        if (_kcal != null) _kcal!,
       ].join(' · ');
+
+  /// The same fields as label + value rows (the booking form's share card).
+  List<(String, String)> get rows => [
+        if (heightCm != null)
+          ('Chiều cao', '${formatDecimal(heightCm!, digits: 0)} cm'),
+        if (weightKg != null)
+          ('Cân nặng', '${formatDecimal(weightKg!, digits: 0)} kg'),
+        if (bmi != null) ('BMI', formatDecimal(bmi!)),
+        if (_genderLabel != null) ('Giới tính', _genderLabel!),
+        if (age != null) ('Tuổi', '$age tuổi'),
+        if (_kcal != null) ('Nhu cầu năng lượng', _kcal!),
+      ];
 }
 
 class BookingDto {
@@ -658,7 +730,9 @@ class BookingDto {
     required this.startDate,
     required this.status,
     required this.createdAt,
-    this.goal = 'maintain',
+    this.audience = BookingAudience.self,
+    this.familySize,
+    this.goal,
     this.allergies = const [],
     this.mealPattern = MealPattern.standard,
     this.budgetPerDay,
@@ -673,6 +747,8 @@ class BookingDto {
     this.declineReason,
     this.cancelReason,
     this.memberHealth,
+    this.completedAt,
+    this.autoCompleted = false,
     this.updatedAt,
   });
 
@@ -683,7 +759,9 @@ class BookingDto {
         bookingType: BookingType.fromApi(json['bookingType']),
         planDays: readInt(json['planDays']),
         startDate: readDate(json['startDate']),
-        goal: json['goal'] as String? ?? 'maintain',
+        audience: BookingAudience.fromApi(json['audience']),
+        familySize: _intOrNull(json['familySize']),
+        goal: json['goal'] as String?,
         allergies: readStringList(json['allergies']),
         mealPattern: MealPattern.fromApi(json['mealPattern']),
         budgetPerDay:
@@ -700,6 +778,8 @@ class BookingDto {
         declineReason: json['declineReason'] as String?,
         cancelReason: json['cancelReason'] as String?,
         memberHealth: MemberHealthDto.fromJsonValue(json['memberHealth']),
+        completedAt: readDateTime(json['completedAt']),
+        autoCompleted: json['autoCompleted'] == true,
         createdAt: readDateTime(json['createdAt']) ?? DateTime.now(),
         updatedAt: readDateTime(json['updatedAt']),
       );
@@ -710,7 +790,13 @@ class BookingDto {
   final BookingType bookingType;
   final int planDays;
   final DateTime startDate;
-  final String goal;
+  final BookingAudience audience;
+
+  /// "Cho gia đình": number of people.
+  final int? familySize;
+
+  /// `null` for a family, or when the member did not share their profile.
+  final String? goal;
 
   /// Allergy keys (`peanut`) or free text ("lá lốt"), see `allergenLabel`.
   final List<String> allergies;
@@ -730,8 +816,69 @@ class BookingDto {
   final String? declineReason;
   final String? cancelReason;
   final MemberHealthDto? memberHealth;
+
+  /// The contract is completed: the hold runs from here.
+  final DateTime? completedAt;
+
+  /// The system completed it because the chef didn't confirm in time.
+  final bool autoCompleted;
   final DateTime createdAt;
   final DateTime? updatedAt;
+
+  bool get isFamily => audience == BookingAudience.family;
+
+  /// "Gia đình · 4 người" / "Cho tôi".
+  String get audienceLabel => !isFamily
+      ? audience.label
+      : familySize == null
+          ? 'Gia đình'
+          : 'Gia đình · $familySize người';
+
+  bool get fullyDelivered => deliveredDays >= planDays;
+
+  /// Chef: every day is delivered, the plan has reached its last day and the
+  /// contract isn't completed yet.
+  bool canConfirmCompletion(DateTime now) =>
+      status == BookingStatus.active &&
+      completedAt == null &&
+      complaint == null &&
+      escrow?.status == EscrowStatus.held &&
+      fullyDelivered &&
+      planReachedEnd(endDate, now);
+
+  /// Past [autoCompleteAt] with days still missing: it doesn't complete by
+  /// itself, the money stays held and the member is asked to complain.
+  bool overdueUndelivered(DateTime now) =>
+      status == BookingStatus.active &&
+      completedAt == null &&
+      complaint == null &&
+      escrow?.status == EscrowStatus.held &&
+      !fullyDelivered &&
+      !now.isBefore(autoCompleteAt(endDate));
+
+  /// Every day is in, but the last ones went out after [autoCompleteAt] (one sent
+  /// in time would have completed by itself): waits on the chef's confirmation, a
+  /// complaint, or an admin.
+  bool deliveredAfterAutoComplete(DateTime now) =>
+      status == BookingStatus.active &&
+      completedAt == null &&
+      complaint == null &&
+      escrow?.status == EscrowStatus.held &&
+      fullyDelivered &&
+      !now.isBefore(autoCompleteAt(endDate));
+
+  /// An admin decided the hold with no complaint: past [autoCompleteAt] it could
+  /// not move on its own. A member's own cancellation leaves `resolvedBy` null.
+  bool get isAdminResolved =>
+      complaint == null && (escrow?.resolvedBy?.isNotEmpty ?? false);
+
+  /// Member: paid, nothing delivered yet, so the whole price can come back to
+  /// the wallet.
+  bool get canCancelPaid =>
+      status == BookingStatus.active &&
+      complaint == null &&
+      escrow?.status == EscrowStatus.held &&
+      deliveredDays == 0;
 
   /// Contract price once agreed, otherwise the current offer's.
   int? get price => contract?.price ?? currentOffer?.price;
@@ -750,14 +897,15 @@ class BookingDto {
     return null;
   }
 
-  /// Member can file a complaint: paid, escrow still Held, before releaseAt,
-  /// no complaint yet.
-  bool canComplain(DateTime now) =>
-      complaint == null &&
-      escrow != null &&
-      escrow!.status == EscrowStatus.held &&
-      now.isBefore(escrow!.releaseAt) &&
-      (status == BookingStatus.active || status == BookingStatus.ended);
+  /// Member can file a complaint: paid, escrow still Held, before releaseAt
+  /// (there is none until the contract is completed), no complaint yet.
+  bool canComplain(DateTime now) {
+    final releaseAt = escrow?.releaseAt;
+    return complaint == null &&
+        escrow?.status == EscrowStatus.held &&
+        (releaseAt == null || now.isBefore(releaseAt)) &&
+        (status == BookingStatus.active || status == BookingStatus.ended);
+  }
 }
 
 /// POST /bookings.
@@ -771,32 +919,53 @@ class CreateBookingRequestDto {
     required this.allergies,
     required this.mealPattern,
     required this.needs,
+    this.audience = BookingAudience.self,
+    this.familySize,
     this.budgetPerDay,
     this.shareHealthProfile = true,
+    this.healthSnapshot,
   });
 
   final String chefId;
   final BookingType bookingType;
   final int planDays;
   final DateTime startDate;
-  final String goal;
+  final BookingAudience audience;
+  final int? familySize;
+
+  /// The form's goal; only sent when [sendsPersonalProfile] (see [sentGoal]).
+  final String? goal;
   final List<String> allergies;
   final List<MealSlot> mealPattern;
   final int? budgetPerDay;
   final String needs;
   final bool shareHealthProfile;
 
+  /// What the share card showed, for the mock server only (never on the wire:
+  /// the real BE reads the member's profile itself). In a hybrid build the
+  /// health profile lives on the BE while the bookings are mock.
+  final Map<String, dynamic>? healthSnapshot;
+
+  bool get isFamily => audience == BookingAudience.family;
+
+  /// A family request sends no personal metrics, whatever the form holds.
+  bool get sendsPersonalProfile => !isFamily && shareHealthProfile;
+
+  String? get sentGoal => sendsPersonalProfile ? goal : null;
+
   Map<String, dynamic> toJson() => {
         'chefId': apiId(chefId),
         'bookingType': bookingType.apiValue,
         'planDays': planDays,
         'startDate': toApiDate(startDate),
-        'goal': goal,
+        'audience': audience.apiValue,
+        if (isFamily) 'familySize': familySize,
+        if (sentGoal != null) 'goal': sentGoal,
         'allergies': allergies,
         'mealPattern': MealPattern.toApi(mealPattern),
         'budgetPerDay': budgetPerDay,
         'needs': needs.trim(),
-        'shareHealthProfile': shareHealthProfile,
+        'shareHealthProfile': sendsPersonalProfile,
       };
 }
 

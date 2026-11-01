@@ -41,18 +41,19 @@ void main() {
   });
 
   group('wallet (escrow)', () {
-    test('Tâm: 110.000đ available, 1.134.000đ held, 945.000đ frozen', () async {
+    test('Tâm: 110.000đ available, 2.934.000đ held, 945.000đ frozen', () async {
       expect(kPlatformFeeRate, 0.10);
-      expect(kEscrowHoldDays, 3);
+      expect(kEscrowHoldDays, 7);
       final w = await wallet.getWallet();
       // Released: b_ma_tam_done 900.000 + b_han_tam_done 6.000.000 → net
       // 6.210.000, minus 1.000.000 withdrawn and 5.100.000 processing.
       expect(w.available, 110000);
-      expect(w.pending, 1134000, reason: 'Thảo Vy, until plan end + 3 days');
+      expect(w.pending, 1134000 + 405000 + 675000 + 270000 + 450000,
+          reason: 'Thảo Vy, b_ma_tam_hold, Bảo Châu, b_ma_tam_auto, _short');
       expect(w.frozen, 945000, reason: 'Ngọc Trâm, cp_tram_tam');
       expect(w.withdrawn, 1000000);
       expect(w.processing, 5100000);
-      expect(w.holdDays, 3);
+      expect(w.holdDays, 7);
       expect(w.bankAccount!.masked, '•••• 6789');
     });
 
@@ -67,8 +68,10 @@ void main() {
       expect(vy.bookingId, 'b_vy_tam_active');
       expect(vy.orderId, 'ord_603');
       expect(vy.transactionRef, startsWith('VL'));
-      // 21/10 23:59 VN + 3 days.
-      expect(vy.releaseAt!.toUtc(), DateTime.utc(2026, 10, 24, 16, 59));
+      expect(vy.releaseAt, isNull, reason: 'not completed yet');
+      final hold = all.singleWhere((t) => t.id == 'tx_in_b_ma_tam_hold');
+      // Confirmed 13/10 20:00 VN, 7 days.
+      expect(hold.releaseAt!.toUtc(), DateTime.utc(2026, 10, 20, 13));
       final tram = all.singleWhere((t) => t.id == 'tx_in_b_tram_tam');
       expect(tram.status, LedgerStatus.frozen);
       expect(tram.complaintId, 'cp_tram_tam');
@@ -81,7 +84,7 @@ void main() {
       expect(rejected.net, -2000000);
       expect(all.singleWhere((t) => t.id == 'tx_wd_wd_tam_3').status,
           LedgerStatus.processing,
-          reason: 'above 5.000.000đ: waits for an admin');
+          reason: 'waits for an admin');
 
       final october = await wallet.transactions(month: '2026-10');
       expect(october.every((t) => t.createdAt.month == 10), isTrue);
@@ -89,7 +92,7 @@ void main() {
           reason: 'released in September');
     });
 
-    test('withdrawals: minimum, balance, auto payout, no bank account',
+    test('withdrawals: minimum, balance, an admin decides, no bank account',
         () async {
       await expectLater(
           wallet.requestWithdrawal(const WithdrawalRequestDto(amount: 50000)),
@@ -107,13 +110,35 @@ void main() {
           .requestWithdrawal(const WithdrawalRequestDto(amount: 100000));
       expect(small.status, LedgerStatus.processing);
       expect(small.accountNumber, '•••• 6789');
-      now = now.add(const Duration(seconds: 11));
-      final list = await wallet.withdrawals();
+      // Nothing happens by itself, however long it waits.
+      now = now.add(const Duration(days: 3));
+      var list = await wallet.withdrawals();
       expect(list.singleWhere((x) => x.id == small.id).status,
-          LedgerStatus.completed);
-      final w = await wallet.getWallet();
+          LedgerStatus.processing);
+      var w = await wallet.getWallet();
+      expect(w.available, 10000);
+      expect(w.withdrawn, 1000000);
+
+      // Refused: the money is back in the balance.
+      await wallet.mockDecideWithdrawal(small.id, approve: false);
+      list = await wallet.withdrawals();
+      final refused = list.singleWhere((x) => x.id == small.id);
+      expect(refused.status, LedgerStatus.rejected);
+      expect(refused.reason, isNotNull);
+      expect((await wallet.getWallet()).available, 110000);
+      await expectLater(wallet.mockDecideWithdrawal(small.id, approve: true),
+          throwsA(apiError(409, 'already_processed')));
+
+      // Approved: paid out.
+      final again = await wallet
+          .requestWithdrawal(const WithdrawalRequestDto(amount: 100000));
+      await wallet.mockDecideWithdrawal(again.id, approve: true);
+      w = await wallet.getWallet();
       expect(w.available, 10000);
       expect(w.withdrawn, 1100000);
+      await expectLater(wallet.mockDecideWithdrawal('wd_me_1', approve: true),
+          throwsA(apiError(404)),
+          reason: "another wallet's request");
 
       MockCommerceDb.instance.bankAccounts.remove('u_chef_tam');
       await expectLater(

@@ -6,10 +6,10 @@ import { ChefHat, CircleCheck, CircleX, Globe, Hourglass } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/form-controls";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatNumber } from "@/lib/utils";
+import { dateFormat, formatNumber } from "@/lib/utils";
 import { KNOWLEDGE_STATUS_LABEL, type KnowledgeDoc, type KnowledgeDocStatus } from "@/types/knowledge";
 
-export const dateVi = new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+export const dateVi = dateFormat({ day: "2-digit", month: "2-digit", year: "numeric" });
 
 export function KnowledgeStatusBadge({ status }: { status: KnowledgeDocStatus }) {
   switch (status) {

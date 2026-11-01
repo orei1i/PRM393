@@ -25,6 +25,10 @@ abstract interface class CommerceApiService {
   /// Polled every 3 s by the payment screen.
   Future<PaymentDto> getPayment(String id);
 
+  /// Pays the order from the member's wallet, in one go (no partial balance).
+  /// 409 `insufficient_balance`, 409 `not_awaiting_payment`.
+  Future<OrderDto> payWithWallet(String orderId);
+
   /// Mock/dev only; the real confirmation is the PaymentOS webhook (BE).
   Future<PaymentDto> mockConfirmPayment(String paymentId,
       {required bool success});
@@ -54,6 +58,13 @@ class RemoteCommerceApiService implements CommerceApiService {
         final res =
             await _dio.get<Map<String, dynamic>>(ApiEndpoints.payment(id));
         return PaymentDto.fromJson(res.data!);
+      });
+
+  @override
+  Future<OrderDto> payWithWallet(String orderId) => guardApi(() async {
+        final res = await _dio.post<Map<String, dynamic>>(
+            ApiEndpoints.orderWalletPayment(orderId));
+        return OrderDto.fromJson(res.data!);
       });
 
   @override

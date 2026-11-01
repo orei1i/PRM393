@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -151,6 +152,25 @@ class _OfflineTiles extends TileProvider {
     requested++;
     return MemoryImage(_png);
   }
+}
+
+/// No connection: every tile fails to load.
+class _FailingTiles extends TileProvider {
+  @override
+  ImageProvider getImage(TileCoordinates coordinates, TileLayer options) =>
+      _FailingImage();
+}
+
+class _FailingImage extends ImageProvider<_FailingImage> {
+  @override
+  Future<_FailingImage> obtainKey(ImageConfiguration configuration) =>
+      SynchronousFuture(this);
+
+  @override
+  ImageStreamCompleter loadImage(
+          _FailingImage key, ImageDecoderCallback decode) =>
+      OneFrameImageStreamCompleter(
+          Future<ImageInfo>.error(Exception('offline')));
 }
 
 /// A slow drag that ends still, so the map does not fling.
@@ -414,7 +434,146 @@ void main() {
       expect(find.text('370 m'), findsOneWidget);
     });
 
-    testWidgets('"Chọn trên bản đồ": drag, the address follows the pin',
+    testWidgets('one screen: no tabs, "Tìm trên bản đồ" at the bottom-left',
+        (tester) async {
+      await _pump(tester, const LocationPickerScreen());
+      await _wait(tester, 300);
+      expect(find.byType(TabBar), findsNothing);
+      expect(find.text('Dùng vị trí hiện tại (mô phỏng)'), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'Tìm địa chỉ, phường, quận…'),
+          findsOneWidget);
+      final fab = find.widgetWithText(FloatingActionButton, 'Tìm trên bản đồ');
+      expect(fab, findsOneWidget);
+      final box = tester.getRect(fab);
+      expect(box.center.dx, lessThan(411 / 2), reason: 'left half');
+      expect(box.center.dy, greaterThan(900 / 2), reason: 'bottom half');
+
+      // To the map and back: what was typed is still there.
+      await tester.enterText(find.byType(TextField), 'ben thanh');
+      await _wait(tester, 800);
+      expect(find.text('Chợ Bến Thành'), findsOneWidget);
+      await tester.tap(fab);
+      await _wait(tester, 800);
+      expect(find.byType(FlutterMap), findsOneWidget);
+      expect(find.byType(FloatingActionButton), findsNothing);
+      expect(find.text('Dùng vị trí này'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Quay lại tìm địa chỉ'));
+      await _wait(tester, 500);
+      expect(find.byType(FlutterMap), findsNothing);
+      expect(find.text('ben thanh'), findsOneWidget);
+      expect(find.text('Chợ Bến Thành'), findsOneWidget);
+    });
+
+    testWidgets('system back from the map returns to the search',
+        (tester) async {
+      UserLocation? result;
+      var closed = false;
+      await _pump(
+        tester,
+        _Opener<UserLocation>(
+          route: LocationPickerScreen.route,
+          onResult: (r) {
+            result = r;
+            closed = true;
+          },
+        ),
+      );
+      await tester.tap(find.text('Mở'));
+      await _wait(tester, 800);
+      await tester.tap(find.text('Tìm trên bản đồ'));
+      await _wait(tester, 800);
+      await tester.binding.handlePopRoute();
+      await _wait(tester, 800);
+      expect(closed, isFalse);
+      expect(find.text('Dùng vị trí hiện tại (mô phỏng)'), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await _wait(tester, 800);
+      expect(closed, isTrue);
+      expect(result, isNull);
+    });
+
+    testWidgets('a tap on the map moves the pin there and confirms',
+        (tester) async {
+      UserLocation? result;
+      await _pump(
+        tester,
+        _Opener<UserLocation>(
+          route: () => LocationPickerScreen.route(
+              initial:
+                  const UserLocation(point: _benThanh, label: 'Chợ Bến Thành'),
+              startOnMap: true),
+          onResult: (r) => result = r,
+        ),
+      );
+      await tester.tap(find.text('Mở'));
+      await _wait(tester, 1500);
+      final map = tester.getRect(find.byType(FlutterMap));
+      await tester.tapAt(map.center + const Offset(60, 80));
+      await _wait(tester, 2000);
+      await tester.tap(find.text('Dùng vị trí này'));
+      await _wait(tester, 800);
+      expect(result!.source, UserLocationSource.map);
+      expect(result!.point, isNot(_benThanh));
+    });
+
+    testWidgets(
+        'failed tiles: says so, the search stays reachable, a point confirms '
+        'with its coordinates', (tester) async {
+      UserLocation? result;
+      await _pump(
+        tester,
+        _Opener<UserLocation>(
+          route: () => LocationPickerScreen.route(
+              // Nowhere near a known place: the address is only coordinates.
+              initial: const UserLocation(
+                  point: GeoPoint(12.5, 109.2), label: 'Biển'),
+              startOnMap: true),
+          onResult: (r) => result = r,
+        ),
+        overrides: [
+          mapTilesEnabledProvider.overrideWithValue(true),
+          mapTileProviderProvider.overrideWithValue(_FailingTiles()),
+        ],
+      );
+      await tester.tap(find.text('Mở'));
+      await tester.runAsync(() => Future<void>.delayed(
+          const Duration(milliseconds: 200))); // the failing image decode
+      await _wait(tester, 2000);
+      expect(find.textContaining('Chưa tải được bản đồ nền'), findsOneWidget);
+      expect(find.text('Dùng vị trí này'), findsOneWidget);
+
+      await _pan(tester, find.byType(FlutterMap), const Offset(-40, 20));
+      await _wait(tester, 1500);
+      await tester.tap(find.text('Dùng vị trí này'));
+      await _wait(tester, 800);
+      expect(result, isNotNull);
+      expect(result!.address, formatCoordinates(result!.point));
+      await tester.pump(const Duration(seconds: 6)); // attribution popup
+    });
+
+    testWidgets('failed tiles: the box on the map goes back to the search',
+        (tester) async {
+      await _pump(
+        tester,
+        const LocationPickerScreen(startOnMap: true),
+        overrides: [
+          mapTilesEnabledProvider.overrideWithValue(true),
+          mapTileProviderProvider.overrideWithValue(_FailingTiles()),
+        ],
+      );
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 200)));
+      await _wait(tester, 1000);
+      await tester.tap(find.text('Tìm địa chỉ, phường, quận…'));
+      await _wait(tester, 500);
+      expect(find.byType(FlutterMap), findsNothing);
+      expect(find.byType(TextField), findsOneWidget);
+      expect(find.text('Dùng vị trí hiện tại (mô phỏng)'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 6)); // attribution popup
+    });
+
+    testWidgets('"Tìm trên bản đồ": drag, the address follows the pin',
         (tester) async {
       UserLocation? result;
       await _pump(
@@ -468,7 +627,7 @@ void main() {
       await _wait(tester, 1000);
       expect(find.textContaining('Không tìm thấy địa chỉ phù hợp'),
           findsOneWidget);
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Chọn trên bản đồ'));
+      await tester.tap(find.text('Tìm trên bản đồ'));
       await _wait(tester, 800);
       expect(find.text('Dùng vị trí này'), findsOneWidget);
       await tester.tap(find.byTooltip('Đóng'));

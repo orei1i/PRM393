@@ -200,7 +200,7 @@ class _DetectionBox extends StatelessWidget {
   }
 }
 
-/// "Cà rốt 91%" (or "Rau chân vịt? 58%", or a check once the user confirmed
+/// "Cà rốt tin cậy 91%" (or "Rau chân vịt? tin cậy 58%", or a check once the user confirmed
 /// it), in the box colour.
 class _NameChip extends StatelessWidget {
   const _NameChip({required this.item, required this.onTap});
@@ -238,7 +238,7 @@ class _NameChip extends StatelessWidget {
               if (item.userVerified)
                 const Icon(Icons.check_rounded, size: 14, color: chipText)
               else
-                Text('${(item.confidence * 100).round()}%',
+                Text('tin cậy ${(item.confidence * 100).round()}%',
                     style: AppTypography.mono(
                         size: 11, weight: FontWeight.w700, color: chipText)),
             ],

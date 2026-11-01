@@ -11,20 +11,29 @@ import '../../../core/session/session_controller.dart';
 import 'mock_chef_wallet_repository.dart';
 import 'models/wallet_models.dart';
 
+/// What every wallet (chef or member) can do with a bank account: the shared
+/// "Tài khoản nhận tiền" and "Rút tiền" screens work on this.
+abstract interface class WalletWithdrawalApi {
+  Future<BankAccountDto> saveBankAccount(BankAccountDto account);
+
+  /// Starts `Processing` and waits for an admin (web `/payouts`). 400 below
+  /// the minimum, 409 `insufficient_balance` above the balance, 409
+  /// `no_bank_account` without a bank account.
+  Future<WithdrawalDto> requestWithdrawal(WithdrawalRequestDto request);
+
+  /// Mock/dev only; the real approval is an admin on web `/payouts`.
+  Future<WithdrawalDto> mockDecideWithdrawal(String id,
+      {required bool approve});
+}
+
 /// "Ví của tôi" (role Chef): booking escrow holds (Đang giữ / Tạm giữ do
 /// khiếu nại / Có thể rút after the 10 % fee) and withdrawals to the chef's
 /// bank account.
-abstract interface class ChefWalletApiService {
+abstract interface class ChefWalletApiService implements WalletWithdrawalApi {
   Future<WalletDto> getWallet();
 
   /// [month] is `yyyy-MM`; null = every month.
   Future<List<WalletTransactionDto>> transactions({String? month});
-
-  Future<BankAccountDto> saveBankAccount(BankAccountDto account);
-
-  /// Starts `Processing`. 400 below the minimum, 409 `insufficient_balance`
-  /// above "Có thể rút", 409 `no_bank_account` without a bank account.
-  Future<WithdrawalDto> requestWithdrawal(WithdrawalRequestDto request);
 
   Future<List<WithdrawalDto>> withdrawals();
 }
@@ -70,6 +79,15 @@ class RemoteChefWalletApiService implements ChefWalletApiService {
             data: request.toJson());
         return WithdrawalDto.fromJson(res.data!);
       });
+
+  @override
+  Future<WithdrawalDto> mockDecideWithdrawal(String id,
+      {required bool approve}) async {
+    throw const ApiException(
+      message: 'Chỉ dùng được ở chế độ mô phỏng.',
+      code: 'not_supported',
+    );
+  }
 
   @override
   Future<List<WithdrawalDto>> withdrawals() => guardApi(() async {

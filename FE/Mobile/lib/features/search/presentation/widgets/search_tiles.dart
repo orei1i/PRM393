@@ -7,6 +7,7 @@ import '../../../../core/widgets/food_cover.dart';
 import '../../../../core/widgets/shimmer.dart';
 import '../../../../core/widgets/vl_card.dart';
 import '../../../community/domain/entities/post.dart';
+import '../../../ingredient/domain/entities/ingredient.dart';
 import '../../domain/entities/search_result.dart';
 
 /// Compact full-width rows for search results (own widgets, so the feed's
@@ -79,6 +80,59 @@ class SearchRecipeTile extends StatelessWidget {
                           style: context.textStyles.bodySmall
                               ?.copyWith(color: context.vl.muted)),
                     ],
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: context.vl.muted),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "Nguyên liệu" row: name and kcal per 100 g; opens the nutrition page.
+class SearchIngredientTile extends StatelessWidget {
+  const SearchIngredientTile(
+      {super.key, required this.ingredient, required this.onTap});
+
+  final IngredientSummary ingredient;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: context.colors.surface,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: context.colors.secondaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.eco_outlined, color: context.colors.primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(ingredient.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: context.textStyles.titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 2),
+                    Text('${formatInt(ingredient.caloriesPer100g)} kcal/100 g',
+                        style: context.textStyles.bodySmall
+                            ?.copyWith(color: context.vl.muted)),
                   ],
                 ),
               ),
@@ -257,31 +311,35 @@ class SearchResultsSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Shimmer(
-      child: Column(
-        children: [
-          for (var i = 0; i < 6; i++)
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 12, 16, 12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SkeletonBox(width: 104, height: 78, radius: 10),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SkeletonBox(height: 16),
-                        SizedBox(height: 8),
-                        SkeletonBox(width: 160, height: 12),
-                      ],
+    // Scrollable so that the rows may run past a short screen.
+    return SingleChildScrollView(
+      physics: const NeverScrollableScrollPhysics(),
+      child: Shimmer(
+        child: Column(
+          children: [
+            for (var i = 0; i < 6; i++)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 12, 16, 12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SkeletonBox(width: 104, height: 78, radius: 10),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SkeletonBox(height: 16),
+                          SizedBox(height: 8),
+                          SkeletonBox(width: 160, height: 12),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
