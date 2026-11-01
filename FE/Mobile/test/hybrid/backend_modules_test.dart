@@ -24,6 +24,7 @@ import 'package:veganlife_mobile/features/chatbot/presentation/screens/chat_scre
 import 'package:veganlife_mobile/features/chef/presentation/screens/chef_directory_screen.dart';
 import 'package:veganlife_mobile/features/chef_studio/data/chef_wallet_api_service.dart';
 import 'package:veganlife_mobile/features/chef_studio/presentation/screens/chef_wallet_screen.dart';
+import 'package:veganlife_mobile/features/commerce/presentation/screens/member_wallet_screen.dart';
 import 'package:veganlife_mobile/features/commerce/presentation/screens/payment_screen.dart';
 import 'package:veganlife_mobile/features/restaurant/presentation/screens/restaurant_nearby_screen.dart';
 import 'package:veganlife_mobile/features/search/presentation/screens/search_screen.dart';
@@ -129,23 +130,54 @@ void main() {
       BackendModules.debugOverride(const {});
       expect(BackendModules.postEdit, isTrue);
       expect(BackendModules.commentEdit, isTrue);
-      expect(BackendModules.commentReplyPaging, isTrue);
       expect(BackendModules.myComments, isTrue);
       expect(BackendModules.restaurantTag, isTrue);
       expect(BackendModules.planAdjust, isTrue);
-      expect(BackendModules.checkInExtras, isTrue);
-      expect(BackendModules.manualMealMacros, isTrue);
 
       BackendModules.debugOverride(
           {BackendModule.community, BackendModule.planner});
       expect(BackendModules.postEdit, isFalse);
       expect(BackendModules.commentEdit, isFalse);
-      expect(BackendModules.commentReplyPaging, isFalse);
       expect(BackendModules.myComments, isFalse);
       expect(BackendModules.restaurantTag, isFalse);
       expect(BackendModules.planAdjust, isFalse);
-      expect(BackendModules.checkInExtras, isFalse);
-      expect(BackendModules.manualMealMacros, isFalse);
+    });
+
+    test('editing and deleting an own recipe: only where it can be stored', () {
+      BackendModules.debugOverride(const {});
+      expect(BackendModules.myRecipeEdit, isTrue);
+      BackendModules.debugOverride(BackendModules.supportedByBackend);
+      expect(BackendModules.myRecipeEdit, isFalse,
+          reason: 'the BE has no PUT or DELETE on /recipes/{id}');
+    });
+
+    test('the wallet and the order must be on the same side to pay from it',
+        () {
+      BackendModules.debugOverride(const {});
+      expect(BackendModules.payFromWallet, isTrue);
+      expect(BackendModules.walletMockControls, isTrue);
+      BackendModules.debugOverride({BackendModule.auth});
+      expect(BackendModules.payFromWallet, isTrue, reason: 'hybrid: both mock');
+      BackendModules.debugOverride({BackendModule.commerce});
+      expect(BackendModules.payFromWallet, isFalse);
+      BackendModules.debugOverride({BackendModule.chefWallet});
+      expect(BackendModules.payFromWallet, isFalse);
+      expect(BackendModules.walletMockControls, isFalse);
+      BackendModules.debugOverride(
+          {BackendModule.commerce, BackendModule.chefWallet});
+      expect(BackendModules.payFromWallet, isTrue);
+    });
+
+    test('capabilities the BE has too: on either way', () {
+      for (final real in [
+        const <BackendModule>{},
+        {BackendModule.community, BackendModule.planner},
+      ]) {
+        BackendModules.debugOverride(real);
+        expect(BackendModules.commentReplyPaging, isTrue);
+        expect(BackendModules.planClear, isTrue);
+        expect(BackendModules.manualMealMacros, isTrue);
+      }
     });
   });
 
@@ -229,8 +261,7 @@ void main() {
     });
 
     test('endpoints the later packages use', () {
-      expect(ApiEndpoints.visionScan, '${Env.apiOrigin}/vision/scan');
-      expect(Uri.parse(ApiEndpoints.visionScan).path, '/vision/scan');
+      expect(ApiEndpoints.visionScan, '/vision/scan');
       expect(ApiEndpoints.commentDelete('c1'), '/comments/c1');
     });
   });
@@ -268,6 +299,7 @@ void main() {
       'Tìm kiếm': () => const SearchScreen(),
       'Hỏi AI': () => const ChatScreen(),
       'Ví': () => const ChefWalletScreen(),
+      'Ví thành viên': () => const MemberWalletScreen(),
     };
 
     Future<void> pumpScreen(WidgetTester tester, Widget screen) async {

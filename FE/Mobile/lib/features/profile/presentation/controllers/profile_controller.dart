@@ -20,6 +20,10 @@ class ProfileController extends AsyncNotifier<UserProfile> {
   @override
   Future<UserProfile> build() async {
     ref.watch(sessionControllerProvider.select((s) => s.accessToken));
+    // The real BE's counts of posts and likes follow every change.
+    if (BackendModules.isReal(BackendModule.profile)) {
+      ref.watch(communityRevisionProvider);
+    }
     return (await ref.watch(profileApiProvider).getMe()).toEntity();
   }
 
@@ -88,10 +92,20 @@ typedef ProfileStats = ({int posts, int likesReceived, int saved});
 /// Counts on the "Tôi" tab, taken from the same lists as "Bài viết của tôi" /
 /// "Đã lưu" so they follow new posts, likes and saves in this session.
 /// `null` until both lists have loaded once (the screen then falls back to
-/// the stats in `GET /users/me`).
+/// the stats in `GET /users/me`). The real BE counts posts and likes itself,
+/// over all of them; saved posts only exist on this device.
 final profileStatsProvider = Provider<ProfileStats?>((ref) {
-  final mine = ref.watch(myPostsProvider);
   final saved = ref.watch(savedPostsProvider);
+  if (BackendModules.isReal(BackendModule.profile)) {
+    final me = ref.watch(profileControllerProvider).valueOrNull;
+    if (me == null || !saved.hasValue) return null;
+    return (
+      posts: me.postCount,
+      likesReceived: me.likesReceived,
+      saved: saved.requireValue.length,
+    );
+  }
+  final mine = ref.watch(myPostsProvider);
   if (!mine.hasValue || !saved.hasValue) return null;
   final posts = mine.requireValue;
   return (

@@ -114,6 +114,73 @@ void main() {
       expect(error.statusCode, 400);
     });
 
+    test('the envelope with errors: the fields say more than its message',
+        () async {
+      final error = await _errorOf({
+        'success': false,
+        'message': 'Dữ liệu yêu cầu không hợp lệ.',
+        'data': null,
+        'statusCode': 400,
+        'errors': {
+          'Email': ['Email không đúng định dạng.'],
+          'FullName': ['Họ tên là bắt buộc.'],
+        },
+      });
+      expect(error.message, 'Email không đúng định dạng. Họ tên là bắt buộc.');
+    });
+
+    test('the envelope with English errors only: its own message', () async {
+      final error = await _errorOf({
+        'success': false,
+        'message': 'Dữ liệu yêu cầu không hợp lệ.',
+        'errors': {
+          r'$': ["'b' is an invalid start of a property name."],
+          'request': ['The request field is required.'],
+        },
+      });
+      expect(error.message, 'Dữ liệu yêu cầu không hợp lệ.');
+    });
+
+    group('garbled text from the BE (B35) never shows', () {
+      for (final (status, garbled, shown) in [
+        (404, 'KhÃ´ng tÃ¬m tháº¥y user vá»›i id: 1', 'Không tìm thấy dữ liệu.'),
+        (
+          401,
+          'PhiÃªn Ä‘Äƒng nháº­p khÃ´ng há»£p lá»‡',
+          'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.'
+        ),
+        (
+          400,
+          'KhÃ´ng tÃ¬m tháº¥y tÃ i khoáº£n.',
+          'Dữ liệu gửi lên chưa hợp lệ.'
+        ),
+        (
+          403,
+          'TÃ i khoáº£n quáº£n trá»‹ chá»‰ dÃ¹ng trÃªn web quáº£n trá»‹.',
+          'Bạn không có quyền thực hiện thao tác này.'
+        ),
+      ]) {
+        test(garbled, () async {
+          final error = await _errorOf({'success': false, 'message': garbled},
+              status: status);
+          expect(error.message, shown);
+        });
+      }
+
+      test('real Vietnamese is left alone', () async {
+        for (final fine in [
+          'Bạn đã báo cáo bài viết này rồi.',
+          'Mã xác thực không chính xác.',
+          'NGÃ BA ĐÃ CÓ.',
+          'Refresh token không hợp lệ hoặc đã bị thu hồi.',
+        ]) {
+          final error =
+              await _errorOf({'success': false, 'message': fine}, status: 400);
+          expect(error.message, fine);
+        }
+      });
+    });
+
     test('framework errors in English are skipped', () async {
       final error = await _errorOf({
         'title': 'One or more validation errors occurred.',
@@ -202,6 +269,59 @@ void main() {
       expect(AuthErrors.localize(coded), same(coded));
     });
 
+    test('garbled login and register errors read by status (B35)', () async {
+      final container = await _container(
+        _FakeAdapter({
+          '/auth/login': (
+            401,
+            {
+              'success': false,
+              'message': 'Email hoáº·c máº­t kháº©u khÃ´ng Ä‘Ãºng.',
+              'statusCode': 401,
+            }
+          ),
+          '/auth/register': (
+            409,
+            {
+              'success': false,
+              'message': 'Email nÃ y Ä‘Ã£ cÃ³ tÃ i khoáº£n.',
+              'statusCode': 409,
+            }
+          ),
+        }),
+        signedIn: false,
+      );
+      final api = RemoteAuthApiService(container.read(dioProvider));
+      await expectLater(
+        api.login(email: 'a@example.com', password: 'x'),
+        throwsA(isA<ApiException>().having(
+            (e) => e.message, 'message', AuthErrors.invalidCredentials)),
+      );
+      await expectLater(
+        api.register(const RegisterRequest(
+            fullName: 'A', email: 'a@example.com', password: 'x')),
+        throwsA(isA<ApiException>()
+            .having((e) => e.message, 'message', AuthErrors.emailTaken)),
+      );
+    });
+
+    test(
+        'a Vietnamese message on the verify route stays; a used-up code can be '
+        'sent again at once', () async {
+      const wrong = 'Mã xác thực không chính xác.';
+      const usedUp = 'Bạn đã nhập sai mã xác thực quá 5 lần. Vui lòng yêu cầu '
+          'mã mới.';
+      const gone = 'Mã xác thực không hợp lệ hoặc đã hết hạn.';
+      final kept = localize(wrong, 400);
+      expect(kept.message, wrong);
+      expect(kept.code, isNull);
+      for (final message in [usedUp, gone]) {
+        final e = localize(message, 400);
+        expect(e.message, message);
+        expect(e.code, 'code_expired');
+      }
+    });
+
     test('verify-reset-code through the real pipeline', () async {
       final container = await _container(
         _FakeAdapter({
@@ -227,7 +347,8 @@ void main() {
     });
   });
 
-  group('401 handling', () {
+  // With a refresh token: test/hybrid/token_refresh_test.dart.
+  group('401 handling, without a refresh token', () {
     setUp(() => BackendModules.debugOverride({BackendModule.auth}));
 
     Future<void> failing(ProviderContainer c, String path) async {

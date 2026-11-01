@@ -50,10 +50,26 @@ DateTime addDays(DateTime date, int days) =>
 DateTime planEndDate(DateTime startDate, int planDays) =>
     addDays(startDate, planDays - 1);
 
-/// releaseAt = endDate 23:59 (Asia/Ho_Chi_Minh) + [holdDays] days.
-DateTime escrowReleaseAt(DateTime endDate,
+/// releaseAt = the moment the contract was completed + [holdDays] days. Until
+/// the contract is completed the hold has no release date.
+DateTime escrowReleaseAt(DateTime completedAt,
         {int holdDays = BookingRules.holdDays}) =>
-    vnTime(addDays(endDate, holdDays), 23, 59);
+    completedAt.toUtc().add(Duration(days: holdDays));
+
+/// The VN calendar day of [now] has reached the plan's last day: the chef may
+/// confirm from then on (a one-shot plan is delivered before it starts).
+bool planReachedEnd(DateTime endDate, DateTime now) =>
+    !vnDateOf(now).isBefore(dateOnly(endDate));
+
+/// A chef who never confirms: at 23:59 (VN) on the
+/// [BookingRules.autoCompleteDays]th day after the plan's last day, a plan with
+/// every day delivered and no open complaint completes by itself.
+DateTime autoCompleteAt(DateTime endDate) =>
+    vnTime(addDays(endDate, BookingRules.autoCompleteDays), 23, 59);
+
+/// What both sides read once the system completed a contract.
+const autoCompletedNote =
+    'Hệ thống tự hoàn tất vì chuyên gia chưa xác nhận sau ${BookingRules.autoCompleteDays} ngày';
 
 /// The member pays within [window] of accepting an offer, and before the plan
 /// starts: min(acceptedAt + window, startDate 00:00 VN).
@@ -120,8 +136,9 @@ abstract final class BookingRules {
   static const minPlanDays = 3;
   static const maxPlanDays = 30;
 
-  /// Chips on the booking form and the offer sheet.
-  static const dayPresets = [3, 7, 10, 14, 30];
+  /// "Cho gia đình": number of people.
+  static const minFamilySize = 2;
+  static const maxFamilySize = 20;
   static const minPrice = 100000;
   static const maxPrice = 50000000;
   static const maxOfferNote = 300;
@@ -137,6 +154,9 @@ abstract final class BookingRules {
   static const maxFeedbackBody = 500;
   static const maxDishName = 120;
 
+  /// An admin's note on a stuck hold (web `/disputes`), shown to both sides.
+  static const minAdminNote = 20;
+
   /// Smallest partial refund; it must also stay below the contract price.
   static const minPartialRefund = 1000;
 
@@ -147,8 +167,12 @@ abstract final class BookingRules {
   /// `#expire` in the needs (mock): the payment window is 30 s.
   static const fastPaymentWindow = Duration(seconds: 30);
 
-  /// Escrow is held until the plan's end date 23:59 + this many days.
-  static const holdDays = 3;
+  /// Escrow stays held this many days after the contract is completed.
+  static const holdDays = kEscrowHoldDays;
+
+  /// Days after the plan's end date before the system completes a fully
+  /// delivered plan the chef didn't confirm, see [autoCompleteAt].
+  static const autoCompleteDays = 3;
   static const feeRate = kPlatformFeeRate;
 
   /// DailyFeedback: day N is due at 06:00 on day N; the member's feedback
@@ -162,6 +186,16 @@ abstract final class BookingRules {
       value == null || value < minPlanDays || value > maxPlanDays
           ? 'Số ngày từ $minPlanDays đến $maxPlanDays.'
           : null;
+
+  static String? familySize(int? value) =>
+      value == null || value < minFamilySize || value > maxFamilySize
+          ? 'Số người từ $minFamilySize đến $maxFamilySize.'
+          : null;
+
+  /// "Cho gia đình": the note is optional.
+  static String? familyNote(String value) => value.trim().length > maxNeeds
+      ? 'Tối đa ${formatInt(maxNeeds)} ký tự.'
+      : null;
 
   static String? price(int? value) =>
       value == null || value < minPrice || value > maxPrice

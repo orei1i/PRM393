@@ -2,10 +2,23 @@
 // In-memory restaurants + reviews for /restaurants. Fictional names only (we never imply
 // a real place's certification), around Q.1/3/5/7 and Bình Thạnh, plus user submissions
 // without coordinates. Review comments mention dishes, like the mobile mock.
-// QA hook: the seeded submission "Quán thử nghiệm QA #fail" (and its review) fail every
-// write with 503, so the optimistic toggle / delete rollback can be exercised.
+// Suggestions from the app wait as Pending: rs_ut_muoi (2 images + 1 video, no coordinates),
+// rs_nha_la, rs_goc_xanh (coordinates), rs_qa_pending. rs_u_rejected_demo is the refused place the
+// mobile mock also seeds for u_me. Every other row counts as Approved.
+// QA hooks: "Quán thử nghiệm QA #fail" (Approved, with a review) and "Quán gợi ý QA #fail" (Pending)
+// fail every write with 503, so the optimistic toggle / review / delete rollback can be exercised.
+// `#fail` in a rejection reason also gives 503. Certifying a place that is not Approved → 409.
 import type { AdminSession } from "@/types/admin";
-import type { AdminRestaurant, AdminReview, RestaurantMedia, RestaurantPerson, RestaurantQuery } from "@/types/restaurants";
+import { MAX_RESTAURANT_REASON } from "@/types/restaurants";
+import type {
+  AdminRestaurant,
+  AdminReview,
+  RestaurantMedia,
+  RestaurantPerson,
+  RestaurantQuery,
+  RestaurantReviewInput,
+  RestaurantStatus,
+} from "@/types/restaurants";
 
 import { ApiError } from "./api_error";
 import { logAction } from "./mock_admin";
@@ -37,6 +50,11 @@ interface RestaurantRow {
   id: string;
   name: string;
   address: string;
+  status: RestaurantStatus;
+  rejectionReason: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+  reviewedBy: string | null;
   isVeganCertified: boolean;
   createdBy: RestaurantPerson | null;
   latitude: number | null;
@@ -57,21 +75,43 @@ const SEEDS: Seed[] = [
   ["rs_van_hoa", "Nhà Hàng Chay Vạn Hoa", "61 Nguyễn Thị Thập, P. Tân Hưng, Q.7, TP.HCM", true, null, [10.738, 106.716]],
   ["rs_hanh_tam", "Bún Riêu Chay Hạnh Tâm", "152 Đinh Tiên Hoàng, P.1, Q. Bình Thạnh, TP.HCM", true, null, [10.8003, 106.6977]],
   ["rs_lanh", "Sữa Hạt & Chay Lành", "24 Nguyễn Gia Trí, P.25, Q. Bình Thạnh, TP.HCM", true, null, [10.8036, 106.7155]],
-  // User submissions from the app: uncertified, no coordinates.
+  // User submissions from the app: uncertified, mostly no coordinates.
   ["rs_ut_muoi", "Cơm Tấm Chay Út Mười", "Hẻm 120 Bùi Viện, P. Phạm Ngũ Lão, Q.1, TP.HCM", false, "u_me", null],
   ["rs_nha_la", "Quán Chay Nhà Lá", "Gian 12, chợ Bà Chiểu, Q. Bình Thạnh, TP.HCM", false, "u_thao_vy", null],
+  ["rs_goc_xanh", "Góc Xanh Vegan", "88 Phan Xích Long, P.2, Q. Phú Nhuận, TP.HCM", false, "u_hoang_nam", [10.7995, 106.6848]],
+  ["rs_u_rejected_demo", "Cơm Chay Góc Phố Cũ", "3 Đường Số 7, P. Bình An, TP. Thủ Đức, TP.HCM", false, "u_me", null],
+  ["rs_qa_pending", "Quán gợi ý QA #fail", "2 Đường thử nghiệm, Q.5, TP.HCM", false, "u_new_1", null],
   ["rs_qa_fail", "Quán thử nghiệm QA #fail", "1 Đường thử nghiệm, Q.5, TP.HCM", false, "u_new_1", null],
 ];
 
-const restaurants: RestaurantRow[] = SEEDS.map(([id, name, address, certified, createdBy, coords]) => ({
-  id,
-  name,
-  address,
-  isVeganCertified: certified,
-  createdBy: createdBy ? person(createdBy) : null,
-  latitude: coords?.[0] ?? null,
-  longitude: coords?.[1] ?? null,
-}));
+/** Everything not listed here is Approved. [status, days ago sent, days ago decided, reason, admin] */
+const REVIEW_STATE: Record<string, [status: RestaurantStatus, sent: number, decided: number | null, reason: string | null, by: string | null]> = {
+  rs_ut_muoi: ["Pending", 1, null, null, null],
+  rs_nha_la: ["Pending", 4, null, null, null],
+  rs_goc_xanh: ["Pending", 2, null, null, null],
+  rs_qa_pending: ["Pending", 0.5, null, null, null],
+  rs_u_rejected_demo: ["Rejected", 12, 10, "Không xác minh được địa chỉ: quán đã ngừng hoạt động.", "Lê Minh Quân"],
+  rs_nha_gao: ["Approved", 40, 38, null, "Trần Thu Hằng"],
+  rs_qa_fail: ["Approved", 6, 5, null, "Lê Minh Quân"],
+};
+
+const restaurants: RestaurantRow[] = SEEDS.map(([id, name, address, certified, createdBy, coords]) => {
+  const [status, sent, decided, reason, by] = REVIEW_STATE[id] ?? ["Approved" as const, 60, null, null, null];
+  return {
+    id,
+    name,
+    address,
+    status,
+    rejectionReason: reason,
+    createdAt: daysAgo(sent),
+    reviewedAt: decided === null ? null : daysAgo(decided),
+    reviewedBy: by,
+    isVeganCertified: certified,
+    createdBy: createdBy ? person(createdBy) : null,
+    latitude: coords?.[0] ?? null,
+    longitude: coords?.[1] ?? null,
+  };
+});
 
 type ReviewSeed = [user: PersonId, rating: number, comment: string, daysAgo: number];
 
@@ -137,7 +177,6 @@ const REVIEW_SEEDS: Record<string, ReviewSeed[]> = {
     ["u_ngoc_tram", 4, "Bánh mì chay pate nấm ngon, sữa hạt sen thơm.", 9],
     ["u_chef_tam", 4, "Nguyên liệu hạt rõ nguồn gốc. Nên thêm lựa chọn không đường.", 21],
   ],
-  rs_ut_muoi: [["u_thao_vy", 4, "Cơm tấm chay sườn nướng sả thơm, quán vỉa hè nhưng sạch sẽ.", 1]],
   rs_qa_fail: [["u_new_1", 3, "Đánh giá thử nghiệm QA #fail — xoá sẽ báo lỗi để kiểm tra hoàn tác.", 0.5]],
 };
 
@@ -156,6 +195,8 @@ const MEDIA_SEEDS: [restaurantId: string, type: "Image" | "Video", file: string,
   ["rs_ut_muoi", "Image", "ut_muoi_mat_tien.jpg", "u_me", 1],
   ["rs_ut_muoi", "Video", "ut_muoi_quay_quan.mp4", "u_me", 1],
   ["rs_nha_la", "Image", "nha_la_gian_hang.jpg", "u_thao_vy", 4],
+  ["rs_goc_xanh", "Image", "goc_xanh_quay.jpg", "u_hoang_nam", 2],
+  ["rs_goc_xanh", "Image", "goc_xanh_bun_tron.jpg", "u_hoang_nam", 2],
 ];
 
 const media: (RestaurantMedia & { restaurantId: string })[] = MEDIA_SEEDS.map(([restaurantId, type, file, by, age], i) => ({
@@ -209,10 +250,12 @@ export async function listRestaurants(query: RestaurantQuery): Promise<AdminRest
   if (hasFail(query.search)) throw unavailable("tải được danh sách quán");
   const q = fold(query.search.trim());
   return restaurants
+    .filter((r) => query.status === "all" || r.status === query.status)
     .filter((r) => query.certified === "all" || r.isVeganCertified === (query.certified === "certified"))
     .filter((r) => query.source === "all" || (query.source === "user") === (r.createdBy !== null))
     .filter((r) => !q || fold(`${r.name} ${r.address}`).includes(q))
-    .sort((a, b) => a.name.localeCompare(b.name, "vi"))
+    // The approval queue is oldest first, like /disputes and /payouts.
+    .sort((a, b) => (query.status === "Pending" ? a.createdAt.localeCompare(b.createdAt) : a.name.localeCompare(b.name, "vi")))
     .map(view);
 }
 
@@ -227,9 +270,31 @@ export async function listReviews(restaurantId: string): Promise<AdminReview[]> 
 
 /* ---------------------------------------------------------------- writes */
 
+/** Approve clears the reason; Reject needs one and clears certification. Re-deciding is allowed. */
+export async function reviewRestaurant(input: RestaurantReviewInput, session: AdminSession | null): Promise<AdminRestaurant> {
+  await sleep(600);
+  const r = find(input.id);
+  const reason = input.reason?.trim() ?? "";
+  if (input.decision === "Reject") {
+    if (!reason) throw new ApiError("Cần ghi lý do từ chối.", 400, "reason_required");
+    if (reason.length > MAX_RESTAURANT_REASON) throw new ApiError(`Lý do tối đa ${MAX_RESTAURANT_REASON} ký tự.`, 400, "reason_too_long");
+  }
+  if (hasFail(r.name) || hasFail(reason)) throw unavailable("lưu được quyết định");
+  const actor = session?.fullName ?? "Quản trị viên";
+  const wasCertified = r.isVeganCertified;
+  r.status = input.decision === "Approve" ? "Approved" : "Rejected";
+  r.rejectionReason = input.decision === "Reject" ? reason : null;
+  if (input.decision === "Reject") r.isVeganCertified = false;
+  r.reviewedAt = new Date().toISOString();
+  r.reviewedBy = actor;
+  logAction(actor, input.decision === "Approve" ? "duyệt quán gợi ý" : "từ chối quán gợi ý", input.decision === "Reject" && wasCertified ? `${r.name} (bỏ chứng nhận)` : r.name);
+  return view(r);
+}
+
 export async function setCertified(id: string, isVeganCertified: boolean, session: AdminSession | null): Promise<AdminRestaurant> {
   await sleep(500);
   const r = find(id);
+  if (r.status !== "Approved") throw new ApiError("Chỉ quán đã duyệt mới được chứng nhận.", 409, "not_approved");
   if (hasFail(r.name)) throw unavailable("lưu được chứng nhận");
   r.isVeganCertified = isVeganCertified;
   logAction(session?.fullName ?? "Quản trị viên", isVeganCertified ? "chứng nhận quán thuần chay" : "bỏ chứng nhận quán chay", r.name);

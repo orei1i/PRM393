@@ -13,6 +13,7 @@ import 'package:veganlife_mobile/core/models/author_summary.dart';
 import 'package:veganlife_mobile/core/session/session_controller.dart';
 import 'package:veganlife_mobile/features/community/data/media_api_service.dart';
 import 'package:veganlife_mobile/features/community/data/media_picker.dart';
+import 'package:veganlife_mobile/features/community/data/mock_community_repository.dart';
 import 'package:veganlife_mobile/features/community/domain/entities/post.dart';
 import 'package:veganlife_mobile/features/community/presentation/screens/create_post_screen.dart';
 import 'package:veganlife_mobile/features/community/presentation/screens/post_detail_screen.dart';
@@ -408,7 +409,8 @@ void main() {
       expect(postButton(tester).onPressed, isNull);
     });
 
-    testWidgets('a photo, a restaurant and tags: posts and pops the saved post',
+    testWidgets(
+        'a photo, a restaurant and tags: sent for review, nothing for the feed',
         (tester) async {
       Post? created;
       picker = _InstantPicker(MockMediaPickerService.imageSamples.first);
@@ -466,13 +468,26 @@ void main() {
       await _wait(tester, 2000);
       await tester.pumpAndSettle();
       expect(find.byType(CreatePostScreen), findsNothing);
-      expect(created, isNotNull);
-      expect(created!.type, PostType.discussion);
-      expect(created!.mediaType, PostMediaType.image);
-      expect(created!.restaurant?.id, 'rs_an_lac');
-      expect(created!.restaurant?.district, 'Q.1');
-      expect(created!.tags, ['quick']);
-      expect(created!.body, contains('https://example.vn/an-lac'));
+      expect(created, isNull, reason: 'not on the feed until it is approved');
+      expect(
+          find.text(
+              'Bài đã gửi và đang chờ duyệt. Bài sẽ hiển thị trên bảng tin sau khi Ban quản trị duyệt.'),
+          findsOneWidget);
+      final mine = (await tester.runAsync(() => MockCommunityRepository(
+            currentUserName: () => 'Minh Anh',
+            isSignedIn: () => true,
+            currentUserId: () => 'u_me',
+          ).getMyPosts()))!;
+      final sent = mine
+          .firstWhere((p) => p.title == 'Quán chay An Lạc có món gì ngon?')
+          .toEntity();
+      expect(sent.status, PostStatus.pending);
+      expect(sent.type, PostType.discussion);
+      expect(sent.mediaType, PostMediaType.image);
+      expect(sent.restaurant?.id, 'rs_an_lac');
+      expect(sent.restaurant?.district, 'Q.1');
+      expect(sent.tags, ['quick']);
+      expect(sent.body, contains('https://example.vn/an-lac'));
       await _dispose(tester);
     });
 
@@ -513,15 +528,16 @@ void main() {
       'post detail', (tester) async {
     await _pumpApp(tester, const MyPostsScreen(), size: const Size(411, 2400));
     await _wait(tester);
-    // The composer test above may have added a published post of hers.
+    // The composer test above may have added a post of hers, waiting for review.
     expect(find.textContaining(RegExp(r'^Tất cả \((4|5)\)$')), findsOneWidget);
-    expect(find.textContaining(RegExp(r'^Đã đăng \((2|3)\)$')), findsOneWidget);
-    expect(find.text('Chờ duyệt (1)'), findsOneWidget);
+    expect(find.text('Đã đăng (2)'), findsOneWidget);
+    final waiting = find.textContaining(RegExp(r'^Chờ duyệt \((1|2)\)$'));
+    expect(waiting, findsOneWidget);
     expect(find.text('Bị từ chối (1)'), findsOneWidget);
     expect(
         find.text(
-            'Đang chờ Ban quản trị xem xét — bài chưa hiển thị trên bảng tin'),
-        findsOneWidget);
+            'Chờ duyệt: bài sẽ hiển thị trên bảng tin sau khi Ban quản trị duyệt.'),
+        findsWidgets);
     expect(find.textContaining('Bị từ chối: Bài khẳng định'), findsOneWidget);
     expect(find.text('Sửa & gửi lại'), findsOneWidget);
 
@@ -535,8 +551,8 @@ void main() {
     await tester.pageBack();
     await _wait(tester, 800);
 
-    await tester.ensureVisible(find.text('Chờ duyệt (1)'));
-    await tester.tap(find.text('Chờ duyệt (1)'));
+    await tester.ensureVisible(waiting);
+    await tester.tap(waiting);
     await tester.pump();
     expect(find.text('Nước ép cần tây có chữa khỏi tiểu đường không?'),
         findsOneWidget);

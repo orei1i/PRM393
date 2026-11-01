@@ -4,8 +4,11 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:veganlife_mobile/core/utils/formatters.dart';
 import 'package:veganlife_mobile/features/meal_planner/data/meal_planner_api_service.dart';
 import 'package:veganlife_mobile/features/meal_planner/data/models/health_profile_model.dart';
+import 'package:veganlife_mobile/features/meal_planner/data/models/pantry_model.dart';
+import 'package:veganlife_mobile/features/meal_planner/data/pantry_api_service.dart';
 import 'package:veganlife_mobile/features/meal_planner/domain/entities/health_profile.dart';
 import 'package:veganlife_mobile/features/meal_planner/domain/entities/meal_plan.dart';
 import 'package:veganlife_mobile/features/meal_planner/presentation/controllers/meal_plan_controller.dart';
@@ -15,6 +18,18 @@ import 'package:veganlife_mobile/features/scanner/data/scanner_api_service.dart'
 import 'package:veganlife_mobile/features/scanner/domain/entities/detected_ingredient.dart';
 
 import 'be_harness.dart';
+
+const _profile = UpdateHealthProfileRequestDto(
+  heightCm: 170,
+  weightKg: 66,
+  goal: HealthGoal.maintain,
+  allergies: ['peanut'],
+  dietaryRestrictions: [],
+  gender: Gender.female,
+  birthYear: 1997,
+  activityLevel: ActivityLevel.light,
+  mealPattern: [MealSlot.breakfast, MealSlot.lunch, MealSlot.dinner],
+);
 
 Future<void> main() async {
   final be = await BeHarness.start();
@@ -30,11 +45,15 @@ Future<void> main() async {
       final me = await be.newUser(name: 'FE IT Vision');
       c = await me.container();
       scanner = c.read(scannerApiProvider);
+      final planner = c.read(mealPlannerApiProvider);
+      await planner.updateHealthProfile(_profile);
+      final monday = startOfWeek(DateTime.now());
+      await planner.generateMealPlan(startDate: monday);
     });
 
     tearDownAll(() => c.dispose());
 
-    beTest('scan through the host-root route (B1 workaround)', () async {
+    beTest('B1: scan through /api/v1/vision/scan', () async {
       final result = await scanner.scanImage(pngBytes());
       expect(result.items, isNotEmpty);
       for (final item in result.items) {
@@ -72,17 +91,6 @@ Future<void> main() async {
     beTest('suggestions leave the plan alone; adding one brings its macros',
         () async {
       final planner = c.read(mealPlannerApiProvider);
-      await planner.updateHealthProfile(const UpdateHealthProfileRequestDto(
-        heightCm: 170,
-        weightKg: 66,
-        goal: HealthGoal.maintain,
-        allergies: ['peanut'],
-        dietaryRestrictions: [],
-        gender: Gender.female,
-        birthYear: 1997,
-        activityLevel: ActivityLevel.light,
-        mealPattern: [MealSlot.breakfast, MealSlot.lunch, MealSlot.dinner],
-      ));
       final notifier = c.read(mealPlanControllerProvider.notifier);
       await c.read(mealPlanControllerProvider.future);
       expect(await notifier.generatePlan(), isTrue);
@@ -106,6 +114,23 @@ Future<void> main() async {
       );
       expect(added.recipe.id, menu.first.id);
       expect(added.recipe.nutrition.proteinG, isNotNull);
+    });
+
+    beTest('no plan this week: suggestions from what suits the fridge',
+        () async {
+      final user = await be.newUser(name: 'FE IT Vision No Plan');
+      final other = await user.container();
+      addTearDown(other.dispose);
+      await other
+          .read(pantryApiProvider)
+          .addItems(const [AddPantryItemDto(ingredient: 'Đậu hũ')]);
+      final menu = await other.read(scannerApiProvider).generateMenu(
+          GenerateMenuRequestDto(
+              ingredients: [food('Đậu hũ')], excludeAllergens: const []));
+      expect(menu, isNotEmpty);
+      expect(
+          await other.read(mealPlannerApiProvider).getCurrentMealPlan(), isNull,
+          reason: 'no plan is created by asking');
     });
   });
 }

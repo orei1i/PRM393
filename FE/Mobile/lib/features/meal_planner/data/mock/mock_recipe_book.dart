@@ -45,6 +45,28 @@ abstract final class MockRecipeBook {
     return row;
   }
 
+  /// Replaces what the member can edit on their recipe [id]; its id, author
+  /// and origin stay. `null` when it isn't theirs.
+  static Map<String, Object?>? updateUserRecipe({
+    required String userId,
+    required String id,
+    required Map<String, Object?> recipe,
+  }) {
+    final list = _userRecipes[userId];
+    final i = list?.indexWhere((r) => r['id'] == id) ?? -1;
+    if (list == null || i < 0) return null;
+    return list[i] = {...list[i], ...recipe};
+  }
+
+  /// `false` when it isn't theirs.
+  static bool deleteUserRecipe({required String userId, required String id}) {
+    final list = _userRecipes[userId];
+    if (list == null) return false;
+    final before = list.length;
+    list.removeWhere((r) => r['id'] == id);
+    return list.length != before;
+  }
+
   /// `{ id, chefId, chefName, note, slot, targetDate?, createdAt, recipe }`,
   /// newest first.
   static List<Map<String, Object?>> chefSuggestions(String userId) =>

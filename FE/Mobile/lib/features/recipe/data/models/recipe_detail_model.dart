@@ -20,6 +20,9 @@
 //     "Muối" ],
 //   "instructions": "1. …\n2. …" }
 //
+// `ingredientItems` (same rows as the maps above), when a response has it, wins
+// over `ingredients`. The BE doesn't send it yet: see `backend_recipe_items.dart`.
+//
 // Row `nutrition` is the contribution to the whole recipe at that quantity.
 // Row `allergens` absent/null = not annotated (≠ []).
 import '../../../../core/utils/json_helpers.dart';
@@ -32,7 +35,7 @@ double? _quantity(Object? q) => q is num
     : (q is String ? double.tryParse(q.replaceAll(',', '.')) : null);
 
 List<String>? _optStringList(Object? value) =>
-    value is List<Object?> ? value.map((e) => '$e').toList() : null;
+    value is List<Object?> ? value.nonNulls.map((e) => '$e').toList() : null;
 
 String? _optString(Object? value) {
   final s = value?.toString().trim();
@@ -279,6 +282,7 @@ class RecipeDetailDto {
     int? optInt(String key) => json[key] == null ? null : readInt(json[key]);
     final rawSteps = json['instructions'] ?? json['steps'];
     final rawChanges = json['customizations'];
+    final items = json['ingredientItems'];
     return RecipeDetailDto(
       id: json['id']?.toString() ?? '',
       name: json['name'] as String? ?? '',
@@ -287,7 +291,10 @@ class RecipeDetailDto {
           : rawSteps?.toString() ?? '',
       caloriesCache: optInt('caloriesCache') ?? optInt('calories'),
       isVegan: json['isVegan'] == true,
-      ingredients: RecipeIngredientDto.listFromJson(json['ingredients']),
+      ingredients: RecipeIngredientDto.listFromJson(
+          items is List<Object?> && items.isNotEmpty
+              ? items
+              : json['ingredients']),
       proteinG: optDouble('proteinG'),
       carbsG: optDouble('carbsG'),
       fatG: optDouble('fatG'),

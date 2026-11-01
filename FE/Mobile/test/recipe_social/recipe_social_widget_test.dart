@@ -193,7 +193,8 @@ void main() {
     await _tap(tester, find.widgetWithText(TextButton, 'Huỷ'), 300);
     expect(find.text('Đánh giá của bạn'), findsOneWidget);
     await _tap(tester, find.widgetWithText(TextButton, 'Xoá'), 300);
-    await _tap(tester, find.widgetWithText(FilledButton, 'Xoá'), 1200);
+    // Up to 800 ms of mock latency, then the previous snackbar has to leave.
+    await _tap(tester, find.widgetWithText(FilledButton, 'Xoá'), 2000);
     expect(find.text('Đã xoá đánh giá'), findsOneWidget);
     expect(find.text('★ 4,6 · 5 đánh giá'), findsOneWidget);
     expect(find.text('Bạn đã nấu món này?'), findsOneWidget);

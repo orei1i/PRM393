@@ -18,15 +18,14 @@ import '../../domain/geo.dart';
 import '../controllers/restaurant_controllers.dart';
 import '../widgets/vl_map.dart';
 import 'location_picker_screen.dart';
-import 'restaurant_detail_screen.dart';
+import 'my_restaurant_suggestions_screen.dart';
 
 /// "Gợi ý quán mới" (members only; callers gate it with `ensureSignedIn`).
-/// The place's position comes from "Chọn trên bản đồ", "Tìm địa chỉ" or
-/// "Dùng vị trí hiện tại" (each also fills the address, which stays
-/// editable); up to 5 photos and 1 video are uploaded first. The place is
-/// listed right away as "Chưa chứng nhận" with "Được gợi ý bởi «tên»"; on
-/// success this screen is replaced by the new restaurant's detail and
-/// completes with the created [Restaurant].
+/// One "Chọn vị trí quán" opens the location picker (address search, map, or
+/// where the user stands); the choice also fills the address, which stays
+/// editable. Up to 5 photos and 1 video are uploaded first. The suggestion waits
+/// for an admin and isn't public until approved; on success this screen is
+/// replaced by "Quán tôi đã gợi ý" and completes with the created [Restaurant].
 class SubmitRestaurantScreen extends ConsumerStatefulWidget {
   const SubmitRestaurantScreen({super.key});
 
@@ -68,7 +67,6 @@ class _SubmitRestaurantScreenState
   /// The address text the last location filled in; replaced by the next one
   /// unless the user edited it.
   String? _autoAddress;
-  bool _locating = false;
   bool _submitting = false;
   bool _attempted = false;
   String? _error;
@@ -99,7 +97,8 @@ class _SubmitRestaurantScreenState
     });
   }
 
-  Future<void> _pick({required bool onMap}) async {
+  /// [onMap]: a tap on the mini map goes straight to the map.
+  Future<void> _pick({bool onMap = false}) async {
     final start = _place ?? ref.read(userLocationProvider).valueOrNull;
     final picked = await Navigator.of(context).push(LocationPickerScreen.route(
       initial: start,
@@ -109,19 +108,13 @@ class _SubmitRestaurantScreenState
     if (picked != null && mounted) _usePlace(picked);
   }
 
-  Future<void> _useCurrent() async {
-    setState(() => _locating = true);
-    try {
-      final here = await ref.read(locationServiceProvider).currentLocation();
-      if (mounted) _usePlace(here);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(describeError(e))));
-      }
-    } finally {
-      if (mounted) setState(() => _locating = false);
-    }
+  /// An address the place filled in goes with it; a typed one stays.
+  void _clearPlace() {
+    setState(() {
+      _place = null;
+      if (_address.text.trim() == _autoAddress) _address.clear();
+      _autoAddress = null;
+    });
   }
 
   Future<void> _addMedia() async {
@@ -205,29 +198,30 @@ class _SubmitRestaurantScreenState
     });
     try {
       final point = _place?.point;
-      final created = (await ref.read(restaurantApiProvider).createRestaurant(
-                CreateRestaurantRequestDto(
-                  name: _name.text.trim(),
-                  address: _address.text.trim(),
-                  latitude: point?.latitude,
-                  longitude: point?.longitude,
-                  media: [
-                    for (final m in _media)
-                      NewRestaurantMediaDto(
-                          mediaType: m.type, mediaUrl: m.url!),
-                  ],
-                ),
-              ))
-          .toEntity();
+      final created = await ref.read(restaurantApiProvider).createRestaurant(
+            CreateRestaurantRequestDto(
+              name: _name.text.trim(),
+              address: _address.text.trim(),
+              latitude: point?.latitude,
+              longitude: point?.longitude,
+              media: [
+                for (final m in _media)
+                  NewRestaurantMediaDto(mediaType: m.type, mediaUrl: m.url!),
+              ],
+            ),
+          );
       if (!mounted) return;
-      ref.invalidate(restaurantListProvider);
+      ref
+        ..invalidate(restaurantListProvider)
+        ..invalidate(mySuggestionsProvider);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-            'Đã gợi ý «${created.name}». Quán hiển thị ngay với nhãn Chưa chứng nhận.'),
+        content: Text(created.status == RestaurantSuggestionStatus.approved
+            ? 'Đã gợi ý «${created.name}» và quán đã hiển thị công khai.'
+            : 'Đã gửi gợi ý «${created.name}». Quán sẽ hiển thị công khai sau khi Ban quản trị duyệt.'),
       ));
       Navigator.of(context).pushReplacement(
-        RestaurantDetailScreen.route(created.id, name: created.name),
-        result: created,
+        MyRestaurantSuggestionsScreen.route(),
+        result: created.toEntity(),
       );
     } catch (e) {
       if (!mounted) return;
@@ -277,12 +271,10 @@ class _SubmitRestaurantScreenState
             const SizedBox(height: 8),
             _LocationCard(
               place: _place,
-              locating: _locating,
               enabled: !_submitting,
+              onPick: _pick,
               onMap: () => _pick(onMap: true),
-              onSearch: () => _pick(onMap: false),
-              onCurrent: _useCurrent,
-              onClear: () => setState(() => _place = null),
+              onClear: _clearPlace,
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -326,8 +318,8 @@ class _SubmitRestaurantScreenState
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      'Quán mới hiển thị ngay với nhãn Chưa chứng nhận. '
-                      'Ban quản trị sẽ xác minh trước khi gắn nhãn Chứng nhận chay.',
+                      'Gợi ý của bạn sẽ chờ Ban quản trị duyệt và chỉ hiển thị công khai sau khi được duyệt. '
+                      'Theo dõi trạng thái ở "Quán tôi đã gợi ý".',
                       style: context.textStyles.bodyMedium?.copyWith(
                           color: context.colors.onSecondaryContainer),
                     ),
@@ -363,7 +355,7 @@ class _SubmitRestaurantScreenState
             ),
             const SizedBox(height: 8),
             Text(
-              'Thông tin sai hoặc trùng sẽ bị Ban quản trị gỡ.',
+              'Thông tin sai hoặc trùng sẽ bị Ban quản trị từ chối.',
               textAlign: TextAlign.center,
               style: context.textStyles.bodySmall
                   ?.copyWith(color: context.vl.muted),
@@ -375,25 +367,21 @@ class _SubmitRestaurantScreenState
   }
 }
 
-/// "Vị trí quán": mini map (or the no-position warning) and the three ways
-/// to set it.
+/// "Vị trí quán": the no-position warning with "Chọn vị trí quán", or the mini
+/// map and the chosen place with "Đổi" / "Bỏ vị trí".
 class _LocationCard extends StatelessWidget {
   const _LocationCard({
     required this.place,
-    required this.locating,
     required this.enabled,
+    required this.onPick,
     required this.onMap,
-    required this.onSearch,
-    required this.onCurrent,
     required this.onClear,
   });
 
   final UserLocation? place;
-  final bool locating;
   final bool enabled;
+  final VoidCallback onPick;
   final VoidCallback onMap;
-  final VoidCallback onSearch;
-  final VoidCallback onCurrent;
   final VoidCallback onClear;
 
   @override
@@ -457,6 +445,7 @@ class _LocationCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(Icons.place_rounded,
                     size: 18, color: context.colors.primary),
@@ -467,6 +456,16 @@ class _LocationCard extends StatelessWidget {
                     style: context.textStyles.bodySmall,
                   ),
                 ),
+              ],
+            ),
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 4,
+              children: [
+                TextButton(
+                  onPressed: enabled ? onPick : null,
+                  child: const Text('Đổi'),
+                ),
                 TextButton(
                   onPressed: enabled ? onClear : null,
                   child: const Text('Bỏ vị trí'),
@@ -474,33 +473,14 @@ class _LocationCard extends StatelessWidget {
               ],
             ),
           ],
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton.icon(
-                onPressed: enabled ? onMap : null,
-                icon: const Icon(Icons.map_outlined),
-                label: const Text('Chọn trên bản đồ'),
-              ),
-              OutlinedButton.icon(
-                onPressed: enabled ? onSearch : null,
-                icon: const Icon(Icons.search_rounded),
-                label: const Text('Tìm địa chỉ'),
-              ),
-              OutlinedButton.icon(
-                onPressed: enabled && !locating ? onCurrent : null,
-                icon: locating
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.my_location_rounded),
-                label: const Text('Dùng vị trí hiện tại'),
-              ),
-            ],
-          ),
+          if (p == null) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: enabled ? onPick : null,
+              icon: const Icon(Icons.add_location_alt_outlined),
+              label: const Text('Chọn vị trí quán'),
+            ),
+          ],
         ],
       ),
     );

@@ -478,10 +478,6 @@ class _ChefTabState extends ConsumerState<_ChefTab>
 // -------------------------------------------------------------- manual --
 
 class _ManualTab extends StatefulWidget {
-  /// Instead of the macro inputs when the server would drop them.
-  static const noMacrosNote =
-      'Máy chủ chưa lưu đạm, tinh bột, chất béo của món tự nhập.';
-
   const _ManualTab({required this.slot});
 
   final MealSlot slot;
@@ -641,10 +637,7 @@ class _ManualTabState extends State<_ManualTab>
                   SizedBox(width: 120, child: _gramsField(c, label)),
               ],
             ),
-          ] else
-            Text(_ManualTab.noMacrosNote,
-                style: context.textStyles.bodySmall
-                    ?.copyWith(color: context.vl.muted)),
+          ],
           const SizedBox(height: 12),
           Text(
             'Món tự nhập vẫn được kiểm tra thuần chay và dị ứng theo tên món.',

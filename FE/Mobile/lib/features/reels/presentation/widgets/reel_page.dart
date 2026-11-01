@@ -1,4 +1,6 @@
 // lib/features/reels/presentation/widgets/reel_page.dart
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -268,10 +270,16 @@ class _ReelPageState extends ConsumerState<ReelPage>
             const Center(child: CircularProgressIndicator(color: Colors.white)),
           if (_failed) Center(child: _LoadError(onRetry: _retry)),
           if (ready && _pausedByUser)
-            const IgnorePointer(
+            IgnorePointer(
               child: Center(
-                child: Icon(Icons.play_arrow_rounded,
-                    size: 88, color: Colors.white70),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.play_arrow_rounded,
+                        size: 88, color: Colors.white70),
+                    _ReelTime(controller: c),
+                  ],
+                ),
               ),
             ),
           Positioned(
@@ -297,19 +305,49 @@ class _ReelPageState extends ConsumerState<ReelPage>
             Positioned(
               left: 0,
               right: 0,
-              bottom: MediaQuery.paddingOf(context).bottom,
-              child: VideoProgressIndicator(
-                c,
-                allowScrubbing: true,
-                padding: const EdgeInsets.only(top: 8),
-                colors: const VideoProgressColors(
-                  playedColor: Colors.white,
-                  bufferedColor: Colors.white38,
-                  backgroundColor: Colors.white12,
+              // Above the system's home gesture, which is taller than the
+              // nav bar: a drag starting inside it leaves the app.
+              bottom: math.max(MediaQuery.paddingOf(context).bottom,
+                  MediaQuery.systemGestureInsetsOf(context).bottom),
+              child: Semantics(
+                label: 'Tua video',
+                child: VideoProgressIndicator(
+                  c,
+                  allowScrubbing: true,
+                  padding: const EdgeInsets.only(top: 12),
+                  colors: const VideoProgressColors(
+                    playedColor: Colors.white,
+                    bufferedColor: Colors.white38,
+                    backgroundColor: Colors.white12,
+                  ),
                 ),
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// "0:12 / 0:45" while a reel is paused. The rest stays gestures: a tap plays
+/// or pauses, a swipe goes to the next clip, the bar at the bottom scrubs.
+class _ReelTime extends StatelessWidget {
+  const _ReelTime({required this.controller});
+
+  final VideoPlayerController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<VideoPlayerValue>(
+      valueListenable: controller,
+      builder: (context, value, _) => Text(
+        '${formatDuration(value.position.inSeconds)} / '
+        '${formatDuration(value.duration.inSeconds)}',
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w600,
+          shadows: [Shadow(blurRadius: 6)],
+        ),
       ),
     );
   }

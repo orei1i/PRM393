@@ -92,13 +92,25 @@ Future<void> main() async {
       );
     });
 
-    beTest('forgot password, then a wrong code', () async {
+    beTest('B23: a wrong code is Vietnamese; 5 of them use the code up',
+        () async {
       expect(await auth.requestPasswordReset(me.email), isNull);
+      for (var i = 0; i < 4; i++) {
+        await expectApiError(
+          auth.verifyResetCode(email: me.email, code: '000000'),
+          status: 400,
+          message: 'Mã xác thực không chính xác.',
+        );
+      }
       await expectApiError(
         auth.verifyResetCode(email: me.email, code: '000000'),
         status: 400,
-        code: 'invalid_code',
-        message: AuthErrors.invalidCode,
+        code: 'code_expired',
+      );
+      await expectApiError(
+        auth.verifyResetCode(email: me.email, code: '000000'),
+        status: 400,
+        code: 'code_expired',
       );
     });
 
@@ -109,23 +121,137 @@ Future<void> main() async {
           'step 4 of the plan.',
     );
 
-    beTest('a bad token gets a 401 and ends the session', () async {
-      final stale = await be.newUser(name: 'FE IT Stale');
-      final c =
-          await stale.container(realDio: true, tokenOverride: 'bad.token');
-      addTearDown(c.dispose);
-      expect(c.read(sessionControllerProvider).isGuest, isFalse);
+    group('B2, B5: the seed accounts', () {
+      beTest('a member and a chef sign in here', () async {
+        final member = await be.seedLogin(seedMemberEmail);
+        expect(member.status, 200);
+        expect((member.dataMap['user'] as Map)['role'], 'User');
+        final chef = await be.seedLogin(seedChefEmail);
+        expect(chef.status, 200);
+        final role = (chef.dataMap['user'] as Map)['role'];
+        expect(UserRole.fromApi(role), UserRole.chef);
+        final profile = await rawRequest('GET', '/users/me',
+            token: chef.dataMap['accessToken'] as String);
+        expect(
+            (profile.dataMap['chefApplication'] as Map)['status'], 'approved');
+      });
 
-      await expectLater(
-        c.read(dioProvider).get<Object?>(ApiEndpoints.me),
-        throwsA(isA<DioException>()
-            .having((e) => mapDioException(e).statusCode, 'status', 401)),
+      beTest('an admin only signs in on its own route', () async {
+        final admin = await be.seedLogin(seedAdminEmail);
+        expect(admin.status, 403);
+        expect(
+            AuthErrors.localize(ApiException(
+                    message: admin.json['message'] as String,
+                    statusCode: admin.status))
+                .message,
+            AuthErrors.adminWebOnly);
+        final route =
+            await be.seedLogin(seedAdminEmail, path: '/auth/admin/login');
+        expect(route.status, 200);
+        expect((route.dataMap['user'] as Map)['role'], 'Admin');
+        expect(
+            (await be.seedLogin(seedMemberEmail, path: '/auth/admin/login'))
+                .status,
+            403);
+      });
+    });
+
+    group('B18: refresh', () {
+      beTest('a refresh rotates: the old token is dead, the new one works',
+          () async {
+        final user = await be.newUser(name: 'FE IT Refresh');
+        final api = RemoteAuthApiService(be.guestDio());
+        final fresh = await api.refresh(user.refreshToken);
+        expect(fresh.refreshToken, isNot(user.refreshToken));
+        expect(fresh.userId, user.id);
+        await expectApiError(api.refresh(user.refreshToken), status: 401);
+        expect(
+            (await rawRequest('GET', '/users/me', token: fresh.accessToken))
+                .status,
+            200);
+        await api.refresh(fresh.refreshToken!);
+      });
+
+      beTest('a garbage JWT refreshes silently; the request goes through',
+          () async {
+        final user = await be.newUser(name: 'FE IT Refresh');
+        final c = await user.container(
+          realDio: true,
+          tokenOverride: 'bad.token',
+          refreshTokenOverride: user.refreshToken,
+        );
+        addTearDown(c.dispose);
+
+        final res = await c.read(dioProvider).get<Object?>(ApiEndpoints.me);
+
+        expect(res.statusCode, 200);
+        final session = c.read(sessionControllerProvider);
+        expect(session.isGuest, isFalse);
+        expect(session.accessToken, isNot('bad.token'));
+        final prefs = c.read(sharedPreferencesProvider);
+        expect(prefs.getString(SessionController.refreshTokenKey),
+            isNot(user.refreshToken));
+      });
+
+      beTest('a dead refresh token ends the session', () async {
+        final user = await be.newUser(name: 'FE IT Refresh');
+        final c = await user.container(
+          realDio: true,
+          tokenOverride: 'bad.token',
+          refreshTokenOverride: 'dead',
+        );
+        addTearDown(c.dispose);
+        await expectLater(
+          c.read(dioProvider).get<Object?>(ApiEndpoints.me),
+          throwsA(isA<DioException>()
+              .having((e) => mapDioException(e).statusCode, 'status', 401)),
+        );
+        final session = c.read(sessionControllerProvider);
+        expect(session.isGuest, isTrue);
+        expect(session.userId, isNull);
+      });
+
+      beTest('signing out revokes the refresh token', () async {
+        final user = await be.newUser(name: 'FE IT Refresh');
+        final c = await user.container(
+            realDio: true, refreshTokenOverride: user.refreshToken);
+        addTearDown(c.dispose);
+        await c.read(sessionControllerProvider.notifier).signOut();
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        expect(c.read(sessionControllerProvider).isGuest, isTrue);
+        await expectApiError(
+          RemoteAuthApiService(be.guestDio()).refresh(user.refreshToken),
+          status: 401,
+        );
+      });
+
+      beTest('one session per account: a second login kills the first refresh',
+          () async {
+        final user = await be.newUser(name: 'FE IT Refresh');
+        await auth.login(email: user.email, password: user.password);
+        await expectApiError(
+          RemoteAuthApiService(be.guestDio()).refresh(user.refreshToken),
+          status: 401,
+        );
+      });
+    });
+
+    beTest('B25: the errors envelope reaches the member by field', () async {
+      final raw = await rawRequest('POST', '/auth/register', data: {
+        'fullName': '',
+        'email': 'not-an-email',
+        'password': 'abc',
+      });
+      expect(raw.status, 400);
+      expect(raw.json['success'], isFalse);
+      expect(raw.json['errors'], isA<Map<String, dynamic>>());
+      await expectApiError(
+        auth.register(const RegisterRequest(
+            fullName: '', email: 'not-an-email', password: 'abc')),
+        status: 400,
+        message: 'Email không đúng định dạng. Họ tên là bắt buộc. '
+            'Mật khẩu phải có ít nhất 8 ký tự.',
       );
-      await pumpEventQueue();
-
-      final session = c.read(sessionControllerProvider);
-      expect(session.isGuest, isTrue);
-      expect(session.userId, isNull);
     });
 
     beTest('a 401 on /auth/* does not end the session', () async {

@@ -129,7 +129,7 @@ function CommentsScreen() {
             </div>
           )}
           <p className="w-full text-sm text-muted-foreground sm:w-auto" aria-live="polite">
-            {comments.data ? `${formatNumber(comments.data.length)} bình luận` : "Đang tải…"}
+            {comments.data ? `${formatNumber(comments.data.length)} bình luận` : comments.isError ? "" : "Đang tải…"}
           </p>
         </div>
 

@@ -16,10 +16,12 @@ import { useComplaint } from "@/lib/hooks/use-bookings";
 import { cn, formatPercent } from "@/lib/utils";
 import {
   ADHERENCE_LABEL,
+  audienceLabel,
   BOOKING_GOAL_LABEL,
   BOOKING_TYPE_LABEL,
   COMPLAINT_REASON_LABEL,
   decisionOutcome,
+  familySummary,
   MEAL_SLOT_LABEL,
   allergenLabel,
   OFFER_STATUS_LABEL,
@@ -30,6 +32,7 @@ import {
 } from "@/types/bookings";
 
 import {
+  AUTO_COMPLETE_RULE,
   BookingStatusBadge,
   ComplaintReasonBadge,
   ComplaintStatusBadge,
@@ -38,6 +41,7 @@ import {
   formatDateOnly,
   formatPlanDay,
   formatVnDateTime,
+  moneyLocation,
   StepList,
   timeLeft,
   type Step,
@@ -72,13 +76,21 @@ function escrowSteps(c: AdminComplaint): Step[] {
   const escrow = booking.escrow;
   const steps: Step[] = [];
   if (!contract || !escrow) return steps;
-  steps.push({ label: "Đã thanh toán · Đang giữ", state: "done", detail: `${formatVnd(escrow.amount)} qua PaymentOS, VeganLife giữ tiền`, at: escrow.heldAt });
-  const endAt = Date.parse(`${contract.endDate}T23:59:00+07:00`);
-  const ended = endAt <= Date.now();
+  steps.push({ label: "Đã thanh toán · Đang giữ", state: "done", detail: `${formatVnd(escrow.amount)} đã thanh toán, VeganLife giữ tiền`, at: escrow.heldAt });
   steps.push({
-    label: "Kết thúc kế hoạch",
-    state: ended ? "done" : "current",
-    detail: `${formatDateOnly(contract.endDate)} · đã giao ${booking.deliveredDays}/${contract.planDays} ngày`,
+    label: "Giao kế hoạch",
+    state: booking.deliveredDays >= contract.planDays ? "done" : "current",
+    detail: `Đã giao ${booking.deliveredDays}/${contract.planDays} ngày · kết thúc ${formatDateOnly(contract.endDate)}`,
+  });
+  steps.push({
+    label: booking.autoCompleted ? "Hệ thống tự hoàn tất" : "Chuyên gia xác nhận hoàn thành",
+    state: escrow.completedAt ? "done" : c.status === "Open" ? "upcoming" : "skipped",
+    detail: escrow.completedAt
+      ? `${booking.autoCompleted ? `${AUTO_COMPLETE_RULE}. ` : ""}Hợp đồng hoàn thành, bắt đầu ${contract.holdDays} ngày giữ tiền`
+      : c.status === "Open"
+        ? "Chưa xác nhận: khiếu nại được gửi trước khi hoàn thành, và khiếu nại đang mở chặn tự hoàn tất"
+        : "Khiếu nại được quyết định trước khi chuyên gia xác nhận",
+    at: escrow.completedAt,
   });
   steps.push({
     label: "Khiếu nại · Tạm giữ",
@@ -87,25 +99,25 @@ function escrowSteps(c: AdminComplaint): Step[] {
     at: c.createdAt,
   });
   steps.push({
-    label: "Hết hạn khiếu nại",
+    label: "Hết hạn giữ tiền",
     state: "skipped",
-    detail: `Hạn gốc ${formatVnDateTime(escrow.releaseAt)} (${contract.holdDays} ngày sau khi kết thúc) — không tự giải ngân khi có khiếu nại`,
+    detail: `${escrow.releaseAt ? `Hạn gốc ${formatVnDateTime(escrow.releaseAt)} (${contract.holdDays} ngày sau khi hoàn thành)` : "Chưa có hạn"} — không tự vào ví chuyên gia khi có khiếu nại`,
   });
   if (c.status === "Resolved" && c.decision) {
     const out = decisionOutcome(contract.price, c.decision, c.refundAmount);
     steps.push({
-      label: c.decision === "ReleaseToChef" ? "Chuyển cho chuyên gia" : c.decision === "RefundMember" ? "Hoàn tiền" : "Hoàn một phần & chuyển phần còn lại",
+      label: c.decision === "ReleaseToChef" ? "Vào ví chuyên gia" : c.decision === "RefundMember" ? "Hoàn vào ví thành viên" : "Hoàn một phần & chuyển phần còn lại",
       state: c.decision === "ReleaseToChef" ? "done" : "closed",
       detail:
         c.decision === "ReleaseToChef"
-          ? `Chuyên gia nhận ${formatVnd(out.chefNet)} (phí ${formatVnd(out.fee)})`
+          ? `Ví chuyên gia nhận ${formatVnd(out.chefNet)} (phí ${formatVnd(out.fee)})`
           : c.decision === "RefundMember"
-            ? `Hoàn ${formatVnd(out.refund)} về phương thức thanh toán ban đầu`
-            : `Hoàn ${formatVnd(out.refund)} cho thành viên · chuyên gia nhận ${formatVnd(out.chefNet)} (phí ${formatVnd(out.fee)})`,
+            ? `Ví thành viên nhận ${formatVnd(out.refund)}`
+            : `Ví thành viên nhận ${formatVnd(out.refund)} · ví chuyên gia nhận ${formatVnd(out.chefNet)} (phí ${formatVnd(out.fee)})`,
       at: c.decidedAt,
     });
   } else {
-    steps.push({ label: "Chuyển cho chuyên gia / Hoàn tiền", state: "upcoming", detail: "Chờ quyết định của Ban quản trị" });
+    steps.push({ label: "Vào ví chuyên gia / Hoàn vào ví thành viên", state: "upcoming", detail: "Chờ quyết định của Ban quản trị" });
   }
   return steps;
 }
@@ -167,6 +179,7 @@ function Detail({ complaintId, initial }: { complaintId: string; initial: AdminC
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
           <PersonInfo label="Thành viên" name={booking.member.fullName} email={booking.member.email} />
           <PersonInfo label="Chuyên gia" name={booking.chef.fullName} email={booking.chef.email} verified />
+          <Info label="Đặt cho" value={booking.audience === "Family" ? familySummary(booking) : audienceLabel(booking)} />
           <Info label="Giá hợp đồng" value={formatVnd(price)} mono />
           <Info
             label="Thành viên yêu cầu"
@@ -194,6 +207,7 @@ function Detail({ complaintId, initial }: { complaintId: string; initial: AdminC
               </h3>
               <DecisionBadge decision={c.decision} />
               <DecisionNumbers price={price} c={c} />
+              {escrow && <p className="text-xs text-muted-foreground">Tiền đang ở: {moneyLocation(escrow)}</p>}
               {c.adminNote && <p className="whitespace-pre-wrap break-words rounded-lg bg-muted px-3 py-2">“{c.adminNote}”</p>}
               <p className="text-xs text-muted-foreground">
                 {c.decidedBy ?? "Quản trị viên"}
@@ -253,17 +267,19 @@ function Detail({ complaintId, initial }: { complaintId: string; initial: AdminC
                 {contract.bookingType === "DailyFeedback" && (
                   <Info label="Gửi mỗi ngày / phản hồi" value={`trước ${contract.dailySendCutoff} / trước ${contract.feedbackCutoff}`} />
                 )}
-                <Info label="Mục tiêu" value={BOOKING_GOAL_LABEL[booking.goal] ?? booking.goal} />
+                {booking.goal && <Info label="Mục tiêu" value={BOOKING_GOAL_LABEL[booking.goal] ?? booking.goal} />}
               </dl>
               {escrow && (
                 <p className="text-xs text-muted-foreground">
-                  Tiền được VeganLife giữ đến {formatVnDateTime(escrow.releaseAt)} ({contract.holdDays} ngày sau khi kết thúc kế hoạch)
-                  {escrow.status === "Held" ? ` · ${timeLeft(escrow.releaseAt)}` : ""}.
+                  Tiền đang ở: {moneyLocation(escrow)}
+                  {escrow.status === "Held" && escrow.releaseAt ? ` · ${timeLeft(escrow.releaseAt)}` : ""}. Thời gian giữ: {contract.holdDays} ngày sau khi hoàn thành.
                 </p>
               )}
               <details className="text-xs">
-                <summary className="cursor-pointer font-semibold text-muted-foreground">Nhu cầu ban đầu của thành viên</summary>
-                <p className="mt-1 whitespace-pre-wrap break-words leading-relaxed">{booking.needs}</p>
+                <summary className="cursor-pointer font-semibold text-muted-foreground">
+                  {booking.audience === "Family" ? "Ghi chú của gia đình" : "Nhu cầu ban đầu của thành viên"}
+                </summary>
+                <p className="mt-1 whitespace-pre-wrap break-words leading-relaxed">{booking.needs || "Không có ghi chú."}</p>
                 <p className="mt-1 text-muted-foreground">
                   Dị ứng: {booking.allergies.length ? booking.allergies.map(allergenLabel).join(", ") : "không"} · Bữa:{" "}
                   {booking.mealPattern.map((s) => MEAL_SLOT_LABEL[s]).join(", ")}
@@ -333,8 +349,8 @@ function DecisionNumbers({ price, c }: { price: number; c: AdminComplaint }) {
   const out = decisionOutcome(price, c.decision, c.refundAmount);
   return (
     <dl className="grid grid-cols-3 gap-x-4 gap-y-2">
-      <Info label="Hoàn thành viên" value={formatVnd(out.refund)} mono />
-      <Info label="Chuyên gia nhận" value={formatVnd(out.chefNet)} mono />
+      <Info label="Hoàn vào ví thành viên" value={formatVnd(out.refund)} mono />
+      <Info label="Vào ví chuyên gia" value={formatVnd(out.chefNet)} mono />
       <Info label="Phí nền tảng" value={formatVnd(out.fee)} mono />
     </dl>
   );

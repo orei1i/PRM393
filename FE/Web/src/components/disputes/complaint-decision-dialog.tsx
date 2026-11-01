@@ -26,9 +26,9 @@ import {
 import { PLATFORM_FEE_RATE } from "@/types/payouts";
 
 const HINT: Record<ComplaintDecision, string> = {
-  ReleaseToChef: "Khiếu nại không có cơ sở. Chuyên gia nhận toàn bộ, trừ phí nền tảng.",
-  RefundMember: "Hoàn toàn bộ về phương thức thanh toán ban đầu của thành viên. Chuyên gia không nhận tiền.",
-  Split: "Hoàn một phần cho thành viên, phần còn lại chuyển cho chuyên gia (trừ phí).",
+  ReleaseToChef: "Khiếu nại không có cơ sở. Toàn bộ vào ví chuyên gia, trừ phí nền tảng.",
+  RefundMember: "Hoàn toàn bộ vào ví của thành viên. Chuyên gia không nhận tiền.",
+  Split: "Hoàn một phần vào ví thành viên, phần còn lại vào ví chuyên gia (trừ phí).",
 };
 
 /** "500.000" / "500000đ" → 500000; empty → undefined. */
@@ -86,8 +86,8 @@ export function ComplaintDecisionDialog({
               decision === "ReleaseToChef"
                 ? `Chuyển ${formatVnd(result.chefNet)} vào ví ${updated.booking.chef.fullName} (sau phí).`
                 : decision === "RefundMember"
-                  ? `Hoàn ${formatVnd(result.refund)} cho ${updated.booking.member.fullName} qua PaymentOS.`
-                  : `Hoàn ${formatVnd(result.refund)} cho thành viên · chuyên gia nhận ${formatVnd(result.chefNet)}.`,
+                  ? `Hoàn ${formatVnd(result.refund)} vào ví ${updated.booking.member.fullName}.`
+                  : `Hoàn ${formatVnd(result.refund)} vào ví thành viên · ${formatVnd(result.chefNet)} vào ví chuyên gia.`,
           });
           reset();
           onOpenChange(false);
@@ -198,10 +198,10 @@ export function ComplaintDecisionDialog({
           {out && (
             <section aria-label="Xem trước phân chia" aria-live="polite" className="flex flex-col gap-1 rounded-lg border bg-muted/50 p-3 text-sm">
               <p>
-                Thành viên nhận lại <b className="font-mono tabular">{formatVnd(out.refund)}</b>
+                Ví thành viên nhận <b className="font-mono tabular">{formatVnd(out.refund)}</b>
               </p>
               <p>
-                Chuyên gia nhận ({formatVnd(price)} − {formatVnd(out.refund)}) × {formatPercent(1 - PLATFORM_FEE_RATE)} ={" "}
+                Ví chuyên gia nhận ({formatVnd(price)} − {formatVnd(out.refund)}) × {formatPercent(1 - PLATFORM_FEE_RATE)} ={" "}
                 <b className="font-mono tabular">{formatVnd(out.chefNet)}</b>
               </p>
               <p>
@@ -231,7 +231,7 @@ export function ComplaintDecisionDialog({
 
           <p className="flex gap-2 rounded-lg border border-ochre-border bg-ochre-soft px-3 py-2 text-xs text-ochre-text">
             <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-            Hoàn tiền trả về phương thức thanh toán ban đầu qua PaymentOS. Quyết định là cuối cùng và không sửa được.
+            Tiền hoàn vào ví của thành viên, thành viên có thể yêu cầu rút về ngân hàng. Quyết định là cuối cùng và không sửa được.
           </p>
 
           <DialogFooter>

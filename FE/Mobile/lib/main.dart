@@ -5,9 +5,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app.dart';
 import 'core/session/session_controller.dart';
+import 'core/widgets/build_error_fallback.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  ErrorWidget.builder = buildErrorFallback;
   final prefs = await SharedPreferences.getInstance();
 
   final container = ProviderContainer(

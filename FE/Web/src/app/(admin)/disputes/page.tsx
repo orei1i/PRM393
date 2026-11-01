@@ -12,13 +12,14 @@ import { EscrowKpis } from "@/components/disputes/escrow-kpis";
 import { ComplaintDrawer } from "@/components/disputes/complaint-drawer";
 import { ComplaintTable } from "@/components/disputes/complaint-table";
 import { EscrowHoldTable } from "@/components/disputes/escrow-hold-table";
+import { ResolveHoldDialog } from "@/components/disputes/resolve-hold-dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, NativeSelect } from "@/components/ui/form-controls";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { bookingKeys, useComplaints, useEscrowHolds, useEscrowSummary } from "@/lib/hooks/use-bookings";
 import { formatNumber, formatPercent } from "@/lib/utils";
-import { ESCROW_STATUS_LABEL, ESCROW_STATUSES, type AdminComplaint, type EscrowHoldFilter } from "@/types/bookings";
+import { AUTO_COMPLETE_DAYS, ESCROW_STATUS_LABEL, ESCROW_STATUSES, type AdminComplaint, type AdminEscrowHold, type EscrowHoldFilter } from "@/types/bookings";
 import { ESCROW_HOLD_DAYS, PLATFORM_FEE_RATE } from "@/types/payouts";
 
 type PageTab = "open" | "resolved" | "holds";
@@ -26,6 +27,7 @@ const isTab = (v: string | null): v is PageTab => v === "open" || v === "resolve
 
 const HOLD_FILTERS: { value: EscrowHoldFilter; label: string }[] = [
   { value: "active", label: "Đang giữ & tạm giữ" },
+  { value: "stuck", label: "Kẹt, cần Ban quản trị xử lý" },
   ...ESCROW_STATUSES.map((s) => ({ value: s, label: ESCROW_STATUS_LABEL[s] })),
   { value: "all", label: "Tất cả" },
 ];
@@ -54,6 +56,7 @@ function DisputesScreen() {
   const search = React.useDeferredValue(searchInput);
   const [holdFilter, setHoldFilter] = React.useState<EscrowHoldFilter>(bookingParam ? "all" : "active");
   const [selected, setSelected] = React.useState<{ id: string; initial: AdminComplaint | null } | null>(null);
+  const [resolving, setResolving] = React.useState<AdminEscrowHold | null>(null);
   /** Booking id from `?booking=` waiting for the holds list, to open its complaint. */
   const [pendingBooking, setPendingBooking] = React.useState<string | null>(bookingParam);
 
@@ -93,7 +96,7 @@ function DisputesScreen() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Khiếu nại & giữ tiền"
-        description="Tiền đặt chuyên gia được VeganLife giữ đến hết hạn khiếu nại. Xem xét khiếu nại và quyết định giải ngân hoặc hoàn tiền."
+        description={`Tiền đặt chuyên gia nằm ở VeganLife đến hết ${ESCROW_HOLD_DAYS} ngày giữ. Xem xét khiếu nại và quyết định chuyển vào ví chuyên gia hoặc ví thành viên.`}
         actions={
           <Button variant="outline" onClick={() => qc.invalidateQueries({ queryKey: bookingKeys.all })} disabled={fetching}>
             <RefreshCw className={fetching ? "animate-spin" : undefined} aria-hidden />
@@ -102,14 +105,23 @@ function DisputesScreen() {
         }
       />
 
-      <EscrowKpis summary={summary} />
+      <EscrowKpis
+        summary={summary}
+        onShowStuck={() => {
+          setTab("holds");
+          setHoldFilter("stuck");
+          setSearchInput((s) => ({ ...s, holds: "" }));
+        }}
+      />
 
       <p className="flex gap-2.5 rounded-lg border bg-card px-4 py-3 text-sm text-muted-foreground">
         <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
         <span>
-          Thanh toán qua PaymentOS được giữ đến <b className="text-foreground">23:59 ngày kết thúc kế hoạch + {ESCROW_HOLD_DAYS} ngày</b>. Không có
-          khiếu nại thì tự chuyển cho chuyên gia (trừ phí {formatPercent(PLATFORM_FEE_RATE)}). Có khiếu nại (kèm bằng chứng) thì tiền bị tạm giữ đến
-          khi Ban quản trị quyết định; hoàn tiền trả về phương thức thanh toán ban đầu.
+          Thành viên thanh toán qua PaymentOS hoặc bằng ví, tiền vào VeganLife. Chuyên gia chỉ xác nhận hoàn thành được khi đã giao đủ mọi ngày và đã tới ngày
+          kết thúc kế hoạch; không xác nhận thì hệ thống tự hoàn tất {AUTO_COMPLETE_DAYS} ngày sau ngày kết thúc nếu đã giao đủ và không có khiếu nại. Từ lúc
+          hoàn thành, tiền được giữ thêm <b className="text-foreground">{ESCROW_HOLD_DAYS} ngày</b>. Không có khiếu nại thì tiền tự vào ví chuyên gia (trừ phí{" "}
+          {formatPercent(PLATFORM_FEE_RATE)}). Có khiếu nại (kèm bằng chứng) thì tiền bị tạm giữ đến khi Ban quản trị quyết định; tiền hoàn vào ví của thành viên.
+          Quá hạn tự hoàn tất mà còn thiếu ngày hoặc giao đủ muộn thì khoản đó bị kẹt: Ban quản trị xử lý ở tab Tiền đang giữ.
         </span>
       </p>
 
@@ -163,7 +175,7 @@ function DisputesScreen() {
                 ))}
               </NativeSelect>
               <p className="w-full text-sm text-muted-foreground" aria-live="polite">
-                {holds.data ? `${formatNumber(holds.data.length)} khoản` : "Đang tải…"}
+                {holds.data ? `${formatNumber(holds.data.length)} khoản` : holds.isError ? "" : "Đang tải…"}
               </p>
             </div>
             {holds.isError && !holds.data ? (
@@ -189,7 +201,7 @@ function DisputesScreen() {
               />
             ) : (
               <div className={holds.isFetching && !holds.isLoading ? "opacity-60 transition-opacity" : undefined}>
-                <EscrowHoldTable holds={holds.data} isLoading={holds.isLoading} onOpenComplaint={(id) => setSelected({ id, initial: null })} />
+                <EscrowHoldTable holds={holds.data} isLoading={holds.isLoading} onOpenComplaint={(id) => setSelected({ id, initial: null })} onResolve={setResolving} />
               </div>
             )}
           </Card>
@@ -197,6 +209,7 @@ function DisputesScreen() {
       </Tabs>
 
       <ComplaintDrawer complaintId={selected?.id ?? null} initial={selected?.initial ?? null} onOpenChange={(o) => !o && setSelected(null)} />
+      <ResolveHoldDialog hold={resolving} onOpenChange={(o) => !o && setResolving(null)} />
     </div>
   );
 }
@@ -231,7 +244,7 @@ function ComplaintPanel({
       <div className="flex flex-wrap items-center gap-3 border-b p-4">
         <SearchBox value={search} onChange={onSearch} placeholder="Mã khiếu nại, mã đặt, thành viên, chuyên gia…" label="Tìm khiếu nại" />
         <p className="text-sm text-muted-foreground sm:ml-auto" aria-live="polite">
-          {query.data ? `${formatNumber(query.data.length)} khiếu nại${mode === "open" ? " · cũ nhất trước" : " · mới quyết định trước"}` : "Đang tải…"}
+          {query.data ? `${formatNumber(query.data.length)} khiếu nại${mode === "open" ? " · cũ nhất trước" : " · mới quyết định trước"}` : query.isError ? "" : "Đang tải…"}
         </p>
       </div>
       {query.isError && !query.data ? (

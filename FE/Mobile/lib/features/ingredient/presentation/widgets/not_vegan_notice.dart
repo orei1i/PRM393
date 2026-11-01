@@ -42,7 +42,9 @@ class NotVeganNotice extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '$name không thuần chay nên không thêm vào $destination.',
+                    verdict.byServerOnly
+                        ? 'Máy chủ xếp $name vào nhóm không thuần chay nên chưa thêm vào $destination.'
+                        : '$name không thuần chay nên không thêm vào $destination.',
                     style: context.textStyles.bodyMedium?.copyWith(
                         color: cs.onErrorContainer,
                         fontWeight: FontWeight.w600),

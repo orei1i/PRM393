@@ -46,8 +46,8 @@ class BookingPlanTab extends ConsumerWidget {
           _Info(
             icon: Icons.lock_clock_outlined,
             text: asChef
-                ? 'Bạn soạn kế hoạch được sau khi thành viên thanh toán. Tiền được VeganLife giữ đến 3 ngày sau khi kế hoạch kết thúc.'
-                : 'Kế hoạch xuất hiện ở đây sau khi bạn thanh toán. Tiền được VeganLife giữ, chỉ chuyển cho chuyên gia 3 ngày sau khi kế hoạch kết thúc nếu bạn không khiếu nại.',
+                ? 'Bạn soạn kế hoạch được sau khi thành viên thanh toán. Tiền được VeganLife giữ đến ${BookingRules.holdDays} ngày sau khi bạn xác nhận hoàn thành.'
+                : 'Kế hoạch xuất hiện ở đây sau khi bạn thanh toán. Tiền được VeganLife giữ, chỉ chuyển cho chuyên gia ${BookingRules.holdDays} ngày sau khi hợp đồng hoàn thành nếu bạn không khiếu nại.',
           ),
         ],
       );

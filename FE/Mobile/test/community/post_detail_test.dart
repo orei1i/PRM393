@@ -139,7 +139,9 @@ void main() {
               title: 'Câu hỏi chưa ai trả lời',
               body:
                   'Mọi người ăn chay buổi tối thường ăn gì cho nhẹ bụng?'))))!;
-      await _pump(tester, PostDetailScreen(post: created.toEntity()));
+      final approved = (await tester
+          .runAsync(() => _repo.demoDecide(created.id, approve: true)))!;
+      await _pump(tester, PostDetailScreen(post: approved.toEntity()));
       await _wait(tester);
       expect(_header(0), findsOneWidget);
       expect(find.text('Chưa có bình luận nào. Hãy là người đầu tiên!'),

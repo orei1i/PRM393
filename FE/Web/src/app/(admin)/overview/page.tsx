@@ -14,6 +14,7 @@ import {
   Library,
   Scale,
   ShieldAlert,
+  Store,
   UserPlus,
   Users,
   VideoOff,
@@ -32,6 +33,7 @@ import { useOverview } from "@/lib/hooks/use-admin";
 import { useEscrowSummary } from "@/lib/hooks/use-bookings";
 import { useKnowledgeCounts } from "@/lib/hooks/use-knowledge";
 import { usePayoutSummary } from "@/lib/hooks/use-payouts";
+import { usePendingRestaurantCount } from "@/lib/hooks/use-restaurants";
 import { formatAge, formatNumber } from "@/lib/utils";
 import { CONTENT_KIND_LABEL } from "@/types/admin";
 
@@ -47,6 +49,7 @@ export default function OverviewPage() {
   const knowledgeCounts = useKnowledgeCounts();
   const payoutSummary = usePayoutSummary();
   const escrowSummary = useEscrowSummary();
+  const pendingRestaurants = usePendingRestaurantCount();
   const data = overview.data;
   // Format the date on the client only: the page is prerendered at build time.
   const [todayLabel, setTodayLabel] = React.useState<string | null>(null);
@@ -58,13 +61,14 @@ export default function OverviewPage() {
 
   const queue: { href: string; label: string; hint: string; count?: number; icon: LucideIcon }[] = [
     { href: "/moderation", label: "Cờ AI chờ duyệt", hint: "Bài AI nghi vi phạm, cần người quyết định", count: data?.pending.aiFlags, icon: ShieldAlert },
-    { href: "/content?view=pending", label: "Bài chờ duyệt", hint: "Bài AI giữ lại khi đăng, chưa lên bảng tin", count: data?.pending.pendingPosts, icon: Hourglass },
+    { href: "/content?view=pending", label: "Bài chờ duyệt", hint: "Bài mới, bài đã sửa và bài AI giữ lại, chưa lên bảng tin", count: data?.pending.pendingPosts, icon: Hourglass },
     { href: "/chefs", label: "Hồ sơ chuyên gia", hint: "Thành viên xin xác minh đầu bếp / chuyên gia", count: data?.pending.chefApplications, icon: BadgeCheck },
     { href: "/content?view=reported", label: "Bài bị báo cáo", hint: "Người dùng báo cáo từ ứng dụng di động", count: data?.pending.reportedContent, icon: Flag },
     { href: "/content?kind=video", label: "Video AI lỗi", hint: "Không trích xuất được công thức từ video đính kèm", count: data?.pending.failedVideos, icon: VideoOff },
+    { href: "/restaurants", label: "Quán chờ duyệt", hint: "Người dùng gợi ý từ ứng dụng, chưa hiện công khai", count: pendingRestaurants.data, icon: Store },
     { href: "/knowledge", label: "Tài liệu chờ duyệt", hint: "Chuyên gia đóng góp cho chatbot", count: knowledgeCounts.data?.Pending, icon: Library },
     { href: "/disputes", label: "Khiếu nại chờ xử lý", hint: "Tiền đặt chuyên gia đang tạm giữ, chờ quyết định", count: escrowSummary.data?.openComplaints, icon: Scale },
-    { href: "/payouts", label: "Yêu cầu rút tiền chờ duyệt", hint: "Trên 5.000.000đ, cần chuyển khoản và xác nhận", count: payoutSummary.data?.awaitingApproval, icon: Wallet },
+    { href: "/payouts", label: "Yêu cầu rút tiền chờ duyệt", hint: "Của chuyên gia và thành viên, cần chuyển khoản rồi xác nhận", count: payoutSummary.data?.awaitingApproval, icon: Wallet },
   ];
 
   return (

@@ -13,10 +13,12 @@ import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/vl_card.dart';
 import '../../../booking/domain/booking_rules.dart';
 import '../../../commerce/presentation/widgets/commerce_ui.dart';
+import '../../data/chef_wallet_api_service.dart';
 import '../../data/models/wallet_models.dart';
 import '../../domain/wallet_rules.dart';
 import '../controllers/chef_studio_controllers.dart';
 import '../widgets/chef_only_gate.dart';
+import '../widgets/wallet_widgets.dart';
 import 'bank_account_form_screen.dart';
 import 'withdraw_screen.dart';
 
@@ -59,8 +61,8 @@ class _WalletBodyState extends ConsumerState<_WalletBody> {
     super.dispose();
   }
 
-  /// While a withdrawal is "Đang xử lý", refresh every 5 s so the payout
-  /// (or an admin decision) shows up without pulling.
+  /// While a withdrawal waits for an admin, refresh every 5 s so the decision
+  /// shows up without pulling.
   void _syncPoll(bool processing) {
     if (processing) {
       _poll ??= Timer.periodic(const Duration(seconds: 5), (_) {
@@ -125,7 +127,7 @@ class _WalletBodyState extends ConsumerState<_WalletBody> {
           children: [
             _BalanceCard(wallet: wallet, onWithdraw: () => _withdraw(wallet)),
             const SizedBox(height: 12),
-            _BankCard(
+            WalletBankCard(
                 account: wallet.bankAccount,
                 onEdit: () => _editAccount(wallet.bankAccount)),
             if (withdrawals.isNotEmpty) ...[
@@ -135,7 +137,10 @@ class _WalletBodyState extends ConsumerState<_WalletBody> {
               for (final w in withdrawals.take(3))
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
-                  child: _WithdrawalTile(item: w),
+                  child: WalletWithdrawalTile(
+                    item: w,
+                    api: ref.read(chefWalletApiProvider),
+                  ),
                 ),
             ],
             const SizedBox(height: 16),
@@ -215,15 +220,15 @@ class _BalanceCard extends StatelessWidget {
           ),
           if (wallet.processing > 0) ...[
             const SizedBox(height: 6),
-            Text('Đang xử lý rút ${formatVnd(wallet.processing)}',
+            Text('Đang chờ duyệt rút ${formatVnd(wallet.processing)}',
                 style: context.textStyles.bodySmall
                     ?.copyWith(color: vl.onCautionContainer)),
           ],
           const SizedBox(height: 10),
           Text(
-            'Phí nền tảng $percent% mỗi kế hoạch. Tiền thành viên trả được giữ đến '
-            '${wallet.holdDays} ngày sau khi kế hoạch kết thúc, rồi chuyển vào "Có thể rút" nếu không có khiếu nại; '
-            'khi có khiếu nại, tiền tạm giữ đến khi Ban quản trị quyết định.',
+            'Phí nền tảng $percent% mỗi kế hoạch. Tiền thành viên trả được VeganLife giữ; sau khi bạn xác nhận '
+            'hoàn thành, giữ thêm ${wallet.holdDays} ngày rồi vào "Có thể rút" nếu không có khiếu nại. '
+            'Khi có khiếu nại, tiền tạm giữ đến khi Ban quản trị quyết định. Rút tiền cần Ban quản trị duyệt.',
             style: context.textStyles.bodySmall?.copyWith(color: vl.muted),
           ),
           const SizedBox(height: 12),
@@ -234,107 +239,6 @@ class _BalanceCard extends StatelessWidget {
             icon: const Icon(Icons.account_balance_wallet_outlined),
             label: const Text('Rút tiền'),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BankCard extends StatelessWidget {
-  const _BankCard({required this.account, required this.onEdit});
-
-  final BankAccountDto? account;
-  final VoidCallback onEdit;
-
-  @override
-  Widget build(BuildContext context) {
-    final a = account;
-    return VLCard(
-      onTap: onEdit,
-      child: Row(
-        children: [
-          Icon(Icons.account_balance_outlined, color: context.colors.primary),
-          const SizedBox(width: 12),
-          Expanded(
-            child: a == null
-                ? Text('Chưa có tài khoản nhận tiền',
-                    style: context.textStyles.titleSmall)
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('${a.bankName} ${a.masked}',
-                          style: context.textStyles.titleSmall),
-                      Text(a.accountHolder,
-                          style: context.textStyles.bodySmall
-                              ?.copyWith(color: context.vl.muted)),
-                    ],
-                  ),
-          ),
-          Text(a == null ? 'Thêm' : 'Sửa',
-              style: context.textStyles.labelLarge?.copyWith(
-                  color: context.colors.primary, fontWeight: FontWeight.w700)),
-        ],
-      ),
-    );
-  }
-}
-
-Widget _ledgerTag(BuildContext context, LedgerStatus status) {
-  final vl = context.vl;
-  final (Color bg, Color fg) = switch (status) {
-    LedgerStatus.available || LedgerStatus.completed => (
-        vl.successContainer,
-        vl.onSuccessContainer
-      ),
-    LedgerStatus.held || LedgerStatus.processing => (
-        vl.cautionContainer,
-        vl.onCautionContainer
-      ),
-    LedgerStatus.frozen || LedgerStatus.rejected => (
-        context.colors.errorContainer,
-        context.colors.onErrorContainer
-      ),
-    LedgerStatus.reversed => (vl.aiContainer, vl.onAiContainer),
-  };
-  return StatusPill(label: status.label, background: bg, foreground: fg);
-}
-
-class _WithdrawalTile extends StatelessWidget {
-  const _WithdrawalTile({required this.item});
-
-  final WithdrawalDto item;
-
-  @override
-  Widget build(BuildContext context) {
-    return VLCard(
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Text(formatVnd(item.amount),
-                  style: context.textStyles.titleSmall
-                      ?.copyWith(fontWeight: FontWeight.w800)),
-              _ledgerTag(context, item.status),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-              '${item.bankName} ${item.accountNumber} · ${formatStamp(item.createdAt)}',
-              style: context.textStyles.bodySmall
-                  ?.copyWith(color: context.vl.muted)),
-          if (item.reason != null) ...[
-            const SizedBox(height: 4),
-            Text(
-                item.status == LedgerStatus.rejected
-                    ? 'Lý do: ${item.reason}'
-                    : item.reason!,
-                style: context.textStyles.bodySmall),
-          ],
         ],
       ),
     );
@@ -438,7 +342,10 @@ class _LedgerTile extends StatelessWidget {
     final t = item;
     final (IconData icon, Color color) = switch (t.type) {
       WalletEntryType.income => (Icons.south_west_rounded, vl.success),
-      WalletEntryType.refund => (Icons.undo_rounded, vl.ai),
+      WalletEntryType.refund || WalletEntryType.payment => (
+          Icons.undo_rounded,
+          vl.ai
+        ),
       WalletEntryType.withdrawal => (
           Icons.north_east_rounded,
           context.colors.primary
@@ -455,7 +362,9 @@ class _LedgerTile extends StatelessWidget {
     ].join(' · ');
     final holdNote = switch (t.status) {
       LedgerStatus.held when t.releaseAt != null =>
-        'Giữ đến ${formatVnStamp(t.releaseAt!)} ($kEscrowHoldDays ngày sau khi kế hoạch kết thúc)',
+        'Giữ đến ${formatVnStamp(t.releaseAt!)} ($kEscrowHoldDays ngày sau khi hợp đồng hoàn thành)',
+      LedgerStatus.held =>
+        'VeganLife đang giữ · Chưa có ngày: tính $kEscrowHoldDays ngày từ lúc hợp đồng hoàn thành',
       LedgerStatus.frozen =>
         'Tạm giữ do khiếu nại — chờ Ban quản trị quyết định',
       _ => null,
@@ -505,7 +414,7 @@ class _LedgerTile extends StatelessWidget {
                   runSpacing: 6,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    _ledgerTag(context, t.status),
+                    ledgerStatusTag(context, t.status),
                     Text('$sign${formatVnd(t.net.abs())}',
                         style: context.textStyles.titleSmall?.copyWith(
                           fontWeight: FontWeight.w800,

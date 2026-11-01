@@ -63,9 +63,10 @@ class RecipeTag extends StatelessWidget {
 }
 
 /// One "Nguyên liệu" row as cooked: name, scaled amount, tags and the
-/// controls the row allows (lock for a "Thành phần chính", "Đổi" when it
-/// has substitutes, ✕ when optional; "Hoàn tác" / "Thêm lại" once changed).
-/// Rows found in the nutrition DB open the ingredient ([onOpen]).
+/// controls the row allows (lock for a "Thành phần chính", "Đổi nguyên liệu"
+/// when it has substitutes, ✕ when optional; "Hoàn tác" / "Thêm lại" once
+/// changed). Rows found in the nutrition DB open the ingredient ([onOpen]),
+/// with the chevron at the row's end.
 class RecipeIngredientRow extends StatelessWidget {
   const RecipeIngredientRow({
     super.key,
@@ -90,6 +91,9 @@ class RecipeIngredientRow extends StatelessWidget {
   final VoidCallback? onRestore;
   final VoidCallback? onLock;
 
+  /// What the swap button says.
+  static const swapLabel = 'Đổi nguyên liệu';
+
   @override
   Widget build(BuildContext context) {
     final vl = context.vl;
@@ -100,6 +104,22 @@ class RecipeIngredientRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8),
       minimumSize: const Size(0, 36),
       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+    final swap = Semantics(
+      label: 'Đổi ${row.name}',
+      excludeSemantics: true,
+      button: true,
+      child: OutlinedButton.icon(
+        style: OutlinedButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          minimumSize: const Size(0, 36),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        onPressed: onSwap,
+        icon: const Icon(Icons.swap_horiz_rounded, size: 18),
+        label: const Text(swapLabel),
+      ),
     );
     final amount = removed ? 'Đã bỏ' : row.amount;
 
@@ -129,13 +149,14 @@ class RecipeIngredientRow extends StatelessWidget {
       if (removed)
         TextButton(
             style: compact, onPressed: onRestore, child: const Text('Thêm lại'))
-      else if (row.isSwapped)
-        TextButton(
-            style: compact,
-            onPressed: onUndoSwap,
-            child: const Text('Hoàn tác'))
-      else if (original.substitutes.isNotEmpty)
-        TextButton(style: compact, onPressed: onSwap, child: const Text('Đổi')),
+      else ...[
+        if (original.substitutes.isNotEmpty) swap,
+        if (row.isSwapped)
+          TextButton(
+              style: compact,
+              onPressed: onUndoSwap,
+              child: const Text('Hoàn tác')),
+      ],
       if (original.isOptional && !original.isSignature && !removed)
         IconButton(
           tooltip: 'Bỏ ${original.name}',
@@ -152,6 +173,8 @@ class RecipeIngredientRow extends StatelessWidget {
         children: [
           Row(
             children: [
+              // Both fill their share, so the chevron stays at the row's end
+              // whatever the amount's length.
               Expanded(
                 flex: 3,
                 child: Text(
@@ -162,28 +185,34 @@ class RecipeIngredientRow extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
-              Flexible(
-                flex: 2,
-                child: Text(
-                  amount,
-                  textAlign: TextAlign.end,
-                  style: AppTypography.mono(
-                      size: 14,
-                      color: removed ? vl.muted : context.colors.onSurface),
+              if (amount.isNotEmpty) ...[
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: Text(
+                    amount,
+                    textAlign: TextAlign.end,
+                    style: AppTypography.mono(
+                        size: 14,
+                        color: removed ? vl.muted : context.colors.onSurface),
+                  ),
                 ),
-              ),
+              ],
               if (onOpen != null)
                 Icon(Icons.chevron_right_rounded, color: vl.muted),
             ],
           ),
-          if (tags.isNotEmpty || actions.isNotEmpty) ...[
+          if (tags.isNotEmpty) ...[
             const SizedBox(height: 4),
+            Wrap(spacing: 6, runSpacing: 4, children: tags),
+          ],
+          if (actions.isNotEmpty) ...[
+            const SizedBox(height: 6),
             Wrap(
               spacing: 6,
               runSpacing: 4,
               crossAxisAlignment: WrapCrossAlignment.center,
-              children: [...tags, ...actions],
+              children: actions,
             ),
           ],
         ],

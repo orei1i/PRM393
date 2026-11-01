@@ -15,8 +15,9 @@ import { describeError } from "@/lib/api_error";
 import { useUpdateAiModel } from "@/lib/hooks/use-ai-models";
 import { AI_TASK_TITLE, THRESHOLD_MAX, THRESHOLD_MIN, type AiModel, type AiModelPatch } from "@/types/ai_models";
 import { MIN_AUDIT_NOTE_LENGTH } from "@/types/moderation";
+import { dateFormat } from "@/lib/utils";
 
-const dateTimeVi = new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" });
+const dateTimeVi = dateFormat({ hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" });
 const fmtThreshold = (n: number | null) => (n === null ? "" : n.toFixed(2));
 const vi = (n: number) => n.toFixed(2).replace(".", ",");
 

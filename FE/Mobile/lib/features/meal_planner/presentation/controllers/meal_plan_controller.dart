@@ -105,7 +105,7 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
       api.getCurrentMealPlan(),
     ]);
     final profile = (results[0] as HealthProfileDto?)?.toEntity();
-    final plan = _aimed(results[1] as MealPlanDto?, profile)?.toEntity();
+    final plan = (results[1] as MealPlanDto?)?.toEntity();
     return MealPlannerState(
       healthProfile: profile,
       plan: plan,
@@ -131,7 +131,7 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     state = await AsyncValue.guard(() async {
       final dto = await _api.generateMealPlan(
           startDate: startOfWeek(_now()), fromPantry: fromPantry);
-      final plan = _aimed(dto, previous.healthProfile)!.toEntity();
+      final plan = dto.toEntity();
       return previous.copyWith(
           plan: plan, selectedDate: _initialDate(plan, _now()));
     });
@@ -145,7 +145,7 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     state = await AsyncValue.guard(() async {
       final dto =
           await _api.createEmptyMealPlan(startDate: startOfWeek(_now()));
-      final plan = _aimed(dto, previous.healthProfile)!.toEntity();
+      final plan = dto.toEntity();
       return previous.copyWith(
           plan: plan, selectedDate: _initialDate(plan, _now()));
     });
@@ -226,7 +226,7 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     try {
       final dto = await _api.getCurrentMealPlan();
       final current = state.valueOrNull;
-      final plan = _aimed(dto, current?.healthProfile)?.toEntity();
+      final plan = dto?.toEntity();
       if (plan != null && current != null) {
         state = AsyncData(current.copyWith(plan: plan));
       }
@@ -264,16 +264,20 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
     if (plan == null) return const [];
     final dtos = await _api.getSwapSuggestions(
         planId: plan.id, date: s.selectedDate, slot: slot);
+    final current = s.selectedDay?.meals[slot];
+    // The real BE suggests one serving; its week sized this slot to the target.
+    final portion = BackendModules.isReal(BackendModule.planner)
+        ? current?.portion ?? 1
+        : 1.0;
     return swapChoices(
-      dtos.map((d) => d.toEntity()),
-      current: s.selectedDay?.meals[slot],
+      dtos.map((d) => (portion == 1 ? d : d.scaled(portion)).toEntity()),
+      current: current,
       allergies: s.profile.allergies,
     );
   }
 
   /// What to offer instead of [current]: never the dish already in the slot
-  /// (the real BE suggests it, with "±0") nor one the member is allergic to.
-  /// At most 3, so the service asks the BE for one more.
+  /// nor one the member is allergic to. At most 3.
   @visibleForTesting
   static List<Recipe> swapChoices(
     Iterable<Recipe> suggestions, {
@@ -413,7 +417,14 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
   /// placed.
   Future<int> addMeals(List<AddMealRequestDto> requests) async {
     if (requests.isEmpty) return 0;
-    await future;
+    final loaded = await future;
+    if (loaded.plan == null && BackendModules.isReal(BackendModule.planner)) {
+      throw const ApiException(
+        message:
+            'Bạn chưa có thực đơn tuần này. Vào tab Thực đơn để tạo trước nhé.',
+        statusCode: 404,
+      );
+    }
     final result = await _api.addMealsToCurrentPlan(requests);
     final latest = state.valueOrNull;
     final current = latest?.plan;
@@ -520,6 +531,11 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
   Future<Recipe> createMyRecipe(CreateRecipeRequestDto request) async =>
       (await _api.createMyRecipe(request)).toEntity();
 
+  /// Only when `BackendModules.myRecipeEdit`.
+  Future<Recipe> updateMyRecipe(
+          String id, CreateRecipeRequestDto request) async =>
+      (await _api.updateMyRecipe(id, request)).toEntity();
+
   /// "Từ chuyên gia".
   Future<List<ChefSuggestion>> fetchChefSuggestions() async =>
       (await _api.getChefSuggestions()).map((s) => s.toEntity()).toList();
@@ -528,7 +544,7 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
 
   /// Puts [recipe] in a slot. On the real BE only a real recipe can go by id;
   /// a mock recipe or a dish without one (typed in, delivered by a chef) goes
-  /// as a dish, which loses its macros (D10).
+  /// as a dish, with the numbers it has now.
   Future<MealPlanDayDto> _place(
     String planId, {
     required DateTime date,
@@ -545,6 +561,7 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
         proteinG: recipe.nutrition.proteinG,
         carbsG: recipe.nutrition.carbsG,
         fatG: recipe.nutrition.fatG,
+        fiberG: recipe.nutrition.fiberG,
         prepMinutes: recipe.prepMinutes,
         allergens: recipe.allergens,
         source: recipe.source.apiValue,
@@ -560,30 +577,6 @@ class MealPlanController extends AsyncNotifier<MealPlannerState> {
         recipeId: recipe.id,
         source: recipe.source,
         portion: recipe.portion,
-      ),
-    );
-  }
-
-  /// The BE doesn't re-aim a week when the profile changes (B8), so the week
-  /// shown follows the profile's target, with the BE's macro split.
-  MealPlanDto? _aimed(MealPlanDto? plan, HealthProfile? profile) {
-    final target = profile?.targetCalories;
-    if (plan == null ||
-        target == null ||
-        target == plan.dailyTargets.calories ||
-        BackendModules.isMock(BackendModule.planner)) {
-      return plan;
-    }
-    double grams(double share, int kcalPerGram) =>
-        (target * share / kcalPerGram * 10).roundToDouble() / 10;
-    return plan.withTargets(
-      goal: profile!.goal.apiValue,
-      dailyTargets: NutritionDto(
-        calories: target,
-        proteinG: grams(0.15, 4),
-        carbsG: grams(0.55, 4),
-        fatG: grams(0.30, 9),
-        fiberG: 30,
       ),
     );
   }

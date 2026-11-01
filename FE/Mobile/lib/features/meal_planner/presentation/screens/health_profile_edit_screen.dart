@@ -1,4 +1,6 @@
 // lib/features/meal_planner/presentation/screens/health_profile_edit_screen.dart
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,6 +28,10 @@ import '../widgets/bmi_gauge.dart';
 /// gets the same form empty ("Thiết lập hồ sơ sức khoẻ").
 class HealthProfileEditScreen extends ConsumerStatefulWidget {
   const HealthProfileEditScreen({super.key});
+
+  /// Under "Giới tính" when "Lưu" finds an old "Khác" not replaced yet.
+  static const genderRequiredMessage =
+      'Chọn Nam hoặc Nữ để lưu hồ sơ và tính nhu cầu năng lượng.';
 
   /// Pops with `true` once the profile was saved.
   static Route<bool> route() => MaterialPageRoute<bool>(
@@ -55,6 +61,14 @@ class _HealthProfileEditScreenState
   List<String> _allergies = [];
   Set<MealSlot> _pattern = {...MealPattern.standard};
   bool _saving = false;
+
+  /// "Lưu" was refused because a gender has to be chosen.
+  bool _askGender = false;
+  final _genderKey = GlobalKey();
+
+  /// What the form can show of a saved gender (an old "Khác" shows as nothing).
+  static Gender? _selectable(Gender? gender) =>
+      gender == Gender.other ? null : gender;
 
   @override
   void initState() {
@@ -91,7 +105,8 @@ class _HealthProfileEditScreenState
         _weight.text = _weightText(profile.weightKg);
         _birthYear.text = profile.birthYear?.toString() ?? '';
         _goal = profile.goal;
-        _gender = profile.gender;
+        // "Khác" is no longer offered: nothing selected, asked again on save.
+        _gender = _selectable(profile.gender);
         _activity = profile.activityLevel;
         _allergies = [...profile.allergies];
         _pattern = {...profile.mealPattern};
@@ -194,7 +209,7 @@ class _HealthProfileEditScreenState
     return _heightCm != initial.heightCm.roundToDouble() ||
         _weightKg != initial.weightKg ||
         _goal != initial.goal ||
-        _gender != initial.gender ||
+        _gender != _selectable(initial.gender) ||
         _year != initial.birthYear ||
         _activity != initial.activityLevel ||
         _allergies.length != initial.allergies.length ||
@@ -215,6 +230,14 @@ class _HealthProfileEditScreenState
     if (!_loaded ||
         _pattern.isEmpty ||
         !(_form.currentState?.validate() ?? false)) {
+      return;
+    }
+    if (_gender == null && initial?.gender == Gender.other) {
+      setState(() => _askGender = true);
+      if (_genderKey.currentContext case final gender?) {
+        unawaited(Scrollable.ensureVisible(gender,
+            duration: const Duration(milliseconds: 200)));
+      }
       return;
     }
     setState(() => _saving = true);
@@ -308,6 +331,8 @@ class _HealthProfileEditScreenState
   @override
   Widget build(BuildContext context) {
     final dirty = _dirty;
+    // An old "Khác" can be saved at any time, so that "Lưu" asks for a choice.
+    final canSave = dirty || _initial?.gender == Gender.other;
     return PopScope<bool>(
       canPop: !dirty || _saving,
       onPopInvokedWithResult: (didPop, _) {
@@ -322,7 +347,7 @@ class _HealthProfileEditScreenState
                 padding: const EdgeInsets.only(right: 8),
                 child: FilledButton(
                   onPressed:
-                      dirty && !_saving && _pattern.isNotEmpty ? _save : null,
+                      canSave && !_saving && _pattern.isNotEmpty ? _save : null,
                   style:
                       FilledButton.styleFrom(minimumSize: const Size(72, 40)),
                   child: Text(_saving ? 'Đang lưu…' : 'Lưu'),
@@ -496,19 +521,28 @@ class _HealthProfileEditScreenState
             ],
           ),
           const SizedBox(height: 14),
-          Text('Giới tính', style: context.textStyles.labelLarge),
+          Text('Giới tính',
+              key: _genderKey, style: context.textStyles.labelLarge),
           const SizedBox(height: 6),
           SegmentedButton<Gender>(
             emptySelectionAllowed: true,
             showSelectedIcon: false,
             segments: [
-              for (final g in Gender.values)
+              for (final g in Gender.selectable)
                 ButtonSegment(value: g, label: Text(g.label)),
             ],
             selected: {if (_gender != null) _gender!},
-            onSelectionChanged: (v) =>
-                setState(() => _gender = v.isEmpty ? _gender : v.first),
+            onSelectionChanged: (v) => setState(() {
+              _gender = v.isEmpty ? _gender : v.first;
+              _askGender = false;
+            }),
           ),
+          if (_askGender) ...[
+            const SizedBox(height: 6),
+            Text(HealthProfileEditScreen.genderRequiredMessage,
+                style: context.textStyles.bodySmall
+                    ?.copyWith(color: context.colors.error)),
+          ],
           const SizedBox(height: 14),
           TextFormField(
             controller: _birthYear,

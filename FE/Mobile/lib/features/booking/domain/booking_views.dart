@@ -37,6 +37,8 @@ int bookingStep(BookingDto b) => switch (b.status) {
       BookingStatus.requested || BookingStatus.negotiating => 1,
       BookingStatus.awaitingPayment => 2,
       BookingStatus.expired => 2,
+      // An admin's refund comes after the payment, while the plan was due.
+      BookingStatus.cancelled when b.isAdminResolved => 3,
       BookingStatus.declined ||
       BookingStatus.cancelled =>
         b.contract == null ? 1 : 2,
@@ -78,33 +80,65 @@ bool dueToday(BookingDto b, DateTime now) {
 }
 
 /// Something waits on the chef: a new request, a member's counter-offer, a
-/// day due today, or a complaint without an answer.
+/// day due today, a finished plan to confirm, days still missing long after the
+/// plan ended, or a complaint without an answer.
 bool chefNeedsAction(BookingDto b, DateTime now) => switch (b.status) {
       BookingStatus.requested => true,
       BookingStatus.negotiating =>
         b.openOffer?.proposedBy == BookingParty.member,
-      BookingStatus.active => dueToday(b, now),
+      BookingStatus.active => dueToday(b, now) ||
+          b.canConfirmCompletion(now) ||
+          b.overdueUndelivered(now),
       BookingStatus.disputed =>
         b.complaint != null && b.complaint!.chefResponse == null,
       _ => false,
     };
 
-/// Something waits on the member: the chef's offer or the payment.
-bool memberNeedsAction(BookingDto b) =>
+/// Something waits on the member: the chef's offer, the payment, or a plan
+/// that stayed undelivered, which only a complaint can settle.
+bool memberNeedsAction(BookingDto b, DateTime now) =>
     b.status == BookingStatus.awaitingPayment ||
+    b.overdueUndelivered(now) ||
     (b.status == BookingStatus.negotiating &&
         b.openOffer?.proposedBy == BookingParty.chef);
+
+/// What an admin's decision on a stuck hold paid, from [party]'s point of view.
+/// Both sides read this; the admin's name stays out of it, as for a complaint.
+String adminResolutionOutcome(BookingDto b, BookingParty party) {
+  final escrow = b.escrow;
+  if (escrow == null) return '';
+  final refund = formatVnd(escrow.refundedAmount);
+  final net = formatVnd(escrow.releasedAmount - escrow.feeAmount);
+  final asChef = party == BookingParty.chef;
+  return switch (escrow.status) {
+    EscrowStatus.released => asChef
+        ? '$net sau phí đã vào ví của bạn'
+        : 'Đã chuyển $net sau phí cho chuyên gia',
+    EscrowStatus.refunded => asChef
+        ? 'Hoàn $refund cho thành viên, bạn không nhận tiền'
+        : 'Đã hoàn $refund vào Ví của tôi',
+    EscrowStatus.partiallyRefunded => asChef
+        ? 'Hoàn $refund cho thành viên, $net sau phí đã vào ví của bạn'
+        : 'Đã hoàn $refund vào Ví của tôi, chuyên gia nhận $net sau phí',
+    EscrowStatus.held || EscrowStatus.frozen => '',
+  };
+}
+
+/// "Ban quản trị đã xử lý: …", in the header and on the cards.
+String adminResolutionLine(BookingDto b, BookingParty party) =>
+    'Ban quản trị đã xử lý: ${adminResolutionOutcome(b, party)}';
 
 /// The money outcome of a finished booking, member's point of view.
 String? memberOutcome(BookingDto b) {
   final escrow = b.escrow;
   if (escrow == null) return null;
+  if (b.isAdminResolved) return adminResolutionLine(b, BookingParty.member);
   return switch (escrow.status) {
     EscrowStatus.released => 'Đã chuyển cho chuyên gia',
     EscrowStatus.refunded =>
-      'Đã hoàn ${formatVnd(escrow.refundedAmount)} về tài khoản thanh toán',
+      'Đã hoàn ${formatVnd(escrow.refundedAmount)} vào Ví của tôi',
     EscrowStatus.partiallyRefunded =>
-      'Hoàn một phần ${formatVnd(escrow.refundedAmount)}',
+      'Hoàn một phần ${formatVnd(escrow.refundedAmount)} vào Ví của tôi',
     EscrowStatus.frozen => 'Tiền đang tạm giữ do khiếu nại',
     EscrowStatus.held => null,
   };

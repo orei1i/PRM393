@@ -85,8 +85,6 @@ class MockContractRow {
   final DateTime paymentDueAt;
   final DateTime createdAt;
 
-  DateTime get releaseAt => escrowReleaseAt(endDate);
-
   Map<String, dynamic> toJson() => {
         'id': id,
         'bookingId': bookingId,
@@ -114,7 +112,6 @@ class MockEscrowRow {
     required this.paymentId,
     required this.amount,
     required this.heldAt,
-    required this.releaseAt,
   });
 
   final String id;
@@ -122,12 +119,16 @@ class MockEscrowRow {
   final String paymentId;
   final int amount;
   final DateTime heldAt;
-  final DateTime releaseAt;
+
+  /// Both set when the chef confirms.
+  DateTime? completedAt;
+  DateTime? releaseAt;
   EscrowStatus status = EscrowStatus.held;
   DateTime? releasedAt;
   int releasedAmount = 0;
   int feeAmount = 0;
   int refundedAmount = 0;
+  DateTime? refundedAt;
   String? resolvedBy;
   String? resolutionNote;
 
@@ -138,11 +139,13 @@ class MockEscrowRow {
         'amount': amount,
         'status': status.apiValue,
         'heldAt': _iso(heldAt),
+        'completedAt': _iso(completedAt),
         'releaseAt': _iso(releaseAt),
         'releasedAt': _iso(releasedAt),
         'releasedAmount': releasedAmount,
         'feeAmount': feeAmount,
         'refundedAmount': refundedAmount,
+        'refundedAt': _iso(refundedAt),
         'resolvedBy': resolvedBy,
         'resolutionNote': resolutionNote,
       };
@@ -319,6 +322,8 @@ class MockBookingRow {
     required this.shareHealthProfile,
     required this.status,
     required this.createdAt,
+    this.audience = BookingAudience.self,
+    this.familySize,
     this.memberHealth,
   }) : updatedAt = createdAt;
 
@@ -335,7 +340,11 @@ class MockBookingRow {
   BookingType bookingType;
   int planDays;
   DateTime startDate;
-  final String goal;
+  final BookingAudience audience;
+  final int? familySize;
+
+  /// `null` for a family, or when the profile is not shared.
+  final String? goal;
   final List<String> allergies;
   final List<MealSlot> mealPattern;
   final int? budgetPerDay;
@@ -355,6 +364,12 @@ class MockBookingRow {
   String? orderId;
   String? declineReason;
   String? cancelReason;
+
+  /// The contract is completed: by the chef, or by the system.
+  DateTime? completedAt;
+  bool autoCompleted = false;
+
+  bool get isFamily => audience == BookingAudience.family;
 
   MockOfferRow? get lastOffer => offers.lastOrNull;
 
@@ -382,13 +397,14 @@ typedef EscrowLedgerEntry = ({
   int amount,
   DateTime heldAt,
   EscrowStatus status,
-  DateTime releaseAt,
+  DateTime? releaseAt,
   DateTime? releasedAt,
   int releasedAmount,
   int feeAmount,
   int refundedAmount,
   String? complaintId,
   DateTime? decidedAt,
+  bool adminResolved,
 });
 
 /// In-memory chef bookings: offers, contracts, booking orders, escrow holds,
@@ -397,9 +413,13 @@ typedef EscrowLedgerEntry = ({
 /// (FE/Web src/lib/mock_bookings.ts).
 ///
 /// Rules are evaluated lazily on every read and write ([settle]): an unpaid
-/// booking past `paymentDueAt` expires; an Active one past its end date is
-/// Ended; a Held escrow past `releaseAt` without an open complaint is
-/// released to the chef (net 90 %); a Frozen one waits for an admin.
+/// booking past `paymentDueAt` expires; a Held escrow past `releaseAt` without
+/// an open complaint is released to the chef (net 90 %); a Frozen one waits for
+/// an admin. A chef who never confirms: a plan with every day delivered and no
+/// open complaint completes by itself at [autoCompleteAt]; with days missing at
+/// that moment the money stays held and the member is asked to complain. Such a
+/// hold is stuck ([isStuck]) until the chef confirms, the member complains or an
+/// admin decides ([resolveHold]).
 class MockBookingDb {
   MockBookingDb.attach(this.commerce);
 
@@ -476,19 +496,69 @@ class MockBookingDb {
             'Thành viên có thể gửi yêu cầu mới.',
             at: contract.paymentDueAt);
       }
-      if (row.status == BookingStatus.active &&
-          contract != null &&
-          !now.isBefore(vnTime(addDays(contract.endDate, 1), 0, 0))) {
-        row.status = BookingStatus.ended;
+      if (_dueAutoComplete(row, now)) {
+        _complete(row, autoCompleteAt(row.endDate), auto: true);
       }
       final escrow = row.escrow;
+      final releaseAt = escrow?.releaseAt;
       if (escrow != null &&
           escrow.status == EscrowStatus.held &&
-          !now.isBefore(escrow.releaseAt) &&
+          releaseAt != null &&
+          !now.isBefore(releaseAt) &&
           row.complaint?.status != ComplaintStatus.open) {
         _autoRelease(row);
       }
     }
+  }
+
+  /// Every day was delivered by [autoCompleteAt], so the answer doesn't depend
+  /// on when this lazy rule happens to run (a job at that moment gives the same).
+  /// A day sent later leaves it to the chef's confirmation or a complaint.
+  bool _dueAutoComplete(MockBookingRow row, DateTime now) {
+    final at = autoCompleteAt(row.endDate);
+    return row.status == BookingStatus.active &&
+        row.completedAt == null &&
+        row.escrow?.status == EscrowStatus.held &&
+        row.complaint?.status != ComplaintStatus.open &&
+        !now.isBefore(at) &&
+        row.deliveredDays >= row.planDays &&
+        row.days.every((d) => !(d.sentAt?.isAfter(at) ?? false));
+  }
+
+  /// Past [autoCompleteAt] with nothing left to move it on its own (the same
+  /// definition as the web mock's). The chef confirming or the member complaining
+  /// ends it, until an admin decides.
+  bool isStuck(MockBookingRow row) {
+    settle();
+    final escrow = row.escrow;
+    return escrow != null &&
+        escrow.status == EscrowStatus.held &&
+        row.completedAt == null &&
+        escrow.completedAt == null &&
+        escrow.releaseAt == null &&
+        row.complaint?.status != ComplaintStatus.open &&
+        !now.isBefore(autoCompleteAt(row.endDate));
+  }
+
+  /// The chef confirmed, or the system did ([auto]): the hold's clock starts.
+  void _complete(MockBookingRow row, DateTime at, {bool auto = false}) {
+    final releaseAt = escrowReleaseAt(at);
+    row.escrow
+      ?..completedAt = at
+      ..releaseAt = releaseAt;
+    row
+      ..completedAt = at
+      ..autoCompleted = auto
+      ..status = BookingStatus.ended
+      ..updatedAt = at;
+    say(
+        row,
+        BookingParty.system,
+        '${auto ? autoCompletedNote : '${row.chefName} đã xác nhận hoàn thành hợp đồng'}. '
+        'VeganLife giữ tiền đến ${formatVnStamp(releaseAt)} '
+        '(${BookingRules.holdDays} ngày). Có vấn đề thì thành viên khiếu nại '
+        'trước lúc đó; không có khiếu nại thì tiền chuyển vào ví chuyên gia.',
+        at: at);
   }
 
   /// Release at releaseAt (no complaint): net 90 % to the chef wallet.
@@ -505,7 +575,7 @@ class MockBookingDb {
         row.status == BookingStatus.ended) {
       row.status = BookingStatus.completed;
     }
-    row.updatedAt = escrow.releaseAt;
+    row.updatedAt = escrow.releaseAt ?? now;
     say(
         row,
         BookingParty.system,
@@ -518,9 +588,11 @@ class MockBookingDb {
   // ---- state changes ------------------------------------------------------
 
   static String scopeText(int planDays, BookingType type,
-          List<MealSlot> pattern, List<String> allergies) =>
+          List<MealSlot> pattern, List<String> allergies,
+          {int? familySize}) =>
       'Thiết kế thực đơn chay $planDays ngày (${type.label.toLowerCase()}) '
-      'theo hồ sơ và nhu cầu của thành viên: ${pattern.length} bữa mỗi ngày, '
+      '${familySize == null ? 'theo hồ sơ và nhu cầu của thành viên' : 'cho gia đình $familySize người'}: '
+      '${pattern.length} bữa mỗi ngày, '
       'có định lượng và cách làm từng món'
       '${allergies.isEmpty ? '' : ', tránh hoàn toàn: ${allergies.map(allergenLabel).join(', ')}'}.';
 
@@ -544,23 +616,26 @@ class MockBookingDb {
       bookingType: request.bookingType,
       planDays: request.planDays,
       startDate: dateOnly(request.startDate),
-      goal: request.goal,
+      audience: request.audience,
+      familySize: request.isFamily ? request.familySize : null,
+      goal: request.sentGoal,
       allergies: [...request.allergies],
       mealPattern: MealPattern.normalize(request.mealPattern),
       budgetPerDay: request.budgetPerDay,
       needs: request.needs.trim(),
-      shareHealthProfile: request.shareHealthProfile,
+      shareHealthProfile: request.sendsPersonalProfile,
       status: BookingStatus.requested,
       createdAt: now,
-      memberHealth: request.shareHealthProfile ? memberHealth : null,
+      memberHealth: request.sendsPersonalProfile ? memberHealth : null,
     );
     say(
         row,
         BookingParty.system,
         '$memberName đã gửi yêu cầu thiết kế thực đơn ${row.planDays} ngày '
-        '(${row.bookingType.label.toLowerCase()}), bắt đầu '
+        '(${row.bookingType.label.toLowerCase()})'
+        '${row.isFamily ? ' cho gia đình ${row.familySize} người' : ''}, bắt đầu '
         '${formatDayMonth(row.startDate)}.');
-    say(row, BookingParty.member, row.needs);
+    if (row.needs.isNotEmpty) say(row, BookingParty.member, row.needs);
     bookings.add(row);
     return row;
   }
@@ -677,7 +752,8 @@ class MockBookingDb {
       startDate: offer.startDate,
       deliveryDueAt: deliveryDueAt(offer.bookingType, offer.startDate, at),
       scopeText: scopeText(
-          offer.planDays, offer.bookingType, row.mealPattern, row.allergies),
+          offer.planDays, offer.bookingType, row.mealPattern, row.allergies,
+          familySize: row.isFamily ? row.familySize : null),
       paymentDueAt: dueAt,
       createdAt: at,
     );
@@ -716,18 +792,19 @@ class MockBookingDb {
     return order;
   }
 
-  /// PaymentOS confirmed: the money goes into escrow until the plan's end
-  /// date 23:59 + 3 days.
+  /// PaymentOS (or the wallet) confirmed: the money goes into escrow until
+  /// [BookingRules.holdDays] days after the contract is completed.
   void onOrderPaid(MockOrderRow order, MockPaymentRow payment) {
     final row = find(order.bookingId);
     final contract = row?.contract;
     if (row == null || contract == null) return;
     final paidAt = payment.paidAt ?? now;
     if (row.status != BookingStatus.awaitingPayment) {
-      // Paid after expiry or cancellation: straight back to the payer.
-      commerce.refund(order);
+      // Paid after expiry or cancellation: straight back to the payer's wallet.
+      commerce.refund(order,
+          note: 'Khoản thanh toán đến sau khi yêu cầu đã đóng');
       say(row, BookingParty.system,
-          'Khoản thanh toán đến sau khi yêu cầu đã đóng nên được hoàn lại.');
+          'Khoản thanh toán đến sau khi yêu cầu đã đóng nên được hoàn vào ví của thành viên.');
       return;
     }
     _fund(row, payment, paidAt);
@@ -737,7 +814,6 @@ class MockBookingDb {
     final contract = row.contract!;
     contract.deliveryDueAt =
         deliveryDueAt(contract.bookingType, contract.startDate, paidAt);
-    final releaseAt = contract.releaseAt;
     row
       ..escrow = MockEscrowRow(
         id: 'eh_${row.orderId!.replaceFirst('ord_', '')}',
@@ -745,20 +821,58 @@ class MockBookingDb {
         paymentId: payment.id,
         amount: contract.price,
         heldAt: paidAt,
-        releaseAt: releaseAt,
       )
       ..status = BookingStatus.active
       ..updatedAt = paidAt;
     say(
         row,
         BookingParty.system,
-        'Đã thanh toán ${formatVnd(contract.price)} qua PaymentOS. VeganLife '
-        'giữ tiền đến ${formatVnStamp(releaseAt)} '
-        '(${BookingRules.holdDays} ngày sau khi kết thúc kế hoạch).',
+        'Đã thanh toán ${formatVnd(contract.price)} '
+        '${payment.provider == kWalletProvider ? 'bằng ví VeganLife' : 'qua PaymentOS'}. '
+        'VeganLife giữ tiền đến ${BookingRules.holdDays} ngày sau khi hợp đồng '
+        'hoàn thành.',
         at: paidAt);
   }
 
+  /// The chef says the work is finished: the contract is completed and the
+  /// 7-day hold starts.
+  void confirmCompletion(MockBookingRow row) {
+    settle();
+    if (row.complaint?.status == ComplaintStatus.open) {
+      throw mockError(409, 'Đang có khiếu nại chờ Ban quản trị xử lý.',
+          'has_open_complaint');
+    }
+    if (row.status != BookingStatus.active) {
+      throw mockError(
+          409,
+          row.completedAt == null
+              ? 'Chỉ xác nhận được khi kế hoạch đang thực hiện.'
+              : 'Hợp đồng đã hoàn thành.',
+          'not_active');
+    }
+    final missing = row.planDays - row.deliveredDays;
+    if (missing > 0) {
+      throw mockError(
+          409,
+          'Còn $missing ngày chưa gửi cho thành viên. Gửi đủ rồi xác nhận nhé.',
+          'plan_not_delivered');
+    }
+    if (!planReachedEnd(row.endDate, now)) {
+      throw mockError(
+          409,
+          'Bạn xác nhận hoàn thành được từ ngày kết thúc kế hoạch '
+              '(${formatDayMonth(row.endDate)}).',
+          'plan_not_delivered');
+    }
+    _complete(row, now);
+  }
+
   void cancel(MockBookingRow row, String reason) {
+    settle();
+    if (row.status == BookingStatus.active && row.escrow != null) {
+      _cancelPaid(row, reason);
+      return;
+    }
     _closeBeforePayment(row);
     row
       ..status = BookingStatus.cancelled
@@ -767,13 +881,48 @@ class MockBookingDb {
         '${row.memberName} đã huỷ yêu cầu: "${reason.trim()}"');
   }
 
+  /// Paid but nothing delivered yet: the whole price goes to the wallet.
+  void _cancelPaid(MockBookingRow row, String reason) {
+    final escrow = row.escrow!;
+    if (row.deliveredDays > 0 || escrow.status != EscrowStatus.held) {
+      throw mockError(
+          409,
+          'Chuyên gia đã giao kế hoạch nên không huỷ được nữa. Có vấn đề thì '
+              'bạn gửi khiếu nại nhé.',
+          'plan_started');
+    }
+    final at = now;
+    escrow
+      ..status = EscrowStatus.refunded
+      ..refundedAmount = escrow.amount
+      ..refundedAt = at
+      ..resolutionNote = reason.trim();
+    row
+      ..status = BookingStatus.cancelled
+      ..cancelReason = reason.trim()
+      ..updatedAt = at;
+    final orderId = row.orderId;
+    if (orderId != null) {
+      commerce.refund(commerce.order(orderId),
+          note: 'Huỷ yêu cầu đã thanh toán');
+    }
+    say(
+        row,
+        BookingParty.system,
+        '${row.memberName} đã huỷ yêu cầu: "${reason.trim()}". '
+        '${formatVnd(escrow.amount)} đã hoàn vào ví của thành viên.');
+  }
+
   void decline(MockBookingRow row, String reason) {
     _closeBeforePayment(row);
     row
       ..status = BookingStatus.declined
       ..declineReason = reason.trim();
-    say(row, BookingParty.system,
-        '${row.chefName} đã từ chối yêu cầu: "${reason.trim()}"');
+    say(
+        row,
+        BookingParty.system,
+        '${row.chefName} không đồng ý: "${reason.trim()}". Yêu cầu đã đóng, '
+        'thành viên không bị trừ tiền.');
   }
 
   void _closeBeforePayment(MockBookingRow row) {
@@ -940,15 +1089,22 @@ class MockBookingDb {
     final escrow = row.escrow;
     if (row.complaint != null) {
       throw mockError(
-          409, 'Bạn đã gửi khiếu nại cho kế hoạch này.', 'complaint_exists');
+          409, 'Bạn đã gửi khiếu nại cho kế hoạch này.', 'not_open');
+    }
+    final releaseAt = escrow?.releaseAt;
+    if (escrow?.resolvedBy != null) {
+      throw mockError(
+          409,
+          'Ban quản trị đã xử lý khoản tiền này nên không khiếu nại được nữa.',
+          'not_open');
     }
     if (escrow == null ||
         escrow.status != EscrowStatus.held ||
-        !now.isBefore(escrow.releaseAt)) {
+        (releaseAt != null && !now.isBefore(releaseAt))) {
       throw mockError(
           409,
           'Đã hết hạn khiếu nại — tiền đã được chuyển cho chuyên gia.',
-          'complaint_window_closed');
+          'not_open');
     }
     final price = row.contract!.price;
     final complaint = MockComplaintRow(
@@ -1013,8 +1169,8 @@ class MockBookingDb {
 
   /// What an admin does on web `/disputes` (the mobile app has no admin
   /// screen): ReleaseToChef → Released; RefundMember → Refunded to the
-  /// original payment method; Split → [refundAmount] back, the rest to the
-  /// chef minus the fee.
+  /// member's wallet; Split → [refundAmount] back, the rest to the chef minus
+  /// the fee.
   @visibleForTesting
   void decideComplaint(
     String bookingId, {
@@ -1027,20 +1183,70 @@ class MockBookingDb {
       _applyDecision(
           booking(bookingId), decision, refundAmount, note, by, at ?? now);
 
-  void _applyDecision(MockBookingRow row, ComplaintDecision decision,
-      int? refundAmount, String note, String by, DateTime at) {
-    final complaint = row.complaint;
-    final escrow = row.escrow;
-    final contract = row.contract;
-    if (complaint == null || escrow == null || contract == null) return;
-    final out = decisionOutcome(contract.price, decision, refundAmount);
-    complaint
-      ..status = ComplaintStatus.resolved
-      ..decision = decision
-      ..refundAmount = out.refund
-      ..adminNote = note
-      ..decidedBy = by
-      ..decidedAt = at;
+  /// What an admin does on web `/disputes` for a stuck hold, the mock side of
+  /// `POST /admin/escrow/holds/{id}/resolve`: the same money as a complaint
+  /// decision, but the booking ends Completed (release, split) or Cancelled
+  /// (refund). 409 `not_stuck` for anything not stuck right now.
+  @visibleForTesting
+  void resolveHold(
+    String holdId, {
+    required ComplaintDecision decision,
+    required String note,
+    int? refundAmount,
+    String by = 'Quản trị viên',
+  }) {
+    final row = bookings.where((b) => b.escrow?.id == holdId).firstOrNull ??
+        (throw mockError(404, 'Không tìm thấy khoản giữ tiền.', 'not_found'));
+    final escrow = row.escrow!;
+    final text = note.trim();
+    if (decision == ComplaintDecision.split) {
+      final error = BookingRules.partialRefund(refundAmount, escrow.amount);
+      if (error != null) throw mockError(400, error, 'invalid_refund_amount');
+    }
+    if (text.length < BookingRules.minAdminNote) {
+      throw mockError(
+          400,
+          'Ghi chú cần ít nhất ${BookingRules.minAdminNote} ký tự.',
+          'note_too_short');
+    }
+    if (!isStuck(row)) {
+      throw mockError(
+          409, 'Khoản này không còn chờ Ban quản trị xử lý.', 'not_stuck');
+    }
+    final at = now;
+    final out = _settleEscrow(row, decision, refundAmount, text, by, at,
+        refundNote: 'Hoàn theo quyết định của Ban quản trị');
+    if (decision == ComplaintDecision.refundMember) {
+      row
+        ..status = BookingStatus.cancelled
+        ..cancelReason = text;
+    } else {
+      row
+        ..status = BookingStatus.completed
+        ..completedAt ??= at;
+      escrow.completedAt ??= at;
+    }
+    row.updatedAt = at;
+    say(
+        row,
+        BookingParty.system,
+        'Ban quản trị đã xử lý khoản giữ tiền: ${decision.label} — '
+        '${_decisionDetail(decision, out)}. Ghi chú: "$text"',
+        at: at);
+  }
+
+  /// Where the money goes on an admin's decision: the same for a complaint and
+  /// for a stuck hold.
+  ({int refund, int chefGross, int fee, int chefNet}) _settleEscrow(
+      MockBookingRow row,
+      ComplaintDecision decision,
+      int? refundAmount,
+      String note,
+      String by,
+      DateTime at,
+      {required String refundNote}) {
+    final escrow = row.escrow!;
+    final out = decisionOutcome(escrow.amount, decision, refundAmount);
     escrow
       ..status = switch (decision) {
         ComplaintDecision.releaseToChef => EscrowStatus.released,
@@ -1051,25 +1257,51 @@ class MockBookingDb {
       ..releasedAmount = out.chefGross
       ..feeAmount = out.fee
       ..refundedAmount = out.refund
+      ..refundedAt = out.refund > 0 ? at : null
       ..resolvedBy = by
       ..resolutionNote = note;
+    final orderId = row.orderId;
+    if (out.refund > 0 && orderId != null) {
+      commerce.refund(commerce.order(orderId),
+          amount: out.refund, at: at, note: refundNote);
+    }
+    return out;
+  }
+
+  static String _decisionDetail(ComplaintDecision decision,
+          ({int refund, int chefGross, int fee, int chefNet}) out) =>
+      switch (decision) {
+        ComplaintDecision.releaseToChef =>
+          'chuyên gia nhận ${formatVnd(out.chefNet)} sau phí',
+        ComplaintDecision.refundMember =>
+          'hoàn ${formatVnd(out.refund)} vào ví của thành viên',
+        ComplaintDecision.split =>
+          'hoàn ${formatVnd(out.refund)} vào ví của thành viên, chuyên gia nhận ${formatVnd(out.chefNet)} sau phí',
+      };
+
+  void _applyDecision(MockBookingRow row, ComplaintDecision decision,
+      int? refundAmount, String note, String by, DateTime at) {
+    final complaint = row.complaint;
+    final escrow = row.escrow;
+    final contract = row.contract;
+    if (complaint == null || escrow == null || contract == null) return;
+    final out = _settleEscrow(row, decision, refundAmount, note, by, at,
+        refundNote: 'Hoàn theo quyết định khiếu nại');
+    complaint
+      ..status = ComplaintStatus.resolved
+      ..decision = decision
+      ..refundAmount = out.refund
+      ..adminNote = note
+      ..decidedBy = by
+      ..decidedAt = at;
     row
       ..status = BookingStatus.resolved
       ..updatedAt = at;
-    final orderId = row.orderId;
-    if (out.refund > 0 && orderId != null) {
-      commerce.refund(commerce.order(orderId), amount: out.refund);
-    }
-    final detail = switch (decision) {
-      ComplaintDecision.releaseToChef =>
-        'chuyên gia nhận ${formatVnd(out.chefNet)} sau phí',
-      ComplaintDecision.refundMember =>
-        'hoàn ${formatVnd(out.refund)} về phương thức thanh toán ban đầu',
-      ComplaintDecision.split =>
-        'hoàn ${formatVnd(out.refund)} cho thành viên, chuyên gia nhận ${formatVnd(out.chefNet)} sau phí',
-    };
-    say(row, BookingParty.system,
-        'Ban quản trị đã quyết định: ${decision.label} — $detail. Ghi chú: "$note"',
+    say(
+        row,
+        BookingParty.system,
+        'Ban quản trị đã quyết định: ${decision.label} — '
+        '${_decisionDetail(decision, out)}. Ghi chú: "$note"',
         at: at);
   }
 
@@ -1090,6 +1322,8 @@ class MockBookingDb {
         'bookingType': row.bookingType.apiValue,
         'planDays': row.planDays,
         'startDate': toApiDate(row.startDate),
+        'audience': row.audience.apiValue,
+        'familySize': row.familySize,
         'goal': row.goal,
         'allergies': row.allergies,
         'mealPattern': MealPattern.toApi(row.mealPattern),
@@ -1106,6 +1340,8 @@ class MockBookingDb {
         'declineReason': row.declineReason,
         'cancelReason': row.cancelReason,
         'memberHealth': row.shareHealthProfile ? row.memberHealth : null,
+        'completedAt': _iso(row.completedAt),
+        'autoCompleted': row.autoCompleted,
         'createdAt': _iso(row.createdAt),
         'updatedAt': _iso(row.updatedAt),
       };
@@ -1119,6 +1355,7 @@ class MockBookingDb {
         'startDate': toApiDate(row.startDate),
         'endDate': toApiDate(row.endDate),
         'status': row.status.apiValue,
+        'completedAt': _iso(row.completedAt),
       };
 
   /// One entry per paid booking (the chef wallet's source).
@@ -1145,21 +1382,18 @@ class MockBookingDb {
             feeAmount: escrow.feeAmount,
             refundedAmount: escrow.refundedAmount,
             complaintId: b.complaint?.id,
-            decidedAt: b.complaint?.decidedAt,
+            decidedAt: b.complaint?.decidedAt ??
+                (b.complaint == null && escrow.resolvedBy != null
+                    ? escrow.releasedAt ?? escrow.refundedAt
+                    : null),
+            adminResolved: b.complaint == null && escrow.resolvedBy != null,
           ),
     ];
   }
 
   /// `memberHealth` of a booking from the member's health profile.
-  static Map<String, dynamic> memberHealthJson(HealthProfile p) => {
-        'heightCm': p.heightCm,
-        'weightKg': p.weightKg,
-        'bmi': p.bmi,
-        if (p.gender != null) 'gender': p.gender!.apiValue,
-        if (p.age != null) 'age': p.age,
-        'activityLevel': p.activityLevel.apiValue,
-        if (p.dailyKcalTarget != null) 'dailyKcalTarget': p.dailyKcalTarget,
-      };
+  static Map<String, dynamic> memberHealthJson(HealthProfile p) =>
+      memberHealthFromProfile(p);
 
   // ---- seeds --------------------------------------------------------------
 

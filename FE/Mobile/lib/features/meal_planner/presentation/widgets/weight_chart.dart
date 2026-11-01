@@ -10,7 +10,7 @@ import '../../domain/body_progress.dart';
 /// Line chart of weight or BMI over time (drawn with a [CustomPainter], no
 /// chart package): the healthy band shaded behind, one dot per day, the
 /// axis' top and bottom values on the left and the first and last dates
-/// below. Needs at least 2 [points]; the screen shows a message otherwise.
+/// below. Needs at least 1 of [points]; one point is a lone dot in the middle.
 class WeightChart extends StatelessWidget {
   const WeightChart({
     super.key,
@@ -19,6 +19,7 @@ class WeightChart extends StatelessWidget {
     required this.series,
     required this.semanticsLabel,
     this.height = 180,
+    this.previewLast = false,
   });
 
   /// Oldest first.
@@ -32,6 +33,9 @@ class WeightChart extends StatelessWidget {
   /// 30 ngày").
   final String semanticsLabel;
   final double height;
+
+  /// The last point isn't saved yet: it is filled and its segment dashed.
+  final bool previewLast;
 
   /// The visible value range: the data with some air, stretched to the
   /// band's nearest edge when every point is outside the band (so the gap
@@ -92,17 +96,22 @@ class WeightChart extends StatelessWidget {
                       dotFill: context.colors.surface,
                       bandColor: context.vl.successContainer,
                       gridColor: context.vl.border,
+                      previewLast: previewLast,
                     ),
                   ),
                 ),
                 const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Text(formatDayMonth(points.first.day), style: muted),
-                    const Spacer(),
-                    Text(formatDayMonth(points.last.day), style: muted),
-                  ],
-                ),
+                if (points.first.day == points.last.day)
+                  Text(formatDayMonth(points.last.day),
+                      textAlign: TextAlign.center, style: muted)
+                else
+                  Row(
+                    children: [
+                      Text(formatDayMonth(points.first.day), style: muted),
+                      const Spacer(),
+                      Text(formatDayMonth(points.last.day), style: muted),
+                    ],
+                  ),
               ],
             ),
           ),
@@ -121,6 +130,7 @@ class WeightChartPainter extends CustomPainter {
     required this.dotFill,
     required this.bandColor,
     required this.gridColor,
+    this.previewLast = false,
   });
 
   final List<ChartPoint> points;
@@ -130,8 +140,10 @@ class WeightChartPainter extends CustomPainter {
   final Color dotFill;
   final Color bandColor;
   final Color gridColor;
+  final bool previewLast;
 
   static const _inset = 6.0;
+  static const _dash = 5.0;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -164,28 +176,39 @@ class WeightChartPainter extends CustomPainter {
       ..drawLine(Offset(0, bottom), Offset(size.width, bottom), grid);
 
     final offsets = [for (final p in points) Offset(x(p.day), y(p.value))];
+    final solid = previewLast ? offsets.length - 1 : offsets.length;
     final path = Path()..moveTo(offsets.first.dx, offsets.first.dy);
-    for (final o in offsets.skip(1)) {
+    for (final o in offsets.skip(1).take(math.max(0, solid - 1))) {
       path.lineTo(o.dx, o.dy);
     }
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = lineColor
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.5
-        ..strokeJoin = StrokeJoin.round
-        ..strokeCap = StrokeCap.round,
-    );
+    final line = Paint()
+      ..color = lineColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5
+      ..strokeJoin = StrokeJoin.round
+      ..strokeCap = StrokeCap.round;
+    canvas.drawPath(path, line);
+    if (previewLast && offsets.length >= 2) {
+      final from = offsets[offsets.length - 2];
+      final to = offsets.last;
+      final length = (to - from).distance;
+      for (var d = 0.0; d < length; d += _dash * 2) {
+        final end = math.min(d + _dash, length);
+        canvas.drawLine(Offset.lerp(from, to, d / length)!,
+            Offset.lerp(from, to, end / length)!, line);
+      }
+    }
     final fill = Paint()..color = dotFill;
+    final previewFill = Paint()..color = lineColor;
     final ring = Paint()
       ..color = lineColor
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
     for (final (i, o) in offsets.indexed) {
-      final r = i == offsets.length - 1 ? 5.0 : 3.5;
+      final last = i == offsets.length - 1;
+      final r = last ? 5.0 : 3.5;
       canvas
-        ..drawCircle(o, r, fill)
+        ..drawCircle(o, r, last && previewLast ? previewFill : fill)
         ..drawCircle(o, r, ring);
     }
   }
@@ -198,5 +221,6 @@ class WeightChartPainter extends CustomPainter {
       old.lineColor != lineColor ||
       old.dotFill != dotFill ||
       old.bandColor != bandColor ||
-      old.gridColor != gridColor;
+      old.gridColor != gridColor ||
+      old.previewLast != previewLast;
 }

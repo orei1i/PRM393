@@ -74,9 +74,7 @@ Future<void> main() async {
       expect(read.mediaUrl, upload.absoluteUrl);
 
       final file = await rawRequest('GET', upload.absoluteUrl);
-      expect(file.status, 200,
-          reason: 'B12: the static file is 404 when wwwroot was missing as the '
-              'BE started. Create BE/ControllerLayer/wwwroot and restart it.');
+      expect(file.status, 200, reason: 'B12: the BE creates wwwroot itself');
     });
 
     beTest('POST with the absolute url is refused, so only the raw one is sent',
@@ -106,7 +104,9 @@ Future<void> main() async {
       created.add(post.id);
       expect(post.mediaUrl, upload.absoluteUrl);
       expect(post.videoId, isNull,
-          reason: 'B21 workaround: the placeholder `video` is dropped');
+          reason: 'B21: no `video` without a pipeline');
+      expect(upload.durationSeconds, 0,
+          reason: 'B32: the BE no longer makes up 15 s; it sends null');
 
       final file = await rawRequest('GET', upload.absoluteUrl);
       expect(file.status, 200, reason: 'B12, see the image test');

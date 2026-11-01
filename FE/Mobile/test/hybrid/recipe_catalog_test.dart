@@ -1,6 +1,6 @@
 // test/hybrid/recipe_catalog_test.dart
-// Recipes on a BE without GET /recipes/{id}: the catalogue, the plan snapshots
-// and where each kind of id goes.
+// The catalogue a member can read, the plan snapshots and where each kind of id
+// goes.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:veganlife_mobile/core/config/backend_modules.dart';
 import 'package:veganlife_mobile/core/network/api_exception.dart';
@@ -12,25 +12,35 @@ import 'package:veganlife_mobile/features/recipe/data/recipe_catalog.dart';
 
 import 'planner_test_support.dart';
 
-const _suggestions = '/meal-plans/000000000000000000000000/swap-suggestions';
+const _current = '/meal-plans/current';
+const _planId = '6ae5966f96695f5c139fa9c5';
+const _suggestions = '/meal-plans/$_planId/swap-suggestions';
+const _fromFridge = '/meal-plans/from-ingredients';
 const _mine = '/users/me/recipes';
 const _inCatalog = '6ae595c796695f5c139fa99b';
+const _myId = '6ae5962596695f5c139fa9b6';
 
-FakeBackend _catalogBackend() => FakeBackend()
-  ..on('GET $_suggestions', 200, fixture('recipe_fixture_swap.json'))
-  ..on(
-      'GET $_mine',
-      200,
-      envelope([
-        {
-          'id': '6ae5962596695f5c139fa9b6',
-          'name': 'Cơm của tôi',
-          'calories': 500,
-          'allergens': <String>[],
-          'ingredients': ['Cơm 200 g'],
-          'instructions': ['Nấu', 'Ăn'],
-        },
-      ]));
+const _myRow = {
+  'id': _myId,
+  'name': 'Cơm của tôi',
+  'calories': 500,
+  'allergens': <String>[],
+  'ingredients': ['Cơm 200 g'],
+  'instructions': ['Nấu', 'Ăn'],
+};
+
+/// A member with a plan this week and one recipe of their own.
+FakeBackend _catalogBackend() {
+  final rows = fixtureData<List<dynamic>>('recipe_fixture_swap.json')
+      .cast<Map<String, dynamic>>();
+  return FakeBackend()
+    ..on('GET $_current', 200, fixture('planner_fixture_plan.json'))
+    ..on('GET $_suggestions', 200, fixture('recipe_fixture_swap.json'))
+    ..on('GET $_mine', 200, envelope([_myRow]))
+    ..on('GET /recipes/$_myId', 200, envelope(_myRow))
+    ..on('GET /recipes/$_inCatalog', 200,
+        envelope(rows.firstWhere((r) => r['id'] == _inCatalog)));
+}
 
 void main() {
   setUp(() => BackendModules.debugOverride(BackendModules.supportedByBackend));
@@ -47,11 +57,14 @@ void main() {
           backend.requests('GET $_suggestions').single.queryParameters;
       expect(query['slot'], 'snack_am');
       expect(query['limit'], 200);
-      expect(query['date'], '2026-10-31');
+      expect(query['date'], '2000-01-01',
+          reason:
+              'on a day of the plan the dish in that slot would be missing');
     });
 
     test('kept for the session; a failed load is not', () async {
       final backend = FakeBackend()
+        ..on('GET $_current', 200, fixture('planner_fixture_plan.json'))
         ..on('GET $_suggestions', 500, {'success': false, 'statusCode': 500});
       final c = await backendContainer(backend);
       final catalog = c.read(recipeCatalogProvider);
@@ -61,7 +74,7 @@ void main() {
         ..on('GET $_suggestions', 200, fixture('recipe_fixture_swap.json'))
         ..on('GET $_mine', 200, envelope(const <Object>[]));
       expect((await catalog.load()).length, 3);
-      await catalog.find(_inCatalog);
+      await catalog.load();
       expect(backend.requests('GET $_mine').length, 1);
 
       catalog.invalidate();
@@ -79,22 +92,51 @@ void main() {
                   : fixture('recipe_fixture_swap.json')
             ),
       })
+        ..on('GET $_current', 200, fixture('planner_fixture_plan.json'))
         ..on('GET $_mine', 200, envelope(const <Object>[]));
       final c = await backendContainer(backend);
       expect((await c.read(recipeCatalogProvider).load()).length, 3);
       expect(backend.requests('GET $_suggestions').length, 5);
     });
 
-    test('uses the loaded plan\'s id once there is one', () async {
-      final backend = FakeBackend()
-        ..on('GET /meal-plans/current', 200,
-            fixture('planner_fixture_plan.json'))
-        ..on('GET /meal-plans/6ae5966f96695f5c139fa9c5/swap-suggestions', 200,
-            fixture('recipe_fixture_swap.json'))
-        ..on('GET $_mine', 200, envelope(const <Object>[]));
+    test('a plan the planner loaded is not asked for again', () async {
+      final backend = _catalogBackend();
       final c = await backendContainer(backend);
       await c.read(mealPlannerApiProvider).getCurrentMealPlan();
-      expect(await c.read(recipeCatalogProvider).load(), hasLength(3));
+      expect(await c.read(recipeCatalogProvider).load(), hasLength(4));
+      expect(backend.requests('GET $_current'), hasLength(1));
+    });
+
+    group('no plan this week', () {
+      FakeBackend noPlan() => FakeBackend()
+        ..on('GET $_current', 404, notFound('Chưa có.'))
+        ..on('POST $_fromFridge', 200, fixture('recipe_fixture_swap.json'))
+        ..on('GET $_mine', 200, envelope([_myRow]));
+
+      test('what suits the fridge, plus their own; no plan is created',
+          () async {
+        final backend = noPlan();
+        final c = await backendContainer(backend);
+        expect(await c.read(recipeCatalogProvider).load(), hasLength(4));
+        expect(backend.calls,
+            ['GET $_current', 'POST $_fromFridge', 'GET $_mine']);
+        expect(backend.requests('POST $_fromFridge').single.data, isNull);
+      });
+
+      test('the whole catalogue as soon as there is a plan', () async {
+        final backend = noPlan();
+        final c = await backendContainer(backend);
+        final catalog = c.read(recipeCatalogProvider);
+        await catalog.load();
+        expect(backend.requests('GET $_suggestions'), isEmpty);
+
+        backend
+          ..on('GET $_current', 200, fixture('planner_fixture_plan.json'))
+          ..on('GET $_suggestions', 200, fixture('recipe_fixture_swap.json'));
+        await c.read(mealPlannerApiProvider).getCurrentMealPlan();
+        await catalog.load();
+        expect(backend.requests('GET $_suggestions'), hasLength(1));
+      });
     });
 
     test('recipes using an ingredient, by words and without accents', () async {
@@ -130,42 +172,43 @@ void main() {
       expect(backend.seen, isEmpty);
     });
 
-    test('a 24-hex id from the catalogue is a read-only vegan recipe',
+    test('a 24-hex seed recipe is vegan, read by its id, and customizable',
         () async {
-      final c = await backendContainer(_catalogBackend());
+      final backend = _catalogBackend();
+      final c = await backendContainer(backend);
       final recipe =
           (await c.read(recipeApiProvider).getRecipe(_inCatalog)).toEntity();
       expect(recipe.name, 'Cơm gạo lứt đậu hũ kho nấm đông cô');
-      expect(recipe.isReadOnly, isTrue);
+      expect(recipe.isFromBackend, isTrue);
+      expect(recipe.isReadOnly, isFalse);
       expect(recipe.isSnapshot, isFalse);
       expect(recipe.isVegan, isTrue);
-      expect(recipe.caloriesCache, 520);
+      expect(recipe.caloriesCache, 520, reason: 'the BE figure');
       expect(recipe.proteinG, 26);
       expect(recipe.ingredients.map((i) => i.name), contains('Đậu hũ'));
       expect(recipe.steps, hasLength(3));
-      expect(recipe.servings, isNull, reason: 'never made up');
+      expect(recipe.servings, 2, reason: 'from backend_recipe_items.dart');
+      expect(backend.requests('GET $_suggestions'), isEmpty,
+          reason: 'a page does not read the catalogue');
     });
 
     test('the member\'s own recipe says so', () async {
       final c = await backendContainer(_catalogBackend());
-      final mine = (await c
-              .read(recipeApiProvider)
-              .getRecipe('6ae5962596695f5c139fa9b6'))
-          .toEntity();
+      final mine =
+          (await c.read(recipeApiProvider).getRecipe(_myId)).toEntity();
       expect(mine.createdBy, testUserId);
       expect(mine.isPublic, isFalse);
       expect(mine.ingredients.single.amount, '200 g');
+      expect(mine.isReadOnly, isTrue);
+      expect(mine.servings, isNull, reason: 'never made up');
     });
 
-    test('a recipe the catalogue left out falls back to the plan', () async {
-      final backend = _catalogBackend()
-        ..on('GET /meal-plans/current', 200,
-            fixture('planner_fixture_plan.json'));
-      backend.on('GET /meal-plans/6ae5966f96695f5c139fa9c5/swap-suggestions',
-          200, envelope(const <Object>[]));
+    test('a recipe that cannot be read falls back to the plan', () async {
+      final backend = _catalogBackend();
       final c = await backendContainer(backend);
       final plan = (await c.read(mealPlannerApiProvider).getCurrentMealPlan())!;
       final id = plan.days.first.meals.values.first.id;
+      backend.on('GET /recipes/$id', 404, notFound('Không tìm thấy công thức'));
 
       final page = (await c.read(recipeApiProvider).getRecipe(id)).toEntity();
       expect(page.isSnapshot, isTrue);
@@ -202,6 +245,8 @@ void main() {
       await expectLater(
           api.getRecipe('8da78bfdfb3147f0a9d8930ec2354bdc'), is404);
       expect(backend.seen, isEmpty);
+      backend.on('GET /recipes/6ae595c796695f5c139fffff', 404,
+          notFound('Không tìm thấy công thức'));
       await expectLater(api.getRecipe('6ae595c796695f5c139fffff'), is404);
     });
   });

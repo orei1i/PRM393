@@ -10,11 +10,14 @@ import '../../../../core/utils/text_search.dart';
 import '../../../../core/widgets/demo_data_banner.dart';
 import '../../../../core/widgets/food_cover.dart';
 import '../../../../core/widgets/shimmer.dart';
+import '../../../../core/widgets/sign_in_sheet.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/vl_card.dart';
 import '../../../community/data/community_api_service.dart';
 import '../../../community/domain/entities/post.dart';
 import '../../../community/presentation/screens/post_detail_screen.dart';
+import '../../../ingredient/domain/entities/ingredient.dart';
+import '../../../ingredient/presentation/screens/ingredient_detail_screen.dart';
 import '../../../recipe/presentation/screens/recipe_detail_screen.dart';
 import '../../../restaurant/domain/entities/restaurant.dart';
 import '../../../restaurant/domain/geo.dart';
@@ -25,16 +28,19 @@ import '../../domain/entities/search_result.dart';
 import '../controllers/global_search_controller.dart';
 import '../widgets/search_tiles.dart';
 
-/// Global search (posts, videos, recipes, restaurants). Guests allowed.
+/// Global search (posts, videos, recipes, ingredients, restaurants). Guests
+/// allowed.
 ///
 /// Three states: **idle** (empty field) shows what to look for: "Tìm gần
 /// đây", "Xu hướng tìm kiếm", "Danh mục", "Món theo mùa", "Công thức được
-/// yêu thích", "Đã xem gần đây" and "Quán chay gần bạn". **Typing** shows
+/// yêu thích", "Đã xem gần đây" and "Quán chay gần bạn" (a build with real
+/// modules only has the parts that lead to real results). **Typing** shows
 /// autocomplete rows only ("Tìm «…»" first). **Results** (after Enter or
-/// "Tìm «…»") shows the tabs Tất cả · Công thức · Video · Bài viết · Quán;
-/// when a recipe matches, "Gợi ý cho «món»" leads with related videos/posts
-/// and nearby restaurants serving the dish. Editing the query goes back to
-/// typing; ✕ back to idle.
+/// "Tìm «…»") shows the tabs Tất cả · Công thức · Video · Bài viết · Nguyên
+/// liệu · Quán; when a recipe matches, "Gợi ý cho «món»" leads with related
+/// videos/posts and nearby restaurants serving the dish. Editing the query goes
+/// back to typing; ✕ back to idle. Only the restaurants are sample data while
+/// the BE has none, so the "Dữ liệu mẫu" banner sits on them, not on the screen.
 class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key, this.initialQuery});
 
@@ -47,7 +53,14 @@ class SearchScreen extends ConsumerStatefulWidget {
         builder: (_) => SearchScreen(initialQuery: initialQuery),
       );
 
-  static const tabLabels = ['Tất cả', 'Công thức', 'Video', 'Bài viết', 'Quán'];
+  static const tabLabels = [
+    'Tất cả',
+    'Công thức',
+    'Video',
+    'Bài viết',
+    'Nguyên liệu',
+    'Quán',
+  ];
 
   @override
   ConsumerState<SearchScreen> createState() => _SearchScreenState();
@@ -183,6 +196,25 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
   void _openRestaurant(Restaurant r) =>
       _openRestaurantById(r.id, r.name, subtitle: r.address);
 
+  void _openIngredient(String id, String name) {
+    _rememberQuery();
+    _viewed(RecentView(
+        kind: SuggestKind.ingredient,
+        id: id,
+        title: name,
+        subtitle: 'Nguyên liệu'));
+    AppNav.open(Navigator.of(context),
+        IngredientDetailScreen.route(id: id, name: name));
+  }
+
+  /// "Đăng nhập" on a guest's results: asks again with the catalogue.
+  Future<void> _signInForRecipes() async {
+    if (await ensureSignedIn(context, ref,
+        reason: 'Đăng nhập để tìm trong các công thức của VeganLife.')) {
+      if (mounted) await _search.retry();
+    }
+  }
+
   void _openNearby({String? food}) {
     if (food != null) _rememberQuery();
     Navigator.of(context)
@@ -199,6 +231,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         _openRecipe(id, item.text);
       case SuggestKind.post when id != null:
         _openPostById(id);
+      case SuggestKind.ingredient when id != null:
+        _openIngredient(id, item.text);
       case SuggestKind.restaurant when id != null:
         _openRestaurantById(id, item.text, subtitle: item.subtitle);
       default:
@@ -208,6 +242,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
 
   void _openRecentView(RecentView view) => switch (view.kind) {
         SuggestKind.recipe => _openRecipe(view.id, view.title),
+        SuggestKind.ingredient => _openIngredient(view.id, view.title),
         SuggestKind.restaurant =>
           _openRestaurantById(view.id, view.title, subtitle: view.subtitle),
         _ => _openPostById(view.id),
@@ -276,24 +311,21 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
           ),
         ),
       ),
-      body: DemoDataBanner.wrap(
-        BackendModule.search,
-        child: switch (state.phase) {
-          SearchPhase.idle => _DiscoverView(
-              onPick: _pick,
-              onRecipe: _openRecipe,
-              onRestaurant: _openRestaurant,
-              onRecentView: _openRecentView,
-              onAllNearby: () => _openNearby(),
-            ),
-          SearchPhase.typing => _SuggestionsView(
-              state: state,
-              onSearch: _pick,
-              onSuggestion: _onSuggestion,
-            ),
-          SearchPhase.results => _results(state),
-        },
-      ),
+      body: switch (state.phase) {
+        SearchPhase.idle => _DiscoverView(
+            onPick: _pick,
+            onRecipe: _openRecipe,
+            onRestaurant: _openRestaurant,
+            onRecentView: _openRecentView,
+            onAllNearby: () => _openNearby(),
+          ),
+        SearchPhase.typing => _SuggestionsView(
+            state: state,
+            onSearch: _pick,
+            onSuggestion: _onSuggestion,
+          ),
+        SearchPhase.results => _results(state),
+      },
     );
   }
 
@@ -313,26 +345,50 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
           child: EmptyStateView(
             icon: Icons.search_off_rounded,
             title: 'Không tìm thấy «${result.query}»',
-            message: 'Thử từ khoá ngắn hơn hoặc không dấu',
+            message: switch (result.recipeScope) {
+              RecipeSearchScope.signedOut =>
+                'Thử từ khoá ngắn hơn hoặc không dấu. ${_ScopeNote.signedOutText}',
+              RecipeSearchScope.fridgeOnly =>
+                'Thử từ khoá ngắn hơn hoặc không dấu. ${_ScopeNote.fridgeOnlyText}',
+              RecipeSearchScope.unavailable =>
+                'Thử từ khoá ngắn hơn hoặc không dấu. ${_ScopeNote.unavailableText}',
+              RecipeSearchScope.full => 'Thử từ khoá ngắn hơn hoặc không dấu',
+            },
+            actionLabel: result.recipeScope == RecipeSearchScope.signedOut
+                ? 'Đăng nhập'
+                : null,
+            onAction: result.recipeScope == RecipeSearchScope.signedOut
+                ? _signInForRecipes
+                : null,
           ),
         ),
       );
     }
     void openRecipe(RecipeSummary r) => _openRecipe(r.id, r.name);
+    void openIngredient(IngredientSummary i) => _openIngredient(i.id, i.name);
+    final recipeNote = _ScopeNote.ofRecipes(result.recipeScope,
+        onSignIn: _signInForRecipes, onRetry: _search.retry);
+    final postsNote = result.postsTruncated ? const _ScopeNote.posts() : null;
     return TabBarView(
       controller: _tabs,
       children: [
         _AllTab(
           result: result,
           onMore: (tab) => _tabs.animateTo(tab),
+          notes: [
+            if (recipeNote != null) recipeNote,
+            if (postsNote != null) postsNote,
+          ],
           onPost: _openPost,
           onRecipe: openRecipe,
+          onIngredient: openIngredient,
           onRestaurant: _openRestaurant,
           onAllRestaurants: (food) => _openNearby(food: food),
         ),
         _ResultList(
           query: result.query,
           what: 'công thức',
+          header: recipeNote,
           children: [
             for (final r in result.recipes)
               SearchRecipeTile(recipe: r, onTap: () => openRecipe(r)),
@@ -341,6 +397,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         _ResultList(
           query: result.query,
           what: 'video',
+          header: postsNote,
           children: [
             for (final p in result.videos)
               SearchPostTile(post: p, onTap: () => _openPost(p)),
@@ -349,6 +406,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         _ResultList(
           query: result.query,
           what: 'bài viết',
+          header: postsNote,
           children: [
             for (final p in result.posts)
               SearchPostTile(post: p, onTap: () => _openPost(p)),
@@ -356,8 +414,20 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         ),
         _ResultList(
           query: result.query,
+          what: 'nguyên liệu',
+          children: [
+            for (final i in result.ingredients)
+              SearchIngredientTile(
+                  ingredient: i, onTap: () => openIngredient(i)),
+          ],
+        ),
+        _ResultList(
+          query: result.query,
           what: 'quán',
           dividerIndent: 92,
+          header: DemoDataBanner.visibleFor(BackendModule.restaurants)
+              ? const DemoDataBanner(module: BackendModule.restaurants)
+              : null,
           children: [
             for (final r in result.restaurants)
               RestaurantTile(restaurant: r, onTap: () => _openRestaurant(r)),
@@ -387,6 +457,7 @@ class _SuggestionsView extends ConsumerWidget {
         SuggestKind.query => Icons.search_rounded,
         SuggestKind.recipe => Icons.rice_bowl_outlined,
         SuggestKind.post => Icons.article_outlined,
+        SuggestKind.ingredient => Icons.eco_outlined,
         SuggestKind.restaurant => Icons.storefront_outlined,
       };
 
@@ -658,6 +729,13 @@ class _DiscoverView extends ConsumerWidget {
           actionLabel: 'Xem tất cả',
           onAction: onAllNearby,
         ),
+        if (DemoDataBanner.visibleFor(BackendModule.restaurants)) ...[
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: const DemoDataBanner(module: BackendModule.restaurants),
+          ),
+          const SizedBox(height: 4),
+        ],
         if (data != null && data.nearbyRestaurants.isNotEmpty)
           for (final r in data.nearbyRestaurants.take(3))
             _NearbyRow(restaurant: r, onTap: () => onRestaurant(r))
@@ -783,14 +861,80 @@ class _DiscoverSkeleton extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------- results --
+
+/// Says why the results may not be the whole answer: a search that quietly
+/// finds fewer things looks broken.
+class _ScopeNote extends StatelessWidget {
+  const _ScopeNote({required this.text, this.actionLabel, this.onAction});
+
+  /// The feed is paged on the client, so only so much of it is searched.
+  const _ScopeNote.posts()
+      : this(text: 'Chỉ tìm trong 250 bài mới nhất của bảng tin.');
+
+  static const signedOutText =
+      'Khách chưa xem được công thức nên kết quả không có món nào. Đăng nhập để tìm trong công thức.';
+  static const fridgeOnlyText =
+      'Bạn chưa có thực đơn tuần này nên chỉ tìm được trong các món hợp với tủ lạnh. Tạo thực đơn để tìm trong toàn bộ công thức.';
+  static const unavailableText =
+      'Chưa tải được công thức nên kết quả chưa có món nào.';
+
+  /// `null` when the recipes were searched in full.
+  static Widget? ofRecipes(
+    RecipeSearchScope scope, {
+    required VoidCallback onSignIn,
+    required VoidCallback onRetry,
+  }) =>
+      switch (scope) {
+        RecipeSearchScope.full => null,
+        RecipeSearchScope.signedOut => _ScopeNote(
+            text: signedOutText, actionLabel: 'Đăng nhập', onAction: onSignIn),
+        RecipeSearchScope.fridgeOnly => const _ScopeNote(text: fridgeOnlyText),
+        RecipeSearchScope.unavailable => _ScopeNote(
+            text: unavailableText, actionLabel: 'Thử lại', onAction: onRetry),
+      };
+
+  final String text;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = actionLabel;
+    return ColoredBox(
+      color: context.colors.secondaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Text(text,
+                  style: context.textStyles.bodySmall
+                      ?.copyWith(color: context.colors.onSecondaryContainer)),
+            ),
+            if (label != null)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(onPressed: onAction, child: Text(label)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// "Tất cả": the suggestion block, then 3 results per group with
 /// "Xem thêm" switching to that group's tab.
 class _AllTab extends StatelessWidget {
   const _AllTab({
     required this.result,
     required this.onMore,
+    required this.notes,
     required this.onPost,
     required this.onRecipe,
+    required this.onIngredient,
     required this.onRestaurant,
     required this.onAllRestaurants,
   });
@@ -799,8 +943,12 @@ class _AllTab extends StatelessWidget {
 
   final SearchResult result;
   final ValueChanged<int> onMore;
+
+  /// What the search couldn't look at, above everything.
+  final List<Widget> notes;
   final ValueChanged<Post> onPost;
   final ValueChanged<RecipeSummary> onRecipe;
+  final ValueChanged<IngredientSummary> onIngredient;
   final ValueChanged<Restaurant> onRestaurant;
   final ValueChanged<String> onAllRestaurants;
 
@@ -810,6 +958,7 @@ class _AllTab extends StatelessWidget {
     required List<T> items,
     required Widget Function(T item) tile,
     double dividerIndent = 16,
+    Widget? banner,
   }) {
     if (items.isEmpty) return const [];
     return [
@@ -818,6 +967,7 @@ class _AllTab extends StatelessWidget {
         count: items.length,
         onMore: items.length > perGroup ? () => onMore(tab) : null,
       ),
+      if (banner != null) banner,
       for (final (i, item) in items.take(perGroup).indexed) ...[
         if (i > 0) SearchRowDivider(indent: dividerIndent),
         tile(item),
@@ -834,6 +984,7 @@ class _AllTab extends StatelessWidget {
       padding:
           EdgeInsets.only(bottom: 24 + MediaQuery.paddingOf(context).bottom),
       children: [
+        ...notes,
         if (suggestion != null) ...[
           _SuggestionBlock(
             suggestion: suggestion,
@@ -863,10 +1014,20 @@ class _AllTab extends StatelessWidget {
           tile: (p) => SearchPostTile(post: p, onTap: () => onPost(p)),
         ),
         ..._group(
-          title: 'Quán',
+          title: 'Nguyên liệu',
           tab: 4,
+          items: result.ingredients,
+          tile: (i) =>
+              SearchIngredientTile(ingredient: i, onTap: () => onIngredient(i)),
+        ),
+        ..._group(
+          title: 'Quán',
+          tab: 5,
           items: result.restaurants,
           dividerIndent: 92,
+          banner: DemoDataBanner.visibleFor(BackendModule.restaurants)
+              ? const DemoDataBanner(module: BackendModule.restaurants)
+              : null,
           tile: (r) =>
               RestaurantTile(restaurant: r, onTap: () => onRestaurant(r)),
         ),
@@ -946,6 +1107,8 @@ class _SuggestionBlock extends StatelessWidget {
               onAction: () => onAllRestaurants(recipe.name),
             ),
           ),
+          if (DemoDataBanner.visibleFor(BackendModule.restaurants))
+            const DemoDataBanner(module: BackendModule.restaurants),
           if (suggestion.restaurants.isEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -1060,6 +1223,7 @@ class _ResultList extends StatelessWidget {
     required this.what,
     required this.children,
     this.dividerIndent = 16,
+    this.header,
   });
 
   final String query;
@@ -1069,26 +1233,47 @@ class _ResultList extends StatelessWidget {
   final List<Widget> children;
   final double dividerIndent;
 
+  /// A note above the rows (and above the empty message).
+  final Widget? header;
+
   @override
   Widget build(BuildContext context) {
+    final header = this.header;
     if (children.isEmpty) {
-      return Center(
-        child: SingleChildScrollView(
-          child: EmptyStateView(
-            icon: Icons.search_off_rounded,
-            title: 'Không có $what nào khớp «$query»',
-            message: 'Xem các mục khác ở tab Tất cả.',
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (header != null) header,
+          Expanded(
+            child: Center(
+              child: SingleChildScrollView(
+                child: EmptyStateView(
+                  icon: Icons.search_off_rounded,
+                  title: 'Không có $what nào khớp «$query»',
+                  message: 'Xem các mục khác ở tab Tất cả.',
+                ),
+              ),
+            ),
           ),
-        ),
+        ],
       );
     }
-    return ListView.separated(
-      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      padding:
-          EdgeInsets.only(bottom: 24 + MediaQuery.paddingOf(context).bottom),
-      itemCount: children.length,
-      separatorBuilder: (_, __) => SearchRowDivider(indent: dividerIndent),
-      itemBuilder: (_, i) => children[i],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (header != null) header,
+        Expanded(
+          child: ListView.separated(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: EdgeInsets.only(
+                bottom: 24 + MediaQuery.paddingOf(context).bottom),
+            itemCount: children.length,
+            separatorBuilder: (_, __) =>
+                SearchRowDivider(indent: dividerIndent),
+            itemBuilder: (_, i) => children[i],
+          ),
+        ),
+      ],
     );
   }
 }

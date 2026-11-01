@@ -70,6 +70,50 @@ class Restaurant {
       );
 }
 
+/// Where a member's suggestion stands. Only [approved] places are public; the
+/// admin team decides on the web console.
+enum RestaurantSuggestionStatus {
+  pending('Pending', 'Chờ duyệt'),
+  approved('Approved', 'Đã duyệt'),
+  rejected('Rejected', 'Bị từ chối');
+
+  const RestaurantSuggestionStatus(this.apiValue, this.label);
+  final String apiValue;
+  final String label;
+
+  /// Case-insensitive; a missing value is a place that is already public.
+  static RestaurantSuggestionStatus fromApi(Object? value) {
+    final raw = value?.toString().trim().toLowerCase();
+    for (final s in values) {
+      if (s.apiValue.toLowerCase() == raw) return s;
+    }
+    return approved;
+  }
+}
+
+/// A place the member suggested, with its status ("Quán tôi đã gợi ý").
+class RestaurantSuggestion {
+  const RestaurantSuggestion({
+    required this.restaurant,
+    required this.status,
+    this.rejectionReason,
+    this.submittedAt,
+    this.reviewedAt,
+  });
+
+  final Restaurant restaurant;
+  final RestaurantSuggestionStatus status;
+
+  /// The admin's note when [status] is [RestaurantSuggestionStatus.rejected].
+  final String? rejectionReason;
+  final DateTime? submittedAt;
+  final DateTime? reviewedAt;
+
+  bool get isPending => status == RestaurantSuggestionStatus.pending;
+  bool get isApproved => status == RestaurantSuggestionStatus.approved;
+  bool get isRejected => status == RestaurantSuggestionStatus.rejected;
+}
+
 /// `restaurant_media.media_type`.
 enum RestaurantMediaType {
   image('Image'),

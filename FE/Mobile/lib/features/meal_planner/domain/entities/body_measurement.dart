@@ -17,8 +17,8 @@ enum MeasurementSource {
       value == checkIn.apiValue ? checkIn : profile;
 }
 
-/// One weigh-in: weight with the height it was measured at, the BMI the
-/// server computed, and the optional waist and body fat of a check-in.
+/// One weigh-in: weight with the height it was measured at and the BMI the
+/// server computed.
 class BodyMeasurement {
   const BodyMeasurement({
     required this.id,
@@ -26,8 +26,6 @@ class BodyMeasurement {
     required this.heightCm,
     required this.bmi,
     required this.loggedAt,
-    this.waistCm,
-    this.bodyFatPct,
     this.source = MeasurementSource.checkIn,
   });
 
@@ -40,17 +38,7 @@ class BodyMeasurement {
 
   /// Local time.
   final DateTime loggedAt;
-  final double? waistCm;
-  final double? bodyFatPct;
   final MeasurementSource source;
 
   BmiCategory get bmiCategory => Bmi.categorize(bmi);
-
-  /// A weigh-in the server added no row for (same weight): shown once, not
-  /// part of the history.
-  bool get isLocalOnly => id.startsWith('local_');
-
-  /// Waist-to-height ratio (WHtR), unrounded; `null` without a waist.
-  double? get waistToHeight =>
-      waistCm == null || heightCm <= 0 ? null : waistCm! / heightCm;
 }

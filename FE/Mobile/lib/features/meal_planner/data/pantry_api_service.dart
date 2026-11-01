@@ -17,7 +17,8 @@ import 'models/pantry_model.dart';
 /// foods only.
 ///
 /// A food that isn't vegan is refused by the app on both sides: the real BE
-/// would store it as vegan.
+/// would store it (and misses some, like "Cá sốt cà chua"). What the real BE
+/// itself calls non-vegan is taken back out ([PantryRefusedException]).
 abstract interface class PantryApiService {
   Future<List<PantryItemDto>> getPantry();
 
@@ -38,6 +39,16 @@ abstract interface class PantryApiService {
       {required int index});
 
   Future<void> clear();
+}
+
+/// The BE found [names] not vegan: they aren't kept, the rest of the request is,
+/// and [items] is the list after it.
+class PantryRefusedException extends ApiException {
+  const PantryRefusedException(this.names, this.items, {required super.message})
+      : super(statusCode: 422, code: 'not_vegan');
+
+  final List<String> names;
+  final List<PantryItemDto> items;
 }
 
 /// Same check and same message as the scanner, on both sides.
@@ -77,11 +88,48 @@ class RemotePantryApiService implements PantryApiService {
   Future<List<PantryItemDto>> addItems(List<AddPantryItemDto> items) =>
       guardApi(() async {
         _refuseNonVegan(items);
-        await _dio.post<List<dynamic>>(ApiEndpoints.myIngredients,
-            data: {'items': items.map((i) => i.toJson()).toList()});
+        final kept = await _keepingAmounts(items);
+        final added = await _dio.post<List<dynamic>>(ApiEndpoints.myIngredients,
+            data: {'items': kept.map((i) => i.toJson()).toList()});
+        final refused =
+            _items(added.data).where((row) => row.isVegan == false).toList();
+        for (final row in refused) {
+          await _dio.delete<void>(ApiEndpoints.myIngredient(row.id));
+        }
         final res = await _dio.get<List<dynamic>>(ApiEndpoints.myIngredients);
-        return _items(res.data);
+        final list = _items(res.data);
+        if (refused.isEmpty) return list;
+        final names = refused.map((row) => row.ingredient).join(', ');
+        throw PantryRefusedException(
+          [for (final row in refused) row.ingredient],
+          list,
+          message: 'Máy chủ xếp $names vào nhóm không thuần chay nên chưa lưu '
+              'vào tủ.',
+        );
       });
+
+  /// A second add without a quantity would set the row to 1 (B38).
+  Future<List<AddPantryItemDto>> _keepingAmounts(
+      List<AddPantryItemDto> items) async {
+    if (items.every((i) => i.quantity != null)) return items;
+    final res = await _dio.get<List<dynamic>>(ApiEndpoints.myIngredients);
+    final amounts = {
+      for (final row in _items(res.data))
+        foldVietnamese(row.ingredient.trim()): row.quantity,
+    };
+    return [
+      for (final item in items)
+        item.quantity != null
+            ? item
+            : AddPantryItemDto(
+                ingredient: item.ingredient,
+                scannedAt: item.scannedAt,
+                quantity: amounts[foldVietnamese(item.ingredient.trim())],
+                unit: item.unit,
+                expiryDate: item.expiryDate,
+              ),
+    ];
+  }
 
   @override
   Future<void> removeItem(String id) => guardApi(() async {

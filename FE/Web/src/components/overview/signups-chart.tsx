@@ -3,10 +3,10 @@
 
 import * as React from "react";
 
-import { cn, formatNumber } from "@/lib/utils";
+import { cn, dateFormat, formatNumber } from "@/lib/utils";
 
-const fmtDay = new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit" });
-const fmtLong = new Intl.DateTimeFormat("vi-VN", { weekday: "long", day: "2-digit", month: "2-digit" });
+const fmtDay = dateFormat({ day: "2-digit", month: "2-digit" });
+const fmtLong = dateFormat({ weekday: "long", day: "2-digit", month: "2-digit" });
 
 /** Round the axis top up to a clean step (10, 20, 25, 50…). */
 function niceMax(max: number) {

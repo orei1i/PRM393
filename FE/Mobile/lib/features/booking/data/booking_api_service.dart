@@ -45,7 +45,8 @@ abstract interface class BookingApiService {
   Future<BookingDto> respondToOffer(String id, String offerId,
       {required bool accept});
 
-  /// Member, before payment.
+  /// Member, before payment, or after it while no day was delivered (the whole
+  /// price goes to the member's wallet; 409 `plan_started` otherwise).
   Future<BookingDto> cancel(String id, String reason);
 
   /// The PaymentOS order funding the escrow, with an open QR.
@@ -58,7 +59,8 @@ abstract interface class BookingApiService {
   Future<PlanDayDto> sendDayFeedback(
       String id, int dayIndex, DayFeedbackDto feedback);
 
-  /// Member, from payment until releaseAt. Freezes the escrow.
+  /// Member, from payment until releaseAt (there is none until the contract is
+  /// completed). Freezes the escrow.
   Future<BookingDto> fileComplaint(String id, ComplaintRequestDto request);
 
   // ---- chef ---------------------------------------------------------------
@@ -66,8 +68,13 @@ abstract interface class BookingApiService {
   /// "Yêu cầu tư vấn": every booking made with me, newest activity first.
   Future<List<BookingDto>> chefInbox();
 
-  /// Before payment, reason ≥ 10 characters.
+  /// "Không đồng ý": before payment, reason ≥ 10 characters.
   Future<BookingDto> decline(String id, String reason);
+
+  /// "Xác nhận hoàn thành": every day is delivered and the plan has reached its
+  /// last day. Completes the contract and starts the 7-day hold. 409
+  /// `plan_not_delivered`, `not_active`, `has_open_complaint`.
+  Future<BookingDto> confirmCompletion(String id);
 
   Future<PlanDayDto> savePlanDay(
       String id, int dayIndex, PlanDayRequestDto request);
@@ -183,6 +190,10 @@ class RemoteBookingApiService implements BookingApiService {
   @override
   Future<BookingDto> decline(String id, String reason) => _postBooking(
       ApiEndpoints.chefBookingDecline(id), {'reason': reason.trim()});
+
+  @override
+  Future<BookingDto> confirmCompletion(String id) =>
+      _postBooking(ApiEndpoints.chefBookingComplete(id));
 
   @override
   Future<PlanDayDto> savePlanDay(

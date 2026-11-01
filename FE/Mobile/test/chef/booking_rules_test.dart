@@ -45,15 +45,23 @@ void main() {
           '23:59, 22/10/2026');
     });
 
-    test('end date and release date across the month end', () {
+    test('end date across the month end; the hold runs from completion', () {
       final start = DateTime(2026, 10, 28);
       final end = planEndDate(start, 7);
       expect(end, DateTime(2026, 11, 3));
-      // end 23:59 VN + 3 days = 6/11 23:59 VN = 6/11 16:59 UTC.
-      expect(escrowReleaseAt(end), DateTime.utc(2026, 11, 6, 16, 59));
       expect(planEndDate(DateTime(2026, 12, 30), 3), DateTime(2027, 1, 1));
-      expect(escrowReleaseAt(DateTime(2026, 12, 30)),
-          DateTime.utc(2027, 1, 2, 16, 59));
+      expect(BookingRules.holdDays, 7);
+      // Exactly 7 days after the contract was completed.
+      final completed = DateTime.utc(2026, 12, 28, 5, 30);
+      expect(escrowReleaseAt(completed), DateTime.utc(2027, 1, 4, 5, 30));
+    });
+
+    test('the chef may confirm from the plan\'s last day, in Vietnam time', () {
+      final end = DateTime(2026, 11, 3);
+      // 16:59 UTC on the 2nd is 23:59 on the 2nd in Vietnam.
+      expect(planReachedEnd(end, DateTime.utc(2026, 11, 2, 16, 59)), isFalse);
+      expect(planReachedEnd(end, DateTime.utc(2026, 11, 2, 17)), isTrue);
+      expect(planReachedEnd(end, DateTime.utc(2026, 11, 20)), isTrue);
     });
 
     test('delivery deadline: OneShot max(start, paid + 24 h); daily 06:00', () {
@@ -91,6 +99,11 @@ void main() {
       expect(BookingRules.planDays(3), isNull);
       expect(BookingRules.planDays(30), isNull);
       expect(BookingRules.planDays(31), isNotNull);
+      expect(BookingRules.familySize(1), isNotNull);
+      expect(BookingRules.familySize(2), isNull);
+      expect(BookingRules.familySize(20), isNull);
+      expect(BookingRules.familySize(21), isNotNull);
+      expect(BookingRules.familySize(null), isNotNull);
       expect(BookingRules.price(99999), isNotNull);
       expect(BookingRules.price(100000), isNull);
       expect(BookingRules.price(50000000), isNull);
@@ -183,14 +196,47 @@ void main() {
               now),
           isFalse);
       expect(
-          memberNeedsAction(_booking(
-              status: BookingStatus.negotiating,
-              offer: {...memberOffer, 'proposedBy': 'chef'})),
+          memberNeedsAction(
+              _booking(
+                  status: BookingStatus.negotiating,
+                  offer: {...memberOffer, 'proposedBy': 'chef'}),
+              now),
           isTrue);
       // Daily plan from the 15th: today is day 3; 2 sent → day 3 is due.
       expect(dueToday(_booking(delivered: 2), now), isTrue);
       expect(dueToday(_booking(delivered: 3), now), isFalse);
       expect(todayIndex(_booking(), now), 3);
+    });
+
+    test(
+        'a finished plan waits on the chef from its last day; a hold without '
+        'a date still works', () {
+      final held = BookingDto.fromJson({
+        'id': 'b2',
+        'member': {'id': 'u_me', 'fullName': 'Minh Anh'},
+        'chef': {'id': 'u_chef_tam', 'fullName': 'Lê Quang Tâm'},
+        'bookingType': 'OneShot',
+        'planDays': 3,
+        'startDate': '2026-10-20',
+        'status': 'Active',
+        'deliveredDays': 3,
+        'escrow': {
+          'id': 'eh',
+          'amount': 450000,
+          'status': 'Held',
+          'heldAt': '2026-10-16T03:00:00Z',
+        },
+        'createdAt': '2026-10-10T03:00:00Z',
+      });
+      expect(held.escrow!.releaseAt, isNull);
+      expect(held.canConfirmCompletion(now), isFalse,
+          reason: 'starts on the 20th');
+      expect(chefNeedsAction(held, now), isFalse);
+      final lastDay = DateTime.utc(2026, 10, 22, 3);
+      expect(held.canConfirmCompletion(lastDay), isTrue);
+      expect(chefNeedsAction(held, lastDay), isTrue);
+      expect(held.canComplain(now), isTrue);
+      expect(held.canCancelPaid, isFalse, reason: 'days were delivered');
     });
 
     test('progress steps', () {
@@ -255,7 +301,14 @@ void main() {
     expect(b.status, BookingStatus.disputed);
     expect(b.price, 1050000);
     expect(b.contract!.fee, 105000);
-    expect(b.contract!.releaseAt, DateTime.utc(2026, 10, 19, 16, 59));
+    expect(b.contract!.holdDays, 7, reason: 'default when missing');
+    expect(b.escrow!.releaseAt!.toUtc(), DateTime.utc(2026, 10, 19, 16, 59));
+    // Data without the new fields.
+    expect(b.audience, BookingAudience.self);
+    expect(b.audienceLabel, 'Cho tôi');
+    expect(b.familySize, isNull);
+    expect(b.goal, isNull);
+    expect(b.completedAt, isNull);
     expect(b.escrow!.status, EscrowStatus.frozen);
     expect(b.complaint!.reason, ComplaintReason.healthRisk);
     expect(b.complaint!.evidence.map((e) => e.kind),

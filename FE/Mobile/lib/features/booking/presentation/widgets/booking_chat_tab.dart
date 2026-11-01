@@ -3,10 +3,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
+import '../../../../core/utils/open_url.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/vl_card.dart';
@@ -20,7 +20,9 @@ import '../../domain/booking_rules.dart';
 import '../controllers/booking_controllers.dart';
 
 /// "Trao đổi": chat bubbles, system lines and offer cards ("Đồng ý" /
-/// "Đề xuất giá khác" for the other party). Polls every 5 s while open.
+/// "Đề xuất giá khác" for the other party). An open offer stays answerable
+/// after scrolling away from its card: a bar above the composer takes over. The
+/// chef's first quote ("Báo giá") starts here too. Polls every 5 s while open.
 /// Off-platform contact or payment words show a warning banner.
 class BookingChatTab extends ConsumerStatefulWidget {
   const BookingChatTab({
@@ -46,8 +48,13 @@ class BookingChatTab extends ConsumerStatefulWidget {
 
 class _BookingChatTabState extends ConsumerState<BookingChatTab> {
   final _text = TextEditingController();
+  final _listKey = GlobalKey();
+  final _offerCardKey = GlobalKey();
   Timer? _poll;
   bool _sending = false;
+
+  /// The buttons of the open offer's card are on screen.
+  bool _offerCardVisible = true;
 
   @override
   void initState() {
@@ -72,6 +79,36 @@ class _BookingChatTabState extends ConsumerState<BookingChatTab> {
         BookingStatus.cancelled,
         BookingStatus.expired,
       }.contains(widget.booking.status);
+
+  /// The offer waiting for this party's answer.
+  OfferDto? get _answerable {
+    final open = widget.booking.openOffer;
+    return open != null &&
+            open.proposedBy != widget.party &&
+            widget.booking.status.canNegotiate
+        ? open
+        : null;
+  }
+
+  /// Where the card's buttons (its bottom edge) are against the list. A card
+  /// that is built in the cache area or not built at all reads as not visible.
+  void _checkOfferCard() {
+    if (!mounted) return;
+    var visible = false;
+    final card = _offerCardKey.currentContext?.findRenderObject();
+    final list = _listKey.currentContext?.findRenderObject();
+    if (card is RenderBox &&
+        list is RenderBox &&
+        card.hasSize &&
+        list.hasSize) {
+      final bottom =
+          card.localToGlobal(Offset(0, card.size.height), ancestor: list).dy;
+      visible = bottom >= 48 && bottom <= list.size.height + 1;
+    }
+    if (visible != _offerCardVisible) {
+      setState(() => _offerCardVisible = visible);
+    }
+  }
 
   Future<void> _send({String? attachmentUrl}) async {
     final body = _text.text.trim();
@@ -125,6 +162,13 @@ class _BookingChatTabState extends ConsumerState<BookingChatTab> {
   Widget build(BuildContext context) {
     final async = ref.watch(bookingMessagesProvider(widget.booking.id));
     final messages = async.valueOrNull ?? const <MessageDto>[];
+    final answerable = _answerable;
+    final awaitingQuote = widget.party == BookingParty.chef &&
+        widget.booking.status == BookingStatus.requested;
+    // Messages can arrive or the offer can change without a scroll.
+    if (answerable != null && messages.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _checkOfferCard());
+    }
     final offPlatform = messages.any((m) =>
             m.kind == MessageKind.text &&
             BookingRules.mentionsOffPlatform(m.body)) ||
@@ -159,23 +203,34 @@ class _BookingChatTabState extends ConsumerState<BookingChatTab> {
                         style: context.textStyles.bodyMedium
                             ?.copyWith(color: context.vl.muted)),
                   )
-                : ListView.builder(
-                    reverse: true,
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                    itemCount: value.length,
-                    itemBuilder: (context, i) {
-                      final m = value[value.length - 1 - i];
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: _MessageItem(
-                          message: m,
-                          booking: widget.booking,
-                          party: widget.party,
-                          onAccept: widget.onAccept,
-                          onCounter: widget.onCounter,
-                        ),
-                      );
+                : NotificationListener<ScrollNotification>(
+                    onNotification: (_) {
+                      _checkOfferCard();
+                      return false;
                     },
+                    child: ListView.builder(
+                      key: _listKey,
+                      reverse: true,
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                      itemCount: value.length,
+                      itemBuilder: (context, i) {
+                        final m = value[value.length - 1 - i];
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _MessageItem(
+                            message: m,
+                            booking: widget.booking,
+                            party: widget.party,
+                            offerCardKey:
+                                m.offer != null && m.offer!.id == answerable?.id
+                                    ? _offerCardKey
+                                    : null,
+                            onAccept: widget.onAccept,
+                            onCounter: widget.onCounter,
+                          ),
+                        );
+                      },
+                    ),
                   ),
             AsyncError(:final error) => Center(
                 child: SingleChildScrollView(
@@ -188,6 +243,14 @@ class _BookingChatTabState extends ConsumerState<BookingChatTab> {
             _ => const Center(child: CircularProgressIndicator()),
           },
         ),
+        if (answerable != null && !_offerCardVisible)
+          _PinnedOfferBar(
+            offer: answerable,
+            onAccept: () => widget.onAccept(answerable),
+            onCounter: widget.onCounter,
+          ),
+        if (awaitingQuote)
+          _QuotePrompt(busy: _sending, onQuote: widget.onCounter),
         if (!_closed)
           SafeArea(
             top: false,
@@ -196,7 +259,7 @@ class _BookingChatTabState extends ConsumerState<BookingChatTab> {
               child: Row(
                 children: [
                   if (widget.booking.status.canNegotiate)
-                    IconButton(
+                    IconButton.filledTonal(
                       tooltip: 'Đề xuất giá',
                       onPressed: _sending ? null : widget.onCounter,
                       icon: const Icon(Icons.request_quote_outlined),
@@ -244,6 +307,81 @@ class _BookingChatTabState extends ConsumerState<BookingChatTab> {
   }
 }
 
+/// The open offer when its card is scrolled out of view: same two answers.
+class _PinnedOfferBar extends StatelessWidget {
+  const _PinnedOfferBar({
+    required this.offer,
+    required this.onAccept,
+    required this.onCounter,
+  });
+
+  final OfferDto offer;
+  final VoidCallback onAccept;
+  final VoidCallback onCounter;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: context.vl.cautionContainer,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+                'Đề xuất ${formatVnd(offer.price)} · ${offer.planDays} ngày đang chờ bạn trả lời',
+                style: context.textStyles.bodySmall?.copyWith(
+                    color: context.vl.onCautionContainer,
+                    fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                FilledButton(onPressed: onAccept, child: const Text('Đồng ý')),
+                OutlinedButton(
+                    onPressed: onCounter,
+                    child: const Text('Đề xuất giá khác')),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The chef's first quote: the action lives in the chat, not above it.
+class _QuotePrompt extends StatelessWidget {
+  const _QuotePrompt({required this.busy, required this.onQuote});
+
+  final bool busy;
+  final VoidCallback onQuote;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text('Gửi giá đầu tiên cho thành viên.',
+                style: context.textStyles.bodySmall
+                    ?.copyWith(color: context.vl.muted)),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.icon(
+            onPressed: busy ? null : onQuote,
+            icon: const Icon(Icons.request_quote_outlined, size: 18),
+            label: const Text('Báo giá'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _MessageItem extends StatelessWidget {
   const _MessageItem({
     required this.message,
@@ -251,11 +389,15 @@ class _MessageItem extends StatelessWidget {
     required this.party,
     required this.onAccept,
     required this.onCounter,
+    this.offerCardKey,
   });
 
   final MessageDto message;
   final BookingDto booking;
   final BookingParty party;
+
+  /// On the card of the offer waiting for an answer.
+  final Key? offerCardKey;
   final ValueChanged<OfferDto> onAccept;
   final VoidCallback onCounter;
 
@@ -279,6 +421,7 @@ class _MessageItem extends StatelessWidget {
     final colors = context.colors;
     final content = offer != null
         ? OfferCard(
+            key: offerCardKey,
             offer: offer,
             mine: mine,
             canAnswer: !mine &&
@@ -337,8 +480,7 @@ class _AttachmentTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: () =>
-          launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+      onTap: () => openExternalUrl(url),
       child: Padding(
         padding: const EdgeInsets.only(bottom: 4),
         child: Row(

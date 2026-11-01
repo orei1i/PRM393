@@ -286,6 +286,7 @@ class PantryItem {
     this.unit,
     this.expiryDate,
     this.allergyWarning,
+    this.serverSaysNotVegan = false,
   });
 
   final String id;
@@ -310,6 +311,10 @@ class PantryItem {
 
   /// Set by the real BE when the item conflicts with the member's allergies.
   final String? allergyWarning;
+
+  /// The BE stored this row as not vegan (added elsewhere, or the app couldn't
+  /// remove it after refusing it).
+  final bool serverSaysNotVegan;
 
   /// Expired, or expires within 3 days of [now] ("Sắp hết hạn").
   bool expiresSoon(DateTime now) {

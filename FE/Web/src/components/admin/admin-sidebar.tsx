@@ -29,9 +29,10 @@ import { useEscrowSummary } from "@/lib/hooks/use-bookings";
 import { useKnowledgeCounts } from "@/lib/hooks/use-knowledge";
 import { useFlagCounts } from "@/lib/hooks/use-moderation";
 import { usePayoutSummary } from "@/lib/hooks/use-payouts";
+import { usePendingRestaurantCount } from "@/lib/hooks/use-restaurants";
 import { cn } from "@/lib/utils";
 
-type NavItem = { href: string; label: string; icon: LucideIcon; badge?: "flags" | "chefs" | "knowledge" | "withdrawals" | "complaints" };
+type NavItem = { href: string; label: string; icon: LucideIcon; badge?: "flags" | "chefs" | "knowledge" | "withdrawals" | "complaints" | "restaurants" };
 
 const GROUPS: { label: string; items: NavItem[] }[] = [
   { label: "", items: [{ href: "/overview", label: "Tổng quan", icon: LayoutDashboard }] },
@@ -48,7 +49,7 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
       { href: "/content", label: "Quản lý nội dung", icon: FileText },
       { href: "/comments", label: "Bình luận", icon: MessageSquare },
       { href: "/moderation", label: "Kiểm duyệt AI", icon: ShieldAlert, badge: "flags" },
-      { href: "/restaurants", label: "Quán chay", icon: Store },
+      { href: "/restaurants", label: "Quán chay", icon: Store, badge: "restaurants" },
       { href: "/catalog", label: "Danh mục", icon: Tags },
     ],
   },
@@ -78,14 +79,17 @@ export function AdminSidebar() {
   const { data: knowledgeCounts } = useKnowledgeCounts();
   const { data: payoutSummary } = usePayoutSummary();
   const { data: escrowSummary } = useEscrowSummary();
+  const { data: pendingRestaurants } = usePendingRestaurantCount();
   const badges = {
     flags: flagCounts?.pending,
     chefs: chefCounts?.pending,
     knowledge: knowledgeCounts?.Pending,
-    // Withdrawals above the auto-payout limit, waiting for an admin.
+    // Withdrawal requests from chefs and members, waiting for an admin.
     withdrawals: payoutSummary?.awaitingApproval,
     // Booking complaints waiting for a decision (their money is frozen).
     complaints: escrowSummary?.openComplaints,
+    // Restaurant suggestions from the app, not public until approved.
+    restaurants: pendingRestaurants,
   };
 
   return (

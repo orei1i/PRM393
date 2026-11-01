@@ -13,8 +13,9 @@ int readInt(Object? value) => switch (value) {
       _ => 0,
     };
 
+/// A null item is dropped: `toString` would put the word "null" on screen.
 List<String> readStringList(Object? value) => value is List<Object?>
-    ? value.map((e) => e.toString()).toList(growable: false)
+    ? value.nonNulls.map((e) => e.toString()).toList(growable: false)
     : const [];
 
 DateTime? readDateTime(Object? value) =>

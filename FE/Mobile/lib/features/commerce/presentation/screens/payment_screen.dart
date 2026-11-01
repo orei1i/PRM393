@@ -15,6 +15,7 @@ import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/vl_card.dart';
 import '../../../booking/domain/booking_rules.dart';
 import '../../../booking/presentation/screens/booking_history_screen.dart';
+import '../../../chef_studio/data/models/wallet_models.dart';
 import '../../data/commerce_api_service.dart';
 import '../../data/models/order_model.dart';
 import '../../data/models/payment_model.dart';
@@ -23,10 +24,11 @@ import '../controllers/commerce_controllers.dart';
 import '../widgets/commerce_ui.dart';
 import '../widgets/mock_qr_view.dart';
 
-/// PaymentOS QR for one booking order (the agreed contract price). Polls
-/// the payment every 3 s while it is pending (the real confirmation is the
-/// PaymentOS webhook on the BE) and counts down to its expiry. Once paid,
-/// the money is held in escrow until the plan's end date + 3 days.
+/// PaymentOS QR for one booking order (the agreed contract price), or the
+/// member's wallet when its balance covers the price. Polls the payment every
+/// 3 s while it is pending (the real confirmation is the PaymentOS webhook on
+/// the BE) and counts down to its expiry. Once paid, the money is held in
+/// escrow until [BookingRules.holdDays] days after the contract is completed.
 class PaymentScreen extends ConsumerStatefulWidget {
   const PaymentScreen({
     super.key,
@@ -187,13 +189,38 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         await _reloadOrder();
       });
 
+  Future<void> _payWithWallet(OrderDto order, int balance) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Thanh toán ${formatVnd(order.amount)} bằng ví?'),
+        content: Text(
+            'Số dư ví còn ${formatVnd(balance - order.amount)} sau khi thanh toán. '
+            'VeganLife giữ tiền đến ${BookingRules.holdDays} ngày sau khi hợp đồng hoàn thành.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Xem lại')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Thanh toán')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _run(() async {
+      await _api.payWithWallet(order.id);
+      await _reloadOrder();
+    });
+  }
+
   Future<void> _confirmLeave() async {
     final leave = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Rời màn thanh toán?'),
         content: const Text(
-            'Bạn có thể thanh toán tiếp trong Lịch sử tư vấn trước hạn thanh toán.'),
+            'Bạn có thể thanh toán tiếp ngay trong yêu cầu này, trước hạn thanh toán.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(dialogContext, false),
@@ -274,8 +301,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
           title: order.status == OrderStatus.refunded
               ? 'Đã hoàn tiền'
               : 'Đã hoàn một phần',
-          message:
-              '${formatVnd(refunded)} đã được hoàn về phương thức thanh toán ban đầu.',
+          message: '${formatVnd(refunded)} đã được hoàn vào Ví của tôi.',
           actions: [
             OutlinedButton(
                 onPressed: _openHistory, child: const Text('Lịch sử tư vấn')),
@@ -288,6 +314,13 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
             payment: payment,
             busy: _busy,
             showMockControls: widget.showMockControls,
+            wallet: BackendModules.payFromWallet
+                ? _WalletOption(
+                    amount: order.amount,
+                    busy: _busy,
+                    onPay: (balance) => _payWithWallet(order, balance),
+                  )
+                : null,
             onCopy: () {
               Clipboard.setData(ClipboardData(text: payment.transactionRef));
               ScaffoldMessenger.of(context).showSnackBar(
@@ -318,6 +351,62 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
           ],
         );
     }
+  }
+}
+
+/// "Thanh toán bằng ví" when the balance covers the price (no partial
+/// balance); otherwise a line saying why not. A wallet that can't be read
+/// never blocks the QR.
+class _WalletOption extends ConsumerWidget {
+  const _WalletOption({
+    required this.amount,
+    required this.busy,
+    required this.onPay,
+  });
+
+  final int amount;
+  final bool busy;
+  final ValueChanged<int> onPay;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(memberWalletProvider);
+    final muted =
+        context.textStyles.bodySmall?.copyWith(color: context.vl.muted);
+    final WalletDto? wallet = async.valueOrNull;
+    if (wallet == null) {
+      return async.hasError
+          ? Row(
+              children: [
+                Expanded(child: Text('Chưa đọc được số dư ví.', style: muted)),
+                TextButton(
+                    onPressed: () => ref.invalidate(memberWalletProvider),
+                    child: const Text('Thử lại')),
+              ],
+            )
+          : Text('Đang kiểm tra số dư ví…', style: muted);
+    }
+    final balance = wallet.available;
+    if (balance < amount) {
+      return Text(
+          'Số dư ví ${formatVnd(balance)} chưa đủ để thanh toán bằng ví.',
+          style: muted);
+    }
+    return VLCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Số dư ví ${formatVnd(balance)}',
+              style: context.textStyles.titleSmall),
+          const SizedBox(height: 8),
+          FilledButton.tonalIcon(
+            onPressed: busy ? null : () => onPay(balance),
+            icon: const Icon(Icons.account_balance_wallet_outlined),
+            label: const Text('Thanh toán bằng ví'),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -360,12 +449,16 @@ class _PendingView extends StatelessWidget {
     required this.onCopy,
     required this.onMockPaid,
     required this.onMockFailed,
+    this.wallet,
   });
 
   final OrderDto order;
   final PaymentDto payment;
   final bool busy;
   final bool showMockControls;
+
+  /// The wallet option, above the QR so a small screen shows it first.
+  final Widget? wallet;
   final VoidCallback onCopy;
   final VoidCallback onMockPaid;
   final VoidCallback onMockFailed;
@@ -386,6 +479,10 @@ class _PendingView extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (wallet != null) ...[
+          wallet!,
+          const SizedBox(height: 12),
+        ],
         VLCard(
           child: Column(
             children: [
@@ -393,7 +490,7 @@ class _PendingView extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                   'Kế hoạch ${formatDayMonth(booking.startDate)} – ${formatDayMonth(booking.endDate)} · '
-                  'tiền được giữ đến ${formatVnStamp(escrowReleaseAt(booking.endDate))}',
+                  'VeganLife giữ tiền đến ${BookingRules.holdDays} ngày sau khi hợp đồng hoàn thành',
                   textAlign: TextAlign.center,
                   style: context.textStyles.bodyMedium),
               const SizedBox(height: 16),
@@ -522,8 +619,6 @@ class _PaidView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final paidAt = order.payment?.paidAt;
-    final releaseAt =
-        order.escrow?.releaseAt ?? escrowReleaseAt(order.booking.endDate);
     return _Outcome(
       icon: Icons.check_circle_rounded,
       iconColor: context.vl.success,
@@ -537,10 +632,9 @@ class _PaidView extends StatelessWidget {
           color: context.vl.successContainer,
           borderColor: Colors.transparent,
           child: Text(
-            'Đang giữ đến ${formatVnStamp(releaseAt)} '
-            '(${BookingRules.holdDays} ngày sau khi kế hoạch kết thúc). '
+            'VeganLife đang giữ tiền đến ${BookingRules.holdDays} ngày sau khi hợp đồng hoàn thành. '
             '${order.booking.chefName} bắt đầu soạn kế hoạch; nếu kế hoạch có vấn đề, '
-            'bạn khiếu nại trước thời điểm này để VeganLife giữ tiền lại.',
+            'bạn khiếu nại trong thời gian này để VeganLife giữ tiền lại.',
             style: context.textStyles.bodyMedium
                 ?.copyWith(color: context.vl.onSuccessContainer),
           ),

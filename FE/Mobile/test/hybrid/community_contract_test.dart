@@ -28,16 +28,19 @@ import 'planner_test_support.dart';
 const _postId = '6ae5a8876c01fc07a925777c';
 const _commentId = '6ae5a8886c01fc07a9257799';
 
-Map<String, dynamic> _feedPage(String name, {int? totalPages}) {
+/// A recorded page; [nextCursor] replaces the one it has, `null` ends the feed.
+Map<String, dynamic> _feedPage(String name, {required String? nextCursor}) {
   final body = fixture(name);
-  if (totalPages != null) (body['data'] as Map)['totalPages'] = totalPages;
+  (body['data'] as Map)['nextCursor'] = nextCursor;
   return body;
 }
 
-/// A feed of [pages] pages whose items belong to [authorOf] (a page, an item).
+/// A feed of [pages] pages, walked by cursor (`c2`, `c3`…), whose items belong
+/// to [authorOf] (a page, an item).
 Answer _scanFeed(int pages, String Function(int page, int item) authorOf) =>
     (request) {
-      final page = request.queryParameters['page'] as int;
+      final cursor = request.queryParameters['cursor'] as String?;
+      final page = cursor == null ? 1 : int.parse(cursor.substring(1));
       return (
         200,
         envelope({
@@ -55,8 +58,8 @@ Answer _scanFeed(int pages, String Function(int page, int item) authorOf) =>
                 'likeCount': 3,
               }
           ],
-          'nextCursor': 'ignored',
-          'page': page,
+          'nextCursor': page < pages ? 'c${page + 1}' : null,
+          'page': 1,
           'pageSize': 50,
           'totalItems': pages * 2,
           'totalPages': pages,
@@ -70,63 +73,51 @@ void main() {
 
   CommunityApiService api(ProviderContainer c) => c.read(communityApiProvider);
 
-  group('feed paging (B15)', () {
-    test('asks by page and never sends cursor or limit', () async {
+  group('feed paging', () {
+    test('asks by limit, then by the cursor the BE gave', () async {
       final backend = FakeBackend()
-        ..on('GET /posts', 200, _feedPage('community_fixture_feed_page1.json'));
+        ..on(
+            'GET /posts',
+            200,
+            _feedPage('community_fixture_feed_page1.json',
+                nextCursor: 'post_6'));
       final c = await backendContainer(backend);
 
       final first = await api(c).getFeed(limit: 6);
       expect(first.items, hasLength(6));
-      expect(first.nextCursor, '2');
+      expect(first.nextCursor, 'post_6');
 
       await api(c).getFeed(
           type: PostType.discussion,
           mediaType: PostMediaType.video,
           cursor: first.nextCursor);
-      expect(backend.seen.first.queryParameters, {'page': 1, 'pageSize': 6});
+      expect(backend.seen.first.queryParameters, {'limit': 6});
       expect(backend.seen.last.queryParameters, {
         'type': 'discussion',
         'mediaType': 'Video',
-        'page': 2,
-        'pageSize': 6,
+        'cursor': 'post_6',
+        'limit': 6,
       });
     });
 
-    test('the last page ends it, although the BE still sends a nextCursor',
-        () async {
-      final body =
-          _feedPage('community_fixture_feed_page2.json', totalPages: 2);
-      expect((body['data'] as Map)['nextCursor'], isNotNull);
-      final backend = FakeBackend()..on('GET /posts', 200, body);
+    test('no nextCursor ends it', () async {
+      final backend = FakeBackend()
+        ..on('GET /posts', 200,
+            _feedPage('community_fixture_feed_page2.json', nextCursor: null));
       final c = await backendContainer(backend);
 
-      final last = await api(c).getFeed(cursor: '2');
+      final last = await api(c).getFeed(cursor: 'post_6');
       expect(last.items, hasLength(6));
       expect(last.nextCursor, isNull);
     });
 
-    test('no totalPages (the BE changed its page): a full page may continue',
-        () async {
+    test('limit stays within the BE limit', () async {
       final backend = FakeBackend()
-        ..on(
-            'GET /posts',
-            200,
-            envelope({
-              'items': [
-                for (var i = 0; i < 6; i++) {'id': 'p$i'}
-              ],
-            }));
-      final c = await backendContainer(backend);
-      expect((await api(c).getFeed()).nextCursor, '2');
-    });
-
-    test('pageSize stays within the BE limit', () async {
-      final backend = FakeBackend()
-        ..on('GET /posts', 200, _feedPage('community_fixture_feed_page1.json'));
+        ..on('GET /posts', 200,
+            _feedPage('community_fixture_feed_page1.json', nextCursor: null));
       final c = await backendContainer(backend);
       await api(c).getFeed(limit: 200);
-      expect(backend.seen.single.queryParameters['pageSize'], 50);
+      expect(backend.seen.single.queryParameters['limit'], 50);
     });
 
     test('load more walks every page once and stops: no loop, no duplicates',
@@ -134,9 +125,11 @@ void main() {
       final backend = FakeBackend();
       backend.routes['GET /posts'] = (request) => (
             200,
-            request.queryParameters['page'] == 1
-                ? _feedPage('community_fixture_feed_page1.json', totalPages: 2)
-                : _feedPage('community_fixture_feed_page2.json', totalPages: 2)
+            request.queryParameters['cursor'] == null
+                ? _feedPage('community_fixture_feed_page1.json',
+                    nextCursor: 'post_6')
+                : _feedPage('community_fixture_feed_page2.json',
+                    nextCursor: null)
           );
       final c = await backendContainer(backend);
       final feed = c.read(feedControllerProvider.notifier);
@@ -152,10 +145,14 @@ void main() {
       expect(backend.calls, ['GET /posts', 'GET /posts']);
     });
 
-    test('offset drift: a post seen twice is shown once', () async {
-      final backend = FakeBackend()
-        ..on('GET /posts', 200,
-            _feedPage('community_fixture_feed_page1.json', totalPages: 2));
+    test('a post seen twice is shown once', () async {
+      final backend = FakeBackend();
+      backend.routes['GET /posts'] = (request) => (
+            200,
+            _feedPage('community_fixture_feed_page1.json',
+                nextCursor:
+                    request.queryParameters['cursor'] == null ? 'post_6' : null)
+          );
       final c = await backendContainer(backend);
       final feed = c.read(feedControllerProvider.notifier);
       await c.read(feedControllerProvider.future);
@@ -178,7 +175,7 @@ void main() {
       final raw =
           fixtureData<Map<String, dynamic>>('community_fixture_post_get.json');
       expect(raw['mediaUrl'], startsWith('/uploads/videos/'));
-      expect(raw['video'], isNotNull);
+      expect(raw['video'], isNull);
 
       final post = (await api(c).getPost(_postId)).toEntity();
       expect(post.mediaUrl, '${Env.apiOrigin}${raw['mediaUrl']}');
@@ -191,14 +188,16 @@ void main() {
       expect(post.hasAiRecipe, isFalse);
     });
 
-    test('a real video module keeps the BE video', () async {
-      BackendModules.debugOverride(
-          {...BackendModules.supportedByBackend, BackendModule.video});
-      final backend = FakeBackend()
-        ..on('GET /posts/$_postId', 200,
-            fixture('community_fixture_post_get.json'));
+    test('a video from the BE is read as it comes', () async {
+      final body = fixture('community_fixture_post_get.json');
+      (body['data'] as Map)['video'] = {
+        'id': 'vid_1',
+        'durationSeconds': 42,
+        'aiStatus': 'ready',
+      };
+      final backend = FakeBackend()..on('GET /posts/$_postId', 200, body);
       final c = await backendContainer(backend);
-      expect((await api(c).getPost(_postId)).videoId, isNotNull);
+      expect((await api(c).getPost(_postId)).videoId, 'vid_1');
     });
 
     test('an uploaded photo shows from its absolute URL', () async {
@@ -395,7 +394,8 @@ void main() {
       expect(page.nextCursor, isNull);
     });
 
-    test('nothing reads as edited (B17), replies included', () async {
+    test('nothing reads as edited (the BE has no edit, B17), replies included',
+        () async {
       final raw =
           fixtureData<List<Object?>>('community_fixture_comments_page1.json')
               .first as Map<String, dynamic>;
@@ -444,13 +444,70 @@ void main() {
       expect(thread.threads, hasLength(11));
     });
 
-    test('replies past the preview: no request to a route that is not there',
+    test('replies past the preview: the route answers with all of them',
         () async {
-      final backend = commentsBackend();
+      final reply = fixtureData<Map<String, dynamic>>(
+          'community_fixture_comment_reply.json');
+      final backend = FakeBackend()
+        ..on(
+            'GET /posts/$_postId/comments/$_commentId/replies',
+            200,
+            envelope([
+              for (var i = 0; i < 4; i++)
+                {
+                  ...reply,
+                  'id': 'reply_$i',
+                  'updatedAt': '2026-11-01T04:54:13.289Z',
+                },
+            ]));
       final c = await backendContainer(backend);
       final page = await api(c).getReplies(_postId, _commentId);
-      expect(page.items, isEmpty);
-      expect(backend.seen, isEmpty);
+      expect(page.items.map((r) => r.id),
+          ['reply_0', 'reply_1', 'reply_2', 'reply_3']);
+      expect(page.nextCursor, isNull);
+      expect(page.items.first.toEntity().isEdited, isFalse, reason: 'B17');
+      expect(backend.seen.single.queryParameters, isEmpty);
+    });
+
+    test('"Xem thêm": the thread ends up with every reply', () async {
+      final reply = fixtureData<Map<String, dynamic>>(
+          'community_fixture_comment_reply.json');
+      final backend = commentsBackend();
+      final c = await backendContainer(backend);
+      final thread = CommentThreadController(
+        api: api(c),
+        postId: _postId,
+        initialCount: 14,
+        me: () => const AuthorSummary(id: testUserId, name: 'FE Test'),
+      );
+      addTearDown(thread.dispose);
+      await thread.loadMore();
+      final first = thread.threads.first;
+      backend.on(
+          'GET /posts/$_postId/comments/${first.comment.id}/replies',
+          200,
+          envelope([
+            for (final (i, r) in first.replies.indexed)
+              {
+                ...reply,
+                'id': r.id,
+                'parentId': first.comment.id,
+                'createdAt': '2026-10-31T07:2$i:00Z',
+              },
+            {
+              ...reply,
+              'id': 'the_third',
+              'parentId': first.comment.id,
+              'createdAt': '2026-10-31T07:29:00Z',
+            },
+          ]));
+
+      await thread.loadReplies(first.comment.id);
+
+      final after = thread.threadOf(first.comment.id)!;
+      expect(after.replies, hasLength(3));
+      expect(after.replies.map((r) => r.id), contains('the_third'));
+      expect(after.hiddenReplies, 0);
     });
 
     test('adding a comment and a reply', () async {
@@ -515,7 +572,8 @@ void main() {
     });
 
     test('the feed, the post and Reels show them as saved', () async {
-      final page = _feedPage('community_fixture_feed_page1.json');
+      final page =
+          _feedPage('community_fixture_feed_page1.json', nextCursor: null);
       final video = fixture('community_fixture_feed_video.json');
       final savedId = (((page['data'] as Map)['items'] as List).first
           as Map)['id'] as String;
@@ -592,7 +650,8 @@ void main() {
       final mine = await api(c).getMyPosts();
       expect(mine.map((p) => p.id), ['post_1_0', 'post_2_0']);
       expect(backend.seen, hasLength(2));
-      expect(backend.seen.first.queryParameters, {'page': 1, 'pageSize': 50});
+      expect(backend.seen.first.queryParameters, {'limit': 50});
+      expect(backend.seen.last.queryParameters, {'cursor': 'c2', 'limit': 50});
       expect((api(c) as RemoteCommunityApiService).myPostsTruncated, isFalse);
     });
 
@@ -619,6 +678,179 @@ void main() {
       final c = await backendContainer(backend, signedIn: false);
       expect(await api(c).getMyPosts(), isEmpty);
       expect(backend.seen, isEmpty);
+    });
+  });
+
+  group('my posts the feed does not list', () {
+    Map<String, dynamic> post(String id, String status, String createdAt) => {
+          'id': id,
+          'type': 'recipe',
+          'author': {'id': testUserId, 'fullName': 'FE Test'},
+          'title': 'Bài $id',
+          'body': 'Nội dung',
+          'createdAt': createdAt,
+          'status': status,
+          'mediaType': 'Text',
+        };
+
+    FakeBackend emptyFeed() => FakeBackend()
+      ..on('GET /posts', 200, envelope({'items': [], 'nextCursor': null}));
+
+    test('a post made here is asked by id, with the status it has now',
+        () async {
+      final backend = emptyFeed()
+        ..on('POST /posts', 201,
+            envelope(post('held', 'Published', '2026-10-31T07:19:11Z')))
+        ..on('GET /posts/held', 200,
+            envelope(post('held', 'Pending', '2026-10-31T07:19:11Z')));
+      final c = await backendContainer(backend);
+
+      await api(c).createPost(const CreatePostRequestDto(
+          type: PostType.recipe, title: 'Bài mới', body: 'Nội dung'));
+      final mine = await api(c).getMyPosts();
+      expect(mine.single.id, 'held');
+      expect(mine.single.toEntity().status, PostStatus.pending);
+      expect(backend.requests('GET /posts/held'), hasLength(1));
+    });
+
+    test('survives a restart: the ids are on the device, per account',
+        () async {
+      final backend = emptyFeed()
+        ..on('POST /posts', 201,
+            envelope(post('held', 'Pending', '2026-10-31T07:19:11Z')));
+      final c = await backendContainer(backend);
+      await api(c).createPost(const CreatePostRequestDto(
+          type: PostType.recipe, title: 'Bài mới', body: 'Nội dung'));
+      expect(
+          c
+              .read(sharedPreferencesProvider)
+              .getStringList(MyPostIdsStore.keyFor(testUserId)),
+          ['held']);
+    });
+
+    test('merged newest first with what the feed lists', () async {
+      final backend = FakeBackend()
+        ..on(
+            'GET /posts',
+            200,
+            envelope({
+              'items': [post('live', 'Published', '2026-10-30T07:00:00Z')],
+              'nextCursor': null,
+            }))
+        ..on('POST /posts', 201,
+            envelope(post('held', 'Pending', '2026-10-31T07:00:00Z')))
+        ..on('GET /posts/held', 200,
+            envelope(post('held', 'Pending', '2026-10-31T07:00:00Z')));
+      final c = await backendContainer(backend);
+      await api(c).createPost(const CreatePostRequestDto(
+          type: PostType.recipe, title: 'Bài mới', body: 'Nội dung'));
+      final mine = await api(c).getMyPosts();
+      expect(mine.map((p) => p.id), ['held', 'live']);
+    });
+
+    test('a post seen in the feed is still found after an admin hides it',
+        () async {
+      final backend = FakeBackend()
+        ..on(
+            'GET /posts',
+            200,
+            envelope({
+              'items': [post('live', 'Published', '2026-10-30T07:00:00Z')],
+              'nextCursor': null,
+            }));
+      final c = await backendContainer(backend);
+      await api(c).getMyPosts();
+
+      backend
+        ..on('GET /posts', 200, envelope({'items': [], 'nextCursor': null}))
+        ..on('GET /posts/live', 200,
+            envelope(post('live', 'Pending', '2026-10-30T07:00:00Z')));
+      final mine = await api(c).getMyPosts();
+      expect(mine.single.toEntity().isPending, isTrue);
+    });
+
+    test('a post that is gone (404) is dropped and forgotten', () async {
+      final backend = emptyFeed()
+        ..on('POST /posts', 201,
+            envelope(post('gone', 'Pending', '2026-10-31T07:19:11Z')))
+        ..on(
+            'GET /posts/gone', 404, fixture('community_fixture_post_404.json'));
+      final c = await backendContainer(backend);
+      await api(c).createPost(const CreatePostRequestDto(
+          type: PostType.recipe, title: 'Bài mới', body: 'Nội dung'));
+      expect(await api(c).getMyPosts(), isEmpty);
+      await api(c).getMyPosts();
+      expect(backend.requests('GET /posts/gone'), hasLength(1));
+    });
+
+    test('deleting forgets it', () async {
+      final backend = emptyFeed()
+        ..on('POST /posts', 201,
+            envelope(post('mine', 'Pending', '2026-10-31T07:19:11Z')))
+        ..on('DELETE /posts/mine', 200, envelope(null));
+      final c = await backendContainer(backend);
+      await api(c).createPost(const CreatePostRequestDto(
+          type: PostType.recipe, title: 'Bài mới', body: 'Nội dung'));
+      await api(c).deletePost('mine');
+      expect(await api(c).getMyPosts(), isEmpty);
+      expect(backend.requests('GET /posts/mine'), isEmpty);
+    });
+  });
+
+  group('PUT /posts/{id}', () {
+    test('the body of POST /posts, with the raw media URL', () async {
+      final backend = FakeBackend()
+        ..on(
+            'PUT /posts/$_postId',
+            200,
+            envelope({
+              'id': _postId,
+              'type': 'discussion',
+              'author': {'id': testUserId, 'fullName': 'FE Test'},
+              'title': 'Tiêu đề mới',
+              'body': 'Nội dung mới',
+              'createdAt': '2026-10-31T07:19:11Z',
+              'status': 'Pending',
+              'mediaType': 'Image',
+              'mediaUrl': '/uploads/images/a.png',
+            }));
+      final c = await backendContainer(backend);
+
+      final saved = await api(c).updatePost(
+          _postId,
+          UpdatePostRequestDto(
+            type: PostType.discussion,
+            title: 'Tiêu đề mới',
+            body: 'Nội dung mới',
+            tags: const ['quick'],
+            mediaType: PostMediaType.image,
+            mediaUrl: '${Env.apiOrigin}/uploads/images/a.png',
+          ));
+      expect(saved.toEntity().isPending, isTrue);
+      expect(saved.mediaUrl, '${Env.apiOrigin}/uploads/images/a.png');
+      expect(backend.bodyOf('PUT /posts/$_postId'), {
+        'type': 'discussion',
+        'title': 'Tiêu đề mới',
+        'body': 'Nội dung mới',
+        'tags': ['quick'],
+        'mediaType': 'Image',
+        'mediaUrl': '/uploads/images/a.png',
+        'restaurantId': null,
+      });
+    });
+
+    test("today's 405 is an error, never a saved post", () async {
+      final backend = FakeBackend()..on('PUT /posts/$_postId', 405, null);
+      final c = await backendContainer(backend);
+      await expectLater(
+        api(c).updatePost(
+            _postId,
+            const UpdatePostRequestDto(
+                title: 'Tiêu đề',
+                body: 'Nội dung',
+                mediaType: PostMediaType.text)),
+        throwsA(isA<ApiException>()),
+      );
     });
   });
 
@@ -667,7 +899,7 @@ void main() {
           );
       expect(uploaded.mediaUrl, startsWith('/uploads/videos/'));
       expect(uploaded.absoluteUrl, startsWith('${Env.apiOrigin}/uploads/'));
-      expect(uploaded.durationSeconds, 15);
+      expect(uploaded.durationSeconds, 0, reason: 'the BE sends null');
     });
 
     test('a file that cannot be read says so before any request', () async {

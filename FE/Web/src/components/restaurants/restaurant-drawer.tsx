@@ -14,12 +14,13 @@ import { Skeleton } from "@/components/ui/form-controls";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { describeError } from "@/lib/api_error";
 import { useDeleteRestaurant, useDeleteReview, useRestaurantReviews } from "@/lib/hooks/use-restaurants";
-import { cn } from "@/lib/utils";
+import { cn, dateFormat } from "@/lib/utils";
 import { RESTAURANT_SOURCE_LABEL, type AdminRestaurant, type AdminReview } from "@/types/restaurants";
 
-import { CertifiedBadge, CertifiedSwitch, formatRating, hasCoords, RatingSummary } from "./restaurant-table";
+import { RestaurantReviewActions } from "./restaurant-review-actions";
+import { CertifiedBadge, CertifiedSwitch, formatRating, formatRestaurantDate, hasCoords, RatingSummary, RestaurantStatusBadge } from "./restaurant-table";
 
-const dateVi = new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+const dateVi = dateFormat({ day: "2-digit", month: "2-digit", year: "numeric" });
 
 /** OpenStreetMap link: a marker at the coordinates when known, otherwise an address search. */
 export function osmUrl(r: Pick<AdminRestaurant, "latitude" | "longitude" | "address" | "name">) {
@@ -145,6 +146,7 @@ function Detail({ restaurant, onClose }: { restaurant: AdminRestaurant; onClose:
     <>
       <SheetHeader className="border-b">
         <div className="flex flex-wrap gap-1.5">
+          <RestaurantStatusBadge status={restaurant.status} />
           <CertifiedBadge certified={restaurant.isVeganCertified} />
           <Badge variant="outline">{RESTAURANT_SOURCE_LABEL[restaurant.createdBy ? "user" : "admin"]}</Badge>
         </div>
@@ -153,8 +155,24 @@ function Detail({ restaurant, onClose }: { restaurant: AdminRestaurant; onClose:
       </SheetHeader>
 
       <div className="flex flex-col gap-6 p-5">
+        <section className={cn("flex flex-col gap-2 rounded-lg border p-3", restaurant.status === "Pending" && "border-ochre-border bg-ochre-soft")}>
+          <h3 className="text-sm font-bold">Duyệt quán</h3>
+          <p className="text-xs text-muted-foreground">
+            {restaurant.status === "Pending"
+              ? "Quán chưa hiện công khai. Duyệt thì quán lên danh sách trong ứng dụng; từ chối thì người gợi ý thấy lý do."
+              : restaurant.status === "Approved"
+                ? `Quán đang hiện công khai${restaurant.reviewedAt ? ` · duyệt lúc ${formatRestaurantDate(restaurant.reviewedAt)}` : ""}${restaurant.reviewedBy ? ` bởi ${restaurant.reviewedBy}` : ""}. Từ chối sẽ gỡ quán và bỏ chứng nhận nếu có.`
+                : `Quán không hiện công khai${restaurant.reviewedAt ? ` · từ chối lúc ${formatRestaurantDate(restaurant.reviewedAt)}` : ""}${restaurant.reviewedBy ? ` bởi ${restaurant.reviewedBy}` : ""}. Có thể duyệt lại.`}
+          </p>
+          {restaurant.status === "Rejected" && restaurant.rejectionReason && (
+            <p className="whitespace-pre-wrap break-words rounded-lg bg-muted px-3 py-2 text-sm">“{restaurant.rejectionReason}”</p>
+          )}
+          <RestaurantReviewActions restaurant={restaurant} />
+        </section>
+
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
           <Info label="Người gợi ý" value={restaurant.createdBy?.fullName ?? "Ban quản trị"} />
+          <Info label={restaurant.createdBy ? "Ngày gợi ý" : "Ngày thêm"} value={formatRestaurantDate(restaurant.createdAt)} />
           <div className="min-w-0">
             <dt className="text-xs text-muted-foreground">Đánh giá</dt>
             <dd className="font-semibold">
@@ -188,7 +206,9 @@ function Detail({ restaurant, onClose }: { restaurant: AdminRestaurant; onClose:
           <div className="min-w-0">
             <h3 className="text-sm font-bold">Chứng nhận thuần chay</h3>
             <p className="text-xs text-muted-foreground">
-              Bật sau khi đã xác minh quán không dùng nguyên liệu động vật. Ứng dụng hiển thị nhãn “Chứng nhận chay” ngay.
+              {restaurant.status === "Approved"
+                ? "Bật sau khi đã xác minh quán không dùng nguyên liệu động vật. Ứng dụng hiển thị nhãn “Chứng nhận chay” ngay."
+                : "Chỉ quán đã duyệt mới được chứng nhận. Duyệt quán trước, rồi xác minh riêng."}
             </p>
           </div>
           <CertifiedSwitch restaurant={restaurant} className="mt-0.5" />

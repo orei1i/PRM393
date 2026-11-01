@@ -241,6 +241,13 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen>
     if (updated != null && mounted) setState(() => _post = updated);
   }
 
+  /// An admin's decision of the demo: an approved post opens its comments.
+  void _decided(Post decided) {
+    if (!mounted) return;
+    setState(() => _post = decided);
+    if (decided.isPublished && !comments.started) comments.loadMore();
+  }
+
   // -------------------------------------------------------------- video --
 
   /// Follows the AI pipeline every 3 s while it runs, so the chip and
@@ -398,7 +405,10 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen>
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: PostStatusBanner(
-                post: post, onResubmit: BackendModules.postEdit ? _edit : null),
+              post: post,
+              onResubmit: BackendModules.postEdit ? _edit : null,
+              onDecided: _decided,
+            ),
           ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),

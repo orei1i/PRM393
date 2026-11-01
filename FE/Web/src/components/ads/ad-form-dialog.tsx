@@ -29,13 +29,15 @@ import {
 
 import { AdPreview } from "./ad-preview";
 
-const ALL_RESTAURANTS = { certified: "all", source: "all", search: "" } as const;
+/** Only an Approved place is public, so only that can be advertised. */
+const ALL_RESTAURANTS = { status: "Approved", certified: "all", source: "all", search: "" } as const;
 const NATIONAL = "__national__";
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 /** ISO → "yyyy-mm-dd" in local time (value of <input type="date">). */
 const toDateInput = (iso: string) => {
   const d = new Date(iso);
+  if (!(d.getTime() > 0)) return "";
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 };
 function fromDateInput(value: string, endOfDay: boolean) {

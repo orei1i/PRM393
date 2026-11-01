@@ -13,7 +13,7 @@ export const payoutKeys = {
   withdrawalLists: ["payouts", "withdrawals"] as const,
   withdrawals: (q: WithdrawalQuery) => ["payouts", "withdrawals", q] as const,
   wallets: ["payouts", "wallets"] as const,
-  ledger: (chefId: string) => ["payouts", "ledger", chefId] as const,
+  ledger: (userId: string) => ["payouts", "ledger", userId] as const,
 };
 
 /** KPIs + tab counts + the sidebar / overview "chờ duyệt" badge. */
@@ -21,7 +21,7 @@ export function usePayoutSummary() {
   return useQuery({ queryKey: payoutKeys.summary, queryFn: () => payoutsApi.summary(), refetchInterval: 60_000 });
 }
 
-/** Polls so small requests visibly move to "Đã chuyển" when their automatic payout happens. */
+/** Polls so a request decided by another admin moves on its own. */
 export function useWithdrawals(query: WithdrawalQuery) {
   return useQuery({
     queryKey: payoutKeys.withdrawals(query),
@@ -31,12 +31,12 @@ export function useWithdrawals(query: WithdrawalQuery) {
   });
 }
 
-export function useChefWallets() {
+export function useWallets() {
   return useQuery({ queryKey: payoutKeys.wallets, queryFn: () => payoutsApi.wallets() });
 }
 
-export function useWalletLedger(chefId: string, limit = 8) {
-  return useQuery({ queryKey: [...payoutKeys.ledger(chefId), limit] as const, queryFn: () => payoutsApi.transactions(chefId, limit) });
+export function useWalletLedger(userId: string, limit = 8) {
+  return useQuery({ queryKey: [...payoutKeys.ledger(userId), limit] as const, queryFn: () => payoutsApi.transactions(userId, limit) });
 }
 
 /** What the server will do, applied locally so the row and drawer update at once. */
@@ -47,7 +47,7 @@ function project(w: WithdrawalRequest, input: WithdrawalActionInput, now: string
 }
 
 /**
- * Mark as paid / reject. Optimistically patches the request in every cached list (it stays
+ * Approve (mark as paid) / reject. Optimistically patches the request in every cached list (it stays
  * in its tab until the refetch moves it); rolls back on error.
  */
 export function useWithdrawalAction() {

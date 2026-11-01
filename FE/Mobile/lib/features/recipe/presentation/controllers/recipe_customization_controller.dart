@@ -2,9 +2,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../meal_planner/data/meal_planner_api_service.dart';
+import '../../../meal_planner/data/models/meal_plan_model.dart';
 import '../../../meal_planner/domain/entities/health_profile.dart';
 import '../../../meal_planner/domain/entities/meal_plan.dart';
 import '../../../meal_planner/presentation/controllers/meal_plan_controller.dart';
+import '../../data/backend_recipe_items.dart';
 import '../../data/models/recipe_variant_model.dart';
 import '../../data/recipe_community_api_service.dart';
 import '../../domain/entities/recipe_detail.dart';
@@ -116,17 +118,69 @@ class RecipeCustomizationController
       state = state.copyWith(compareSlot: slot);
 
   /// "Lưu thành công thức của tôi": saves the current changes to
-  /// [recipe] as a private recipe named [name]. Throws `ApiException`.
+  /// [recipe] as a private recipe named [name]. A BE recipe goes through POST
+  /// /recipes, at its base servings like the mock. Throws `ApiException`.
   Future<RecipeDetail> saveVariant(RecipeDetail recipe, String name) async {
     final choices = _choices;
-    final dto = await ref.read(recipeCommunityApiProvider).createVariant(
-        recipe.id, CreateVariantRequestDto.fromChoices(name, choices));
-    final variant = dto.toEntity();
+    final variant = recipe.isFromBackend
+        ? await _saveToBackend(recipe, name)
+        : (await ref.read(recipeCommunityApiProvider).createVariant(
+                recipe.id, CreateVariantRequestDto.fromChoices(name, choices)))
+            .toEntity();
     state = state.copyWith(savedVariants: {
       ...state.savedVariants,
       choices.choicesKey: variant,
     });
     return variant;
+  }
+
+  Future<RecipeDetail> _saveToBackend(RecipeDetail recipe, String name) async {
+    final custom = CustomizedRecipe(recipe, _choices);
+    final energy = custom.energy;
+    final rows = custom.variantRows();
+    double? grams(double? v) => v?.roundToDouble();
+    final baseName = recipe.basedOnName ?? recipe.name;
+    final steps = [
+      savedVariantNote(baseName, recipe.baseServings),
+      ...recipe.steps,
+    ];
+    final saved = await ref.read(mealPlannerApiProvider).createMyRecipe(
+          CreateRecipeRequestDto(
+            name: name.trim(),
+            calories: energy.shown ?? 0,
+            proteinG: grams(energy.proteinG),
+            carbsG: grams(energy.carbsG),
+            fatG: grams(energy.fatG),
+            fiberG: grams(energy.fiberG),
+            prepMinutes: recipe.prepMinutes,
+            allergens: custom.allergens,
+            ingredients: [
+              for (final r in rows)
+                RecipeIngredientInput(
+                    name: r.name, quantity: r.quantity ?? 0, unit: r.unit),
+            ],
+            steps: steps,
+          ),
+        );
+    final nutrition = saved.nutrition;
+    return RecipeDetail(
+      id: saved.id,
+      name: saved.name,
+      instructions: recipe.steps.join('\n'),
+      caloriesCache: nutrition.calories,
+      isVegan: true,
+      ingredients: rows,
+      proteinG: nutrition.proteinG,
+      carbsG: nutrition.carbsG,
+      fatG: nutrition.fatG,
+      fiberG: nutrition.fiberG,
+      allergens: saved.allergens,
+      prepMinutes: saved.prepMinutes,
+      servings: recipe.baseServings,
+      createdBy: saved.createdBy,
+      basedOnName: baseName,
+      nutritionEstimated: true,
+    );
   }
 
   /// "Thêm vào Thực đơn": one serving of the dish as previewed in [slot] of

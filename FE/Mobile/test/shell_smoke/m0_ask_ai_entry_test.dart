@@ -113,6 +113,13 @@ void main() {
     // Not on Thực đơn's first swap button.
     await openTab(tester, 'Thực đơn');
     final swap = find.byTooltip('Đổi bữa sáng');
+    // Below the shortcuts and the health card: scrolled in, as a member would.
+    await tester.scrollUntilVisible(swap, 200,
+        scrollable: find
+            .descendant(
+                of: find.byType(MealPlannerScreen),
+                matching: find.byType(Scrollable))
+            .first);
     expect(swap, findsOneWidget);
     final rest = tester.getRect(bubble);
     expect(rest.overlaps(tester.getRect(swap)), isFalse,

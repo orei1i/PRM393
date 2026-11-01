@@ -75,13 +75,24 @@ class PantryController extends AsyncNotifier<List<PantryItem>> {
     ];
     if (input.isEmpty) return 0;
     await _loaded();
-    state = AsyncData(_entities(await _api.addItems(input)));
+    state = AsyncData(_entities(await _keepingList(_api.addItems(input))));
     return input.length;
   }
 
+  /// A partly refused add still changed the list: it shows, then the refusal.
+  Future<List<PantryItemDto>> _keepingList(
+      Future<List<PantryItemDto>> request) async {
+    try {
+      return await request;
+    } on PantryRefusedException catch (e) {
+      state = AsyncData(_entities(e.items));
+      rethrow;
+    }
+  }
+
   /// Typed in "Nguyên liệu trong tủ". A food that isn't vegan is refused (not
-  /// sent): the returned verdict then carries the reason and vegan swaps for
-  /// the UI. Throws on a save failure.
+  /// sent, or by the BE and taken back out): the returned verdict then carries
+  /// the reason and vegan swaps for the UI. Throws on a save failure.
   Future<VeganVerdict> addManual(String name) async {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return const VeganVerdict.vegan();
@@ -89,8 +100,12 @@ class PantryController extends AsyncNotifier<List<PantryItem>> {
     if (!verdict.isVegan) return verdict;
     await _loaded();
     final ingredient = await _catalogName(trimmed);
-    state = AsyncData(_entities(
-        await _api.addItems([AddPantryItemDto(ingredient: ingredient)])));
+    try {
+      state = AsyncData(_entities(await _keepingList(
+          _api.addItems([AddPantryItemDto(ingredient: ingredient)]))));
+    } on PantryRefusedException {
+      return VeganVerdict.server();
+    }
     return verdict;
   }
 
@@ -128,7 +143,7 @@ class PantryController extends AsyncNotifier<List<PantryItem>> {
     }
     await _loaded();
     final index = removed?.index ?? 0;
-    final list = _entities(await _api.restoreItem(
+    final list = _entities(await _keepingList(_api.restoreItem(
         AddPantryItemDto(
           ingredient: item.ingredient,
           scannedAt: item.scannedAt,
@@ -136,7 +151,7 @@ class PantryController extends AsyncNotifier<List<PantryItem>> {
           unit: item.unit,
           expiryDate: item.expiryDate,
         ),
-        index: index));
+        index: index)));
     state = AsyncData(_placed(list, item.ingredient, index));
   }
 

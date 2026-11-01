@@ -30,10 +30,6 @@ abstract interface class ProfileApiService {
 const chefApplicationLocalNote =
     'Hồ sơ đã lưu trên máy này. Máy chủ chưa nhận hồ sơ chuyên gia nên chưa có người duyệt.';
 
-/// `PUT /users/{id}` is 403 for every normal user today (B3).
-const profileUpdateForbiddenMessage =
-    'Máy chủ chưa cho phép đổi thông tin cá nhân. Thử lại sau nhé.';
-
 /// A chef application waiting on this device, per account
 /// (`vl.chef_application.<userId>`). Without [prefs] it only lasts as long as
 /// the object.
@@ -100,20 +96,13 @@ class RemoteProfileApiService implements ProfileApiService {
 
   @override
   Future<UserProfileDto> updateMe(
-      String userId, UpdateUserRequestDto request) async {
-    try {
-      return await guardApi(() async {
+          String userId, UpdateUserRequestDto request) =>
+      guardApi(() async {
         final res = await _dio.put<Map<String, dynamic>>(
             ApiEndpoints.user(userId),
             data: request.toJson());
         return UserProfileDto.fromJson(res.data!);
       });
-    } on ApiException catch (e) {
-      if (e.statusCode != 403) rethrow;
-      throw const ApiException(
-          message: profileUpdateForbiddenMessage, statusCode: 403);
-    }
-  }
 
   @override
   Future<void> submitChefApplication(ChefApplicationRequest request) async {

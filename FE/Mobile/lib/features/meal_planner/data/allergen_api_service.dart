@@ -1,7 +1,8 @@
 // lib/features/meal_planner/data/allergen_api_service.dart
 //
-// GET /catalog/allergens → [AllergenDto]. The real BE sends `allergenId`, no
-// aliases, and ignores `q` and `limit`, so the app searches the list itself:
+// GET /catalog/allergens → [AllergenDto]. The real BE sends `allergenId` and no
+// aliases. It also filters by `q`, but the words the app matches (the ones in
+// brackets, typed without accents) are found here, on the whole list:
 // [ { "allergenId": "peanut", "name": "Đậu phộng (Lạc)",
 //     "description": "Dị ứng liên quan đến peanut" } ]
 // The mock's rows: { "id": "peanut", "name": "Đậu phộng", "aliases": ["lạc"] }

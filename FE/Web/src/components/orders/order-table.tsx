@@ -4,8 +4,8 @@
 import { InitialsAvatar } from "@/components/admin/initials-avatar";
 import { Skeleton } from "@/components/ui/form-controls";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { planSummary } from "@/types/bookings";
-import type { AdminOrder } from "@/types/commerce";
+import { familySummary, planSummary } from "@/types/bookings";
+import { PAYMENT_PROVIDER_LABEL, type AdminOrder } from "@/types/commerce";
 
 import { dateTimeVi, formatVnd, OrderStatusBadge, OrderTypeBadge, PaymentStatusBadge } from "./order-badges";
 
@@ -76,6 +76,7 @@ export function OrderTable({
                       <span className="font-mono font-semibold">{order.booking.id}</span>
                       <span className="text-muted-foreground"> · {planSummary(order.booking)}</span>
                     </span>
+                    {order.booking.audience === "Family" && <span className="mt-0.5 block text-xs font-semibold">{familySummary(order.booking)}</span>}
                   </TableCell>
                   <TableCell className="text-muted-foreground">{order.booking.chefName}</TableCell>
                   <TableCell className="text-right">
@@ -92,6 +93,7 @@ export function OrderTable({
                       <div className="flex flex-col gap-1">
                         <PaymentStatusBadge status={payment.status} />
                         <span className="font-mono text-xs text-muted-foreground">{payment.transactionRef}</span>
+                        {payment.provider === "Wallet" && <span className="text-xs text-muted-foreground">{PAYMENT_PROVIDER_LABEL.Wallet}</span>}
                       </div>
                     ) : (
                       <span className="text-muted-foreground">—</span>

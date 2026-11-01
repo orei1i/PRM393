@@ -15,10 +15,23 @@ import 'package:veganlife_mobile/features/recipe/data/recipe_api_service.dart';
 
 import 'be_harness.dart';
 
+const _profile = UpdateHealthProfileRequestDto(
+  heightCm: 170,
+  weightKg: 66,
+  goal: HealthGoal.maintain,
+  allergies: [],
+  dietaryRestrictions: [],
+  gender: Gender.female,
+  birthYear: 1997,
+  activityLevel: ActivityLevel.light,
+  mealPattern: [MealSlot.breakfast, MealSlot.lunch, MealSlot.dinner],
+);
+
 Future<void> main() async {
   final be = await BeHarness.start();
 
   group('planner', skip: be.skipReason, () {
+    late BeUser me;
     late ProviderContainer c;
 
     MealPlanController notifier() =>
@@ -28,7 +41,7 @@ Future<void> main() async {
     const pattern = [MealSlot.breakfast, MealSlot.lunch, MealSlot.dinner];
 
     setUpAll(() async {
-      final me = await be.newUser(name: 'FE IT Planner');
+      me = await be.newUser(name: 'FE IT Planner');
       c = await me.container();
     });
 
@@ -89,6 +102,77 @@ Future<void> main() async {
 
       await notifier().swapMeal(first.key, replaced);
       expect(meal(first.key)!.id, first.value.id);
+      expect(
+          meal(first.key)!.nutrition.calories, first.value.nutrition.calories,
+          reason: 'B6: the portion went back with it');
+    });
+
+    beTest('B31: the numbers shown are for the portion, like the BE total',
+        () async {
+      final res = await me.raw('GET', '/meal-plans/current');
+      final days =
+          (res.dataMap['days'] as List<dynamic>).cast<Map<String, dynamic>>();
+      for (final json in days) {
+        final day =
+            state().plan!.dayFor(DateTime.parse(json['date'] as String))!;
+        // A dish's kcal are rounded on their own.
+        expect(day.totals.calories,
+            closeTo(json['totalCalories'] as num, day.meals.length.toDouble()));
+      }
+    });
+
+    beTest('B30: the dish in the slot is not offered', () async {
+      final slot = state().selectedDay!.meals.entries.first;
+      final plan = state().plan!;
+      final res = await me
+          .raw('GET', '/meal-plans/${plan.id}/swap-suggestions', query: {
+        'date': toApiDate(state().selectedDate),
+        'slot': slot.key.apiValue,
+        'limit': 50,
+      });
+      expect(res.dataList, isNotEmpty);
+      expect(res.dataList.map((r) => r['id']), isNot(contains(slot.value.id)));
+    });
+
+    beTest('B6: PATCH keeps the source and the portion', () async {
+      final plan = state().plan!;
+      final slot = state().selectedDay!.meals.entries.first;
+      final suggestions = await notifier().fetchSwapSuggestions(slot.key);
+      final res = await me.raw('PATCH', '/meal-plans/${plan.id}/meals', data: {
+        'date': toApiDate(state().selectedDate),
+        'slot': slot.key.apiValue,
+        'recipeId': suggestions.first.id,
+        'source': 'recipe',
+        'portion': 2,
+      });
+      final placed = (res.dataMap['meals'] as Map)[slot.key.apiValue] as Map;
+      expect(placed['source'], 'recipe');
+      expect(placed['portion'], 2);
+      await notifier().swapMeal(slot.key, slot.value);
+    });
+
+    beTest('B26: another member gets 404 on this plan, whatever the route',
+        () async {
+      final plan = state().plan!;
+      final other = await be.newUser(name: 'FE IT Planner Other');
+      final date = toApiDate(state().selectedDate);
+      for (final (method, path, data) in [
+        ('GET', '/meal-plans/${plan.id}', null),
+        (
+          'GET',
+          '/meal-plans/${plan.id}/swap-suggestions?date=$date&slot=lunch',
+          null
+        ),
+        ('DELETE', '/meal-plans/${plan.id}/meals?date=$date&slot=lunch', null),
+        (
+          'PATCH',
+          '/meal-plans/${plan.id}/meals',
+          {'date': date, 'slot': 'lunch', 'recipeId': plan.id},
+        ),
+      ]) {
+        expect((await other.raw(method, path, data: data)).status, 404,
+            reason: '$method $path');
+      }
     });
 
     beTest('the placed dish opens a recipe page', () async {
@@ -108,6 +192,17 @@ Future<void> main() async {
       expect(typed.recipe.source, MealSource.manual);
       final page = await c.read(recipeApiProvider).getRecipe(typed.recipe.id);
       expect(page.isSnapshot, isTrue);
+
+      final macros = await notifier().addManualMeal(
+          slot: MealSlot.snackLate,
+          name: 'Canh chua nấm tự nấu',
+          calories: 200,
+          proteinG: 10,
+          carbsG: 20,
+          fatG: 5);
+      expect(macros.recipe.nutrition.proteinG, 10, reason: 'B7');
+      expect(macros.recipe.nutrition.carbsG, 20);
+      expect(macros.recipe.nutrition.fatG, 5);
 
       final before = meal(MealSlot.lunch)!;
       final added = await notifier().addManualMeal(
@@ -168,9 +263,35 @@ Future<void> main() async {
       final dish = meal(MealSlot.snackPm)!;
       expect(dish.name, 'Sinh tố từ chuyên gia');
       expect(dish.source, MealSource.chef);
+      expect(dish.sourceName, 'Bếp thử', reason: 'B7');
     });
 
-    beTest('a new goal re-aims the week on the app (B8 workaround)', () async {
+    beTest('B7: a batch keeps macros and the recipe id', () async {
+      final res =
+          await me.raw('POST', '/meal-plans/current/meals/batch', data: {
+        'meals': [
+          {
+            'date': toApiDate(DateTime.now()),
+            'slot': 'snack_am',
+            'name': 'Món chuyên gia',
+            'calories': 150,
+            'proteinG': 10,
+            'source': 'chef',
+            'sourceName': 'Bếp X',
+            'recipeId': '000000000000000000000000',
+          },
+        ],
+      });
+      final day = (res.dataMap['days'] as List<dynamic>).first as Map;
+      final dish = (day['meals'] as Map)['snack_am'] as Map;
+      expect(dish['proteinG'], 10);
+      expect(dish['sourceName'], 'Bếp X');
+      expect(dish['recipeId'], '000000000000000000000000');
+      await notifier().removeMeal(MealSlot.snackAm);
+    });
+
+    beTest('B8: a new goal re-aims the week on the BE', () async {
+      final before = state().plan!.dailyTargets.calories;
       await notifier().updateHealthProfile(
         heightCm: 170,
         weightKg: 66,
@@ -180,10 +301,59 @@ Future<void> main() async {
         mealPattern: state().pattern,
       );
       await Future<void>.delayed(const Duration(milliseconds: 800));
-      expect(
-          state().plan!.dailyTargets.calories, state().profile.targetCalories);
+      final raw = await me.raw('GET', '/meal-plans/current');
+      final target = state().profile.targetCalories;
+      expect(target, greaterThan(before));
+      expect((raw.dataMap['dailyTargets'] as Map)['calories'], target);
+      expect(raw.dataMap['goal'], 'gain_weight');
+      expect(state().plan!.dailyTargets.calories, target);
       expect(state().profile.birthYear, 1997);
       expect(state().profile.gender, Gender.female);
+    });
+
+    beTest('B29: "Tự lên thực đơn" empties a filled week, keeping its id',
+        () async {
+      final plan = state().plan!;
+      expect(plan.days.expand((d) => d.meals.values), isNotEmpty);
+      await notifier().createEmptyPlan();
+      final empty = state().plan!;
+      expect(empty.id, plan.id);
+      expect(empty.days, hasLength(7));
+      expect(empty.days.expand((d) => d.meals.values), isEmpty);
+      expect(empty.dailyTargets.calories, plan.dailyTargets.calories);
+      expect(await notifier().generatePlan(), isTrue);
+      expect(state().plan!.days.expand((d) => d.meals.values), isNotEmpty);
+    });
+
+    beTest('B11: generate follows the meal pattern', () async {
+      final other = await be.newUser(name: 'FE IT Planner Pattern');
+      final planner = RemoteMealPlannerApiService(other.dio);
+      await planner.updateHealthProfile(const UpdateHealthProfileRequestDto(
+        heightCm: 170,
+        weightKg: 66,
+        goal: HealthGoal.maintain,
+        allergies: [],
+        dietaryRestrictions: [],
+        gender: Gender.female,
+        birthYear: 1997,
+        activityLevel: ActivityLevel.light,
+        mealPattern: [MealSlot.snackAm, MealSlot.lunch, MealSlot.dinner],
+      ));
+      final plan = await planner.generateMealPlan(
+          startDate: startOfWeek(DateTime.now()));
+      for (final day in plan.days) {
+        expect(day.meals.keys.toSet(), {'snack_am', 'lunch', 'dinner'});
+      }
+    });
+
+    beTest('B24: only this week counts as current', () async {
+      final other = await be.newUser(name: 'FE IT Planner Old');
+      final planner = RemoteMealPlannerApiService(other.dio);
+      await planner.updateHealthProfile(_profile);
+      await planner.generateMealPlan(
+          startDate:
+              startOfWeek(DateTime.now().subtract(const Duration(days: 28))));
+      expect(await planner.getCurrentMealPlan(), isNull);
     });
 
     beTest('"Công thức của tôi": create, list, open', () async {

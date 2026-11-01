@@ -32,7 +32,8 @@ Future<void> main() async {
       expect((await ingredients.search('')).length, greaterThan(10));
     });
 
-    beTest('detail: macros, and recipes from the catalogue', () async {
+    beTest('detail: macros, and recipes (no plan: what suits the fridge)',
+        () async {
       final tofu = (await ingredients.search('dau hu')).first;
       final detail = await ingredients.detail(tofu.id);
       expect(detail.summary.name, tofu.name);

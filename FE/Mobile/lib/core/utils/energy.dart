@@ -17,10 +17,14 @@ enum Gender {
   male('Male', 'Nam', 5),
   female('Female', 'Nữ', -161),
 
-  /// Mifflin–St Jeor has no constant for it: the mean of the two.
+  /// No longer offered, but profiles saved with it still load. Mifflin–St Jeor
+  /// has no constant for it: the mean of the two.
   other('Other', 'Khác', -78);
 
   const Gender(this.apiValue, this.label, this.bmrConstant);
+
+  /// What the health profile form offers.
+  static const selectable = [male, female];
 
   final String apiValue;
   final String label;

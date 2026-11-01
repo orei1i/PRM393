@@ -183,19 +183,6 @@ void main() {
     });
   });
 
-  test('the AI pre-screen flags trigger words, accents or not', () {
-    expect(
-        MockCommunityRepository.preScreenFlags('Bài thử', 'có #flag'), isTrue);
-    expect(MockCommunityRepository.preScreenFlags('Nước ép chua khoi bệnh', ''),
-        isTrue);
-    expect(MockCommunityRepository.preScreenFlags('Liên hệ', 'Inbox Zalo'),
-        isTrue);
-    expect(
-        MockCommunityRepository.preScreenFlags(
-            'Đậu hũ sốt cà', 'Rán vàng đậu, om sốt cà chua.'),
-        isFalse);
-  });
-
   group('MockCommunityRepository: own content', () {
     var signedIn = true;
     var userId = 'u_me';
@@ -250,11 +237,11 @@ void main() {
       expect(await repo.getMyComments(), isEmpty);
     });
 
-    test('a flagged post is held: not in the feed, listed as mine', () async {
+    test('every new post is held: not in the feed, listed as mine', () async {
       final created = await repo.createPost(const CreatePostRequestDto(
           type: PostType.discussion,
-          title: 'Bài kiểm tra pre-screen',
-          body: 'Nội dung có #flag để AI giữ lại.'));
+          title: 'Bài kiểm tra chờ duyệt',
+          body: 'Nội dung bình thường vẫn chờ Ban quản trị duyệt.'));
       expect(created.status, 'Pending');
       final feed = await wholeFeed();
       expect(feed.map((p) => p.id), isNot(contains(created.id)));
@@ -302,7 +289,8 @@ void main() {
       expect(untagged.mediaUrl, post.mediaUrl, reason: 'attachment kept');
     });
 
-    test('edit transitions follow "publish unless AI flags"', () async {
+    test('every edit waits for the admins again; a decision settles it',
+        () async {
       UpdatePostRequestDto edit(String title, String body) =>
           UpdatePostRequestDto(
               title: title, body: body, mediaType: PostMediaType.text);
@@ -311,23 +299,39 @@ void main() {
           type: PostType.recipe,
           title: 'Canh bí đỏ đậu phộng',
           body: 'Bí đỏ nấu với đậu phộng, nêm nhạt.'));
-      expect(post.status, 'Published');
+      expect(post.status, 'Pending');
 
-      final clean =
+      final approved = await repo.demoDecide(post.id, approve: true);
+      expect(approved.status, 'Published');
+      expect((await wholeFeed()).map((p) => p.id), contains(post.id));
+      userId = 'u_chef_tam';
+      expect((await repo.getPost(post.id)).status, 'Published');
+      userId = 'u_me';
+
+      final edited =
           await repo.updatePost(post.id, edit('Canh bí đỏ hầm', post.body));
-      expect(clean.status, 'Published');
-      expect(clean.updatedAt, isNotNull);
-      expect((await wholeFeed()).singleWhere((p) => p.id == post.id).title,
-          'Canh bí đỏ hầm');
-
-      final flagged = await repo.updatePost(
-          post.id, edit('Canh bí đỏ hầm', 'Mua nguyên liệu inbox zalo nhé'));
-      expect(flagged.status, 'Pending');
+      expect(edited.status, 'Pending');
+      expect(edited.updatedAt, isNotNull);
       expect((await wholeFeed()).map((p) => p.id), isNot(contains(post.id)));
+      userId = 'u_chef_tam';
+      await expectLater(repo.getPost(post.id), _apiError(404));
+      userId = 'u_me';
 
       final still =
           await repo.updatePost(post.id, edit('Canh bí đỏ hầm', 'Nấu nhạt.'));
       expect(still.status, 'Pending');
+
+      final refused = await repo.demoDecide(post.id, approve: false);
+      expect(refused.status, 'Rejected');
+      expect(
+          refused.rejectionReason, MockCommunityRepository.demoRejectionReason);
+      expect((await wholeFeed()).map((p) => p.id), isNot(contains(post.id)));
+      expect((await repo.getPost(post.id)).status, 'Rejected');
+
+      await repo.demoDecide(post.id, approve: true);
+      final titled =
+          (await wholeFeed()).singleWhere((p) => p.id == post.id).title;
+      expect(titled, 'Canh bí đỏ hầm');
 
       final resubmitted = await repo.updatePost('p_me_rejected_detox',
           edit('Trà thảo mộc mình hay uống', 'Ghi chú cá nhân, có nguồn.'));

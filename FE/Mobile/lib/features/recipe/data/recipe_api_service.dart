@@ -13,9 +13,9 @@ abstract interface class RecipeApiService {
   Future<RecipeDetailDto> getRecipe(String id);
 }
 
-/// The BE has no GET /recipes/{id}, so the id decides where a recipe comes
-/// from: a mock id (`l5`, `cs_…`, `menu_1`) from the mock store, a 24-hex id
-/// from the catalogue then the plan, a 32-hex id (a typed dish) from the plan.
+/// The id decides where a recipe comes from: a mock id (`l5`, `cs_…`, `menu_1`)
+/// from the mock store, a 24-hex id from GET /recipes/{id} then the plan, a
+/// 32-hex id (a typed dish) from the plan.
 /// A mock id the mock store doesn't know (`rc_…`, a dish of a sample chef plan
 /// applied to the real planner) still gets a page from the plan.
 class RemoteRecipeApiService implements RecipeApiService {

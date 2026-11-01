@@ -32,7 +32,7 @@ const dayEnd = (offset: number) => dayStart(offset + 1) - 1;
 /** Mock spend: 40đ per impression (40.000đ CPM). */
 const COST_PER_IMPRESSION = 40;
 
-const ALL_RESTAURANTS = { certified: "all", source: "all", search: "" } as const;
+const ALL_RESTAURANTS = { status: "Approved", certified: "all", source: "all", search: "" } as const;
 
 /* ----------------------------------------------------------------- seeds */
 

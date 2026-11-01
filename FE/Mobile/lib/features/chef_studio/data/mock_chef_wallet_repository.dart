@@ -35,20 +35,77 @@ class _Earning {
   int get net => gross - fee;
 }
 
+/// Checks of "Tài khoản nhận tiền", for every wallet. `#fail` in the account
+/// holder name → 503. Returns the row to store.
+MockBankAccountRow validatedBankAccount(BankAccountDto account, DateTime at) {
+  if (account.accountHolder.toLowerCase().contains('#fail')) {
+    throw mockError(
+        503, 'Ngân hàng chưa xác minh được tài khoản. Thử lại sau.');
+  }
+  final number = account.accountNumber.replaceAll(' ', '');
+  if (account.bankName.trim().isEmpty) {
+    throw mockError(400, 'Chọn ngân hàng.', 'validation');
+  }
+  if (!RegExp(r'^\d{6,19}$').hasMatch(number)) {
+    throw mockError(400, 'Số tài khoản gồm 6–19 chữ số.', 'validation');
+  }
+  if (account.accountHolder.trim().length < 3) {
+    throw mockError(400, 'Nhập tên chủ tài khoản.', 'validation');
+  }
+  return MockBankAccountRow(
+    bankName: account.bankName.trim(),
+    accountNumber: number,
+    accountHolder: account.accountHolder.trim().toUpperCase(),
+    updatedAt: at,
+  );
+}
+
+/// Checks of a withdrawal against the bank account and the balance.
+void checkWithdrawal(
+    {required int amount,
+    required int available,
+    required MockBankAccountRow? account}) {
+  if (account == null) {
+    throw mockError(
+        409, 'Thêm tài khoản ngân hàng trước khi rút tiền.', 'no_bank_account');
+  }
+  if (amount < kMinWithdrawal) {
+    throw mockError(400, 'Số tiền rút tối thiểu ${formatVnd(kMinWithdrawal)}.',
+        'amount_too_small');
+  }
+  if (amount > available) {
+    throw mockError(
+        409, 'Số tiền vượt quá số dư có thể rút.', 'insufficient_balance');
+  }
+}
+
+/// What the wire shows of a withdrawal (the number is masked by the server).
+Map<String, dynamic> withdrawalJson(MockWithdrawalRow w) => {
+      'id': w.id,
+      'amount': w.amount,
+      'status': w.status,
+      'bankName': w.bankName,
+      'accountNumber': maskAccount(w.accountNumber),
+      'createdAt': w.createdAt.toUtc().toIso8601String(),
+      'processedAt': w.processedAt?.toUtc().toIso8601String(),
+      'reason': w.reason,
+    };
+
+String maskAccount(String number) =>
+    number.length <= 4 ? number : '•••• ${number.substring(number.length - 4)}';
+
 /// Wallet on top of the booking escrow holds ([MockBookingDb]): a paid
-/// booking is "Đang giữ" until its plan's end date 23:59 + [kEscrowHoldDays]
-/// days, "Tạm giữ do khiếu nại" while a complaint is open, then "Có thể rút"
-/// at net 90 % — or "Đã hoàn" when an admin refunds it in full. Withdrawals
-/// up to [kAutoApproveLimit] are paid out 10 s after the request; bigger
-/// ones wait for an admin. `#fail` in the account holder name → 503.
+/// booking is "Đang giữ" until [kEscrowHoldDays] days after the contract is
+/// completed, "Tạm giữ do khiếu nại" while a complaint is open, then "Có thể
+/// rút" at net 90 % — or "Đã hoàn" when an admin refunds it in full. Every
+/// withdrawal waits for an admin; "Mô phỏng duyệt" stands in for one.
+/// `#fail` in the account holder name → 503.
 class MockChefWalletRepository implements ChefWalletApiService {
   MockChefWalletRepository(
       {required this.currentUserId, required this.currentRole});
 
   final String? Function() currentUserId;
   final UserRole Function() currentRole;
-
-  static const autoApproveAfter = Duration(seconds: 10);
 
   MockCommerceDb get _db => MockCommerceDb.instance;
 
@@ -78,10 +135,12 @@ class MockChefWalletRepository implements ChefWalletApiService {
             gross: e.releasedAmount,
             fee: e.feeAmount,
             status: LedgerStatus.available,
-            at: e.releasedAt ?? e.releaseAt,
-            note: e.complaintId == null
-                ? null
-                : 'Giải ngân theo quyết định khiếu nại',
+            at: e.releasedAt ?? e.releaseAt ?? e.heldAt,
+            note: e.complaintId != null
+                ? 'Giải ngân theo quyết định khiếu nại'
+                : e.adminResolved
+                    ? 'Giải ngân theo quyết định của Ban quản trị'
+                    : null,
           ),
         EscrowStatus.partiallyRefunded => _Earning(
             entry: e,
@@ -90,7 +149,7 @@ class MockChefWalletRepository implements ChefWalletApiService {
             status: LedgerStatus.available,
             at: e.releasedAt ?? e.decidedAt ?? e.heldAt,
             note:
-                'Hoàn ${formatVnd(e.refundedAmount)} cho thành viên theo quyết định khiếu nại',
+                'Hoàn ${formatVnd(e.refundedAmount)} cho thành viên theo quyết định ${e.adminResolved ? 'của Ban quản trị' : 'khiếu nại'}',
           ),
         EscrowStatus.refunded => _Earning(
             entry: e,
@@ -108,18 +167,15 @@ class MockChefWalletRepository implements ChefWalletApiService {
           if (e.chefId == chefId) _earningOf(e),
       ];
 
-  List<MockWithdrawalRow> _withdrawals(String chefId) {
-    final list = _db.withdrawals.where((w) => w.chefId == chefId).toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    list.forEach(_db.settleWithdrawal);
-    return list;
-  }
+  List<MockWithdrawalRow> _withdrawals(String userId) =>
+      _db.withdrawals.where((w) => w.userId == userId).toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
   int _sum(Iterable<int> values) => values.fold(0, (a, b) => a + b);
 
   WalletDto _wallet(MockChefRow chef) {
     final earnings = _earnings(chef.id);
-    final withdrawals = _withdrawals(chef.id);
+    final withdrawals = _withdrawals(chef.userId);
     int netOf(LedgerStatus status) =>
         _sum(earnings.where((e) => e.status == status).map((e) => e.net));
     final withdrawn = _sum(
@@ -127,9 +183,9 @@ class MockChefWalletRepository implements ChefWalletApiService {
     final processing = _sum(withdrawals
         .where((w) => w.status == 'Processing')
         .map((w) => w.amount));
-    final account = _db.bankAccounts[chef.id];
+    final account = _db.bankAccounts[chef.userId];
     return WalletDto.fromJson({
-      'available': netOf(LedgerStatus.available) - withdrawn - processing,
+      'available': _db.availableOf(chef.userId),
       'pending': netOf(LedgerStatus.held),
       'frozen': netOf(LedgerStatus.frozen),
       'withdrawn': withdrawn,
@@ -147,21 +203,6 @@ class MockChefWalletRepository implements ChefWalletApiService {
       };
 
   static String _iso(DateTime d) => d.toUtc().toIso8601String();
-
-  static String _mask(String number) => number.length <= 4
-      ? number
-      : '•••• ${number.substring(number.length - 4)}';
-
-  Map<String, dynamic> _withdrawalJson(MockWithdrawalRow w) => {
-        'id': w.id,
-        'amount': w.amount,
-        'status': w.status,
-        'bankName': w.bankName,
-        'accountNumber': _mask(w.accountNumber),
-        'createdAt': _iso(w.createdAt),
-        'processedAt': w.processedAt == null ? null : _iso(w.processedAt!),
-        'reason': w.reason,
-      };
 
   @override
   Future<WalletDto> getWallet() async {
@@ -193,19 +234,35 @@ class MockChefWalletRepository implements ChefWalletApiService {
           'transactionRef': e.entry.transactionRef,
           'planTitle': e.entry.planTitle,
           'memberName': e.entry.memberName,
-          'releaseAt':
-              e.status == LedgerStatus.held ? _iso(e.entry.releaseAt) : null,
+          'releaseAt': e.status == LedgerStatus.held
+              ? e.entry.releaseAt?.toUtc().toIso8601String()
+              : null,
           'complaintId': e.entry.complaintId,
           'note': e.note,
         },
-      for (final w in _withdrawals(chef.id))
+      // One wallet per user: what they booked themselves shows here too.
+      for (final e in _db.walletEntries)
+        if (e.userId == chef.userId)
+          {
+            'id': e.id,
+            'type': e.type,
+            'status': e.type == 'Refund' ? 'Available' : 'Completed',
+            'createdAt': _iso(e.createdAt),
+            'net': e.amount,
+            'bookingId': e.bookingId,
+            'orderId': e.orderId,
+            'transactionRef': e.transactionRef,
+            'planTitle': e.planTitle,
+            'note': e.note,
+          },
+      for (final w in _withdrawals(chef.userId))
         {
           'id': 'tx_wd_${w.id}',
           'type': 'Withdrawal',
           'status': w.status,
           'createdAt': _iso(w.createdAt),
           'net': -w.amount,
-          'bankName': '${w.bankName} ${_mask(w.accountNumber)}',
+          'bankName': '${w.bankName} ${maskAccount(w.accountNumber)}',
           'note': w.reason,
         },
     ];
@@ -222,27 +279,8 @@ class MockChefWalletRepository implements ChefWalletApiService {
   Future<BankAccountDto> saveBankAccount(BankAccountDto account) async {
     await mockDelay(700);
     final chef = _chef();
-    if (account.accountHolder.toLowerCase().contains('#fail')) {
-      throw mockError(
-          503, 'Ngân hàng chưa xác minh được tài khoản. Thử lại sau.');
-    }
-    final number = account.accountNumber.replaceAll(' ', '');
-    if (account.bankName.trim().isEmpty) {
-      throw mockError(400, 'Chọn ngân hàng.', 'validation');
-    }
-    if (!RegExp(r'^\d{6,19}$').hasMatch(number)) {
-      throw mockError(400, 'Số tài khoản gồm 6–19 chữ số.', 'validation');
-    }
-    if (account.accountHolder.trim().length < 3) {
-      throw mockError(400, 'Nhập tên chủ tài khoản.', 'validation');
-    }
-    final row = MockBankAccountRow(
-      bankName: account.bankName.trim(),
-      accountNumber: number,
-      accountHolder: account.accountHolder.trim().toUpperCase(),
-      updatedAt: _db.now,
-    );
-    _db.bankAccounts[chef.id] = row;
+    final row = validatedBankAccount(account, _db.now);
+    _db.bankAccounts[chef.userId] = row;
     return BankAccountDto.fromJson(_accountJson(row));
   }
 
@@ -250,35 +288,36 @@ class MockChefWalletRepository implements ChefWalletApiService {
   Future<WithdrawalDto> requestWithdrawal(WithdrawalRequestDto request) async {
     await mockDelay(800);
     final chef = _chef();
-    final account = _db.bankAccounts[chef.id];
-    if (account == null) {
-      throw mockError(409, 'Thêm tài khoản ngân hàng trước khi rút tiền.',
-          'no_bank_account');
-    }
-    if (request.amount < kMinWithdrawal) {
-      throw mockError(400,
-          'Số tiền rút tối thiểu ${formatVnd(kMinWithdrawal)}.', 'validation');
-    }
-    if (request.amount > _wallet(chef).available) {
-      throw mockError(
-          409, 'Số tiền vượt quá số dư có thể rút.', 'insufficient_balance');
-    }
-    final now = _db.now;
-    final auto = request.amount <= kAutoApproveLimit;
+    final account = _db.bankAccounts[chef.userId];
+    checkWithdrawal(
+        amount: request.amount,
+        available: _wallet(chef).available,
+        account: account);
     final row = MockWithdrawalRow(
       id: _db.newId('wd'),
-      chefId: chef.id,
+      userId: chef.userId,
       amount: request.amount,
-      bankName: account.bankName,
+      bankName: account!.bankName,
       accountNumber: account.accountNumber,
-      createdAt: now,
-      autoApproveAt: auto ? now.add(autoApproveAfter) : null,
-      reason: auto
-          ? null
-          : 'Trên ${formatVnd(kAutoApproveLimit)}: chờ Ban quản trị duyệt (1–2 ngày làm việc).',
+      createdAt: _db.now,
+      reason: 'Chờ Ban quản trị duyệt (1–2 ngày làm việc).',
     );
     _db.withdrawals.add(row);
-    return WithdrawalDto.fromJson(_withdrawalJson(row));
+    return WithdrawalDto.fromJson(withdrawalJson(row));
+  }
+
+  @override
+  Future<WithdrawalDto> mockDecideWithdrawal(String id,
+      {required bool approve}) async {
+    await mockDelay(400);
+    final chef = _chef();
+    if (!_withdrawals(chef.userId).any((w) => w.id == id)) {
+      throw mockError(404, 'Không tìm thấy yêu cầu rút tiền.');
+    }
+    final row = _db.decideWithdrawal(id,
+        approve: approve,
+        reason: approve ? null : 'Từ chối mô phỏng: thông tin chưa khớp.');
+    return WithdrawalDto.fromJson(withdrawalJson(row));
   }
 
   @override
@@ -286,8 +325,8 @@ class MockChefWalletRepository implements ChefWalletApiService {
     await mockDelay(400);
     final chef = _chef();
     if (MockCommerceDb.emptyScenario()) return const [];
-    return _withdrawals(chef.id)
-        .map((w) => WithdrawalDto.fromJson(_withdrawalJson(w)))
+    return _withdrawals(chef.userId)
+        .map((w) => WithdrawalDto.fromJson(withdrawalJson(w)))
         .toList();
   }
 }

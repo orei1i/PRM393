@@ -5,6 +5,7 @@
 //   "posts":  [PostDto…],          // mediaType Text/Image, status Published only
 //   "videos": [PostDto…],          // posts with a video (mediaType Video), Published only
 //   "recipes": [ { "id": "l5", "name": "Bún riêu chay", "caloriesCache": 520, "isVegan": true } ],
+//   "ingredients": [IngredientSummaryDto…],
 //   "restaurants": [RestaurantDto…],
 //   "suggestion": { "recipe": RecipeSummaryDto, "relatedPosts": [PostDto…],
 //                   "restaurants": [RestaurantDto…] } | null }
@@ -13,6 +14,7 @@
 import '../../../../core/utils/json_helpers.dart';
 import '../../../community/data/models/post_model.dart';
 import '../../../community/domain/entities/post.dart';
+import '../../../ingredient/data/models/ingredient_model.dart';
 import '../../../restaurant/data/models/restaurant_model.dart';
 import '../../domain/entities/search_result.dart';
 
@@ -92,8 +94,11 @@ class SearchResultDto {
     this.posts = const [],
     this.videos = const [],
     this.recipes = const [],
+    this.ingredients = const [],
     this.restaurants = const [],
     this.suggestion,
+    this.recipeScope = RecipeSearchScope.full,
+    this.postsTruncated = false,
   });
 
   factory SearchResultDto.fromJson(Map<String, dynamic> json) {
@@ -103,6 +108,7 @@ class SearchResultDto {
       posts: _list(json['posts'], PostDto.fromJson),
       videos: _list(json['videos'], PostDto.fromJson),
       recipes: _list(json['recipes'], RecipeSummaryDto.fromJson),
+      ingredients: _list(json['ingredients'], IngredientSummaryDto.fromJson),
       restaurants: _list(json['restaurants'], RestaurantDto.fromJson),
       suggestion: suggestion is Map<String, dynamic> &&
               suggestion['recipe'] is Map<String, dynamic>
@@ -115,21 +121,30 @@ class SearchResultDto {
   final List<PostDto> posts;
   final List<PostDto> videos;
   final List<RecipeSummaryDto> recipes;
+  final List<IngredientSummaryDto> ingredients;
   final List<RestaurantDto> restaurants;
   final SearchSuggestionDto? suggestion;
+
+  /// Only the client-side search sets these two; a server search has no such
+  /// limits to report.
+  final RecipeSearchScope recipeScope;
+  final bool postsTruncated;
 
   SearchResult toEntity() => SearchResult(
         query: query,
         posts: _publishedPosts(posts),
         videos: _publishedPosts(videos),
         recipes: [for (final r in recipes) r.toEntity()],
+        ingredients: [for (final i in ingredients) i.toEntity()],
         restaurants: [for (final r in restaurants) r.toEntity()],
         suggestion: suggestion?.toEntity(),
+        recipeScope: recipeScope,
+        postsTruncated: postsTruncated,
       );
 }
 
 /// GET /search/suggest?q=bu&limit=8 (guests allowed)
-/// `[{ "kind": "query|recipe|post|restaurant", "text": "bún riêu chay",
+/// `[{ "kind": "query|recipe|post|ingredient|restaurant", "text": "bún riêu chay",
 ///     "id": null, "subtitle": "Công thức" }]`
 class SearchSuggestItemDto {
   const SearchSuggestItemDto({

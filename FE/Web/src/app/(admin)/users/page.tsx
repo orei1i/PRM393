@@ -96,7 +96,7 @@ export default function UsersPage() {
             ))}
           </NativeSelect>
           <p className="ml-auto text-sm text-muted-foreground" aria-live="polite">
-            {users.data ? `${formatNumber(users.data.length)} người dùng` : "Đang tải…"}
+            {users.data ? `${formatNumber(users.data.length)} người dùng` : users.isError ? "" : "Đang tải…"}
           </p>
         </div>
 

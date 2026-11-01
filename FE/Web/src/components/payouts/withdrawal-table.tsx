@@ -9,7 +9,7 @@ import { maskAccountNumber } from "@/lib/payouts_api";
 import { formatAge } from "@/lib/utils";
 import type { WithdrawalRequest, WithdrawalStatus } from "@/types/payouts";
 
-import { ApprovalRuleBadge, WithdrawalStatusBadge } from "./payout-badges";
+import { WalletRoleBadge, WithdrawalStatusBadge } from "./payout-badges";
 
 const LAST_COLUMN: Record<WithdrawalStatus, string> = {
   Processing: "Tình trạng",
@@ -19,15 +19,10 @@ const LAST_COLUMN: Record<WithdrawalStatus, string> = {
 
 function LastCell({ w }: { w: WithdrawalRequest }) {
   if (w.status === "Processing") {
-    return w.requiresApproval ? (
+    return (
       <span className="text-sm">
-        <span className="font-semibold text-ochre-text">Chờ duyệt</span>
+        <span className="font-semibold text-ochre-text">Chờ Ban quản trị duyệt</span>
         <span className="block text-xs text-muted-foreground">đã chờ {formatAge(w.createdAt)}</span>
-      </span>
-    ) : (
-      <span className="text-sm">
-        <span className="font-semibold">Tự động chuyển</span>
-        <span className="block text-xs text-muted-foreground">{w.autoApproveAt ? `lúc ${formatDateTime(w.autoApproveAt)}` : "sắp chuyển"}</span>
       </span>
     );
   }
@@ -36,7 +31,8 @@ function LastCell({ w }: { w: WithdrawalRequest }) {
       <span className="text-sm">
         <span className="font-mono text-xs font-semibold">{w.transactionRef ?? "—"}</span>
         <span className="block text-xs text-muted-foreground">
-          {w.processedAt ? formatDateTime(w.processedAt) : ""} · {w.processedBy ?? "Tự động"}
+          {w.processedAt ? formatDateTime(w.processedAt) : ""}
+          {w.processedBy ? ` · ${w.processedBy}` : ""}
         </span>
       </span>
     );
@@ -61,9 +57,9 @@ export function WithdrawalTable({
     <Table className="min-w-[960px]">
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          <TableHead>Chuyên gia</TableHead>
+          <TableHead>Người yêu cầu</TableHead>
+          <TableHead>Vai trò</TableHead>
           <TableHead className="text-right">Số tiền</TableHead>
-          <TableHead>Duyệt</TableHead>
           <TableHead>Tài khoản nhận</TableHead>
           <TableHead>Gửi lúc</TableHead>
           <TableHead>Trạng thái</TableHead>
@@ -92,21 +88,21 @@ export function WithdrawalTable({
                   }
                 }}
                 className="cursor-pointer"
-                aria-label={`Mở yêu cầu rút ${formatVnd(w.amount)} của ${w.chef.fullName}`}
+                aria-label={`Mở yêu cầu rút ${formatVnd(w.amount)} của ${w.user.fullName}`}
               >
                 <TableCell>
                   <div className="flex items-center gap-2">
-                    <InitialsAvatar name={w.chef.fullName} className="size-8" />
+                    <InitialsAvatar name={w.user.fullName} className="size-8" />
                     <span className="min-w-0">
-                      <span className="block max-w-48 truncate font-semibold">{w.chef.fullName}</span>
+                      <span className="block max-w-48 truncate font-semibold">{w.user.fullName}</span>
                       <span className="block font-mono text-xs text-muted-foreground">{w.id}</span>
                     </span>
                   </div>
                 </TableCell>
-                <TableCell className="text-right font-mono font-semibold tabular">{formatVnd(w.amount)}</TableCell>
                 <TableCell>
-                  <ApprovalRuleBadge requiresApproval={w.requiresApproval} />
+                  <WalletRoleBadge role={w.role} />
                 </TableCell>
+                <TableCell className="text-right font-mono font-semibold tabular">{formatVnd(w.amount)}</TableCell>
                 <TableCell>
                   <span className="block font-semibold">{w.bankAccount.bankName || "—"}</span>
                   <span className="block font-mono text-xs text-muted-foreground">{maskAccountNumber(w.bankAccount.accountNumber)}</span>

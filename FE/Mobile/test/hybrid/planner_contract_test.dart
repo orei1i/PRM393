@@ -1,6 +1,6 @@
 // test/hybrid/planner_contract_test.dart
-// The planner against recorded BE answers: allergens, slot ids, the profile
-// and metrics workarounds, and which route each dish takes (D10).
+// The planner against recorded BE answers: allergens, slot ids, portions, the
+// profile, weigh-ins, and which route each dish takes (D10).
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:veganlife_mobile/core/config/backend_modules.dart';
@@ -11,6 +11,7 @@ import 'package:veganlife_mobile/features/meal_planner/data/mock/mock_recipe_boo
 import 'package:veganlife_mobile/features/meal_planner/data/models/body_measurement_model.dart';
 import 'package:veganlife_mobile/features/meal_planner/data/models/health_profile_model.dart';
 import 'package:veganlife_mobile/features/meal_planner/data/models/meal_plan_model.dart';
+import 'package:veganlife_mobile/features/meal_planner/domain/allergy_match.dart';
 import 'package:veganlife_mobile/features/meal_planner/domain/entities/health_profile.dart';
 import 'package:veganlife_mobile/features/meal_planner/domain/entities/meal_plan.dart';
 import 'package:veganlife_mobile/features/meal_planner/presentation/controllers/body_metrics_controller.dart';
@@ -115,7 +116,35 @@ void main() {
       expect(await api.search('zzz'), isEmpty);
       expect(backend.requests('GET /catalog/allergens').length, 1);
       expect(backend.seen.single.queryParameters, isEmpty,
-          reason: 'the BE ignores q and limit');
+          reason: 'the app searches the whole list itself');
+    });
+
+    test('an allergy saved as a name still conflicts with the tagged allergen',
+        () {
+      for (final name in ['Đậu nành', 'dau nanh', 'Đậu nành (Đậu tương)']) {
+        expect(
+            allergyConflicts(
+                tags: const ['soy'],
+                texts: const ['Bún riêu chay đậu hũ'],
+                userAllergies: [name]),
+            ['soy'],
+            reason: name);
+      }
+      // Still read in the words of an untagged dish, and only once.
+      expect(
+          allergyConflicts(
+              tags: const [],
+              texts: const ['Sữa đậu nành'],
+              userAllergies: const ['Đậu nành']),
+          ['Đậu nành']);
+      // Any other typed name is not an allergen id.
+      expect(dishAllergenIdNamed('lá lốt'), isNull);
+      expect(
+          allergyConflicts(
+              tags: const ['soy'],
+              texts: const ['Đậu hũ'],
+              userAllergies: const ['lá lốt']),
+          isEmpty);
     });
 
     test('allergy keys read back from the recorded profile', () async {
@@ -130,7 +159,7 @@ void main() {
   group('meal slots', () {
     test('a recipe in a slot opens by recipeId and keeps its page', () {
       final swapped = RecipeDto.fromJson(_item(
-              {'recipeId': _realRecipe, 'source': 'manual', 'proteinG': 26}))
+              {'recipeId': _realRecipe, 'source': 'recipe', 'proteinG': 26}))
           .toEntity();
       expect(swapped.id, _realRecipe);
       expect(swapped.source, MealSource.recipe);
@@ -174,12 +203,72 @@ void main() {
       expect(today.meals[MealSlot.breakfast]!.id, hasLength(24));
     });
 
-    test('a plan of another week reads as no plan', () async {
-      final old = fixture('planner_fixture_plan.json');
-      (old['data'] as Map)['startDate'] = '2026-10-19';
-      final backend = FakeBackend()..on('GET $_plan', 200, old);
+    test('the portions of a generated week count (B31)', () async {
+      final json = fixture('planner_fixture_plan.json');
+      final today = ((json['data'] as Map)['days'] as List)
+          .cast<Map<String, dynamic>>()
+          .firstWhere((d) => d['date'] == '2026-10-31');
+      final lunch = (today['meals'] as Map)['lunch'] as Map<String, dynamic>;
+      final perServing = lunch['calories'] as num;
+      lunch
+        ..['portion'] = 1.5
+        ..['proteinG'] = 10;
+      final backend = FakeBackend()..on('GET $_plan', 200, json);
       final c = await backendContainer(backend);
-      expect(await c.read(mealPlannerApiProvider).getCurrentMealPlan(), isNull);
+
+      final plan = (await c.read(mealPlannerApiProvider).getCurrentMealPlan())!;
+      final dish = plan.toEntity().dayFor(testNow)!.meals[MealSlot.lunch]!;
+      expect(dish.portion, 1.5);
+      expect(dish.nutrition.calories, (perServing * 1.5).round());
+      expect(dish.nutrition.proteinG, 15);
+    });
+
+    test('a suggestion comes at the portion the slot was sized to', () async {
+      final json = fixture('planner_fixture_plan.json');
+      final today = ((json['data'] as Map)['days'] as List)
+          .cast<Map<String, dynamic>>()
+          .firstWhere((d) => d['date'] == '2026-10-31');
+      ((today['meals'] as Map)['lunch'] as Map)['portion'] = 1.5;
+      final backend = _plannerBackend()
+        ..on('GET $_plan', 200, json)
+        ..on(
+            'GET /meal-plans/$_planId/swap-suggestions',
+            200,
+            envelope([
+              {'id': _realRecipe, 'name': 'Món khác', 'calories': 400},
+            ]));
+      final c = await backendContainer(backend);
+      await c.read(mealPlanControllerProvider.future);
+      final planner = c.read(mealPlanControllerProvider.notifier);
+
+      final choice =
+          (await planner.fetchSwapSuggestions(MealSlot.lunch)).single;
+      expect(choice.portion, 1.5);
+      expect(choice.nutrition.calories, 600);
+
+      await planner.swapMeal(MealSlot.lunch, choice);
+      expect(backend.bodyOf('PATCH $_patch')['portion'], 1.5);
+    });
+
+    test('a swap at a portion answers per serving too (B6)', () async {
+      final backend = _plannerBackend();
+      final json = fixture('planner_fixture_patch.json');
+      final day = json['data'] as Map;
+      final lunch = (day['meals'] as Map)['lunch'] as Map<String, dynamic>;
+      final perServing = lunch['calories'] as num;
+      lunch['portion'] = 1.5;
+      backend.on('PATCH $_patch', 200, json);
+      final c = await backendContainer(backend);
+      await c.read(mealPlanControllerProvider.future);
+      await c
+          .read(mealPlanControllerProvider.notifier)
+          .swapMeal(MealSlot.lunch, _recipe(_realRecipe));
+      final dish = c
+          .read(mealPlanControllerProvider)
+          .requireValue
+          .selectedDay!
+          .meals[MealSlot.lunch]!;
+      expect(dish.nutrition.calories, (perServing * 1.5).round());
     });
 
     test('404 reads as no plan', () async {
@@ -223,6 +312,37 @@ void main() {
       final body = backend.bodyOf('POST $_meals');
       expect(body.containsKey('sourceId'), isFalse);
       expect(body['source'], 'manual');
+    });
+
+    test('a typed dish sends all its macros (B7)', () async {
+      final (backend, _, planner) = await ready();
+      await planner.addManualMeal(
+          slot: MealSlot.lunch,
+          name: 'Canh chua',
+          calories: 200,
+          proteinG: 10,
+          carbsG: 20,
+          fatG: 5);
+      final body = backend.bodyOf('POST $_meals');
+      expect(body['proteinG'], 10);
+      expect(body['carbsG'], 20);
+      expect(body['fatG'], 5);
+    });
+
+    test('"Áp dụng kế hoạch" with no plan this week says what to do', () async {
+      final backend = FakeBackend()
+        ..on('GET $_profile', 200, fixture('planner_fixture_profile.json'))
+        ..on('GET $_plan', 404, notFound('Bạn chưa có thực đơn cho tuần này.'));
+      final c = await backendContainer(backend);
+      await c.read(mealPlanControllerProvider.future);
+      await expectLater(
+        c.read(mealPlanControllerProvider.notifier).addMeals([
+          AddMealRequestDto(date: testNow, slot: MealSlot.lunch, name: 'Món'),
+        ]),
+        throwsA(isA<ApiException>().having((e) => e.message, 'message',
+            contains('Vào tab Thực đơn để tạo trước'))),
+      );
+      expect(backend.calls.where((p) => p.startsWith('POST')), isEmpty);
     });
 
     test('undo puts back the replaced dish by its own route', () async {
@@ -291,21 +411,35 @@ void main() {
       mealPattern: [MealSlot.lunch],
     );
 
-    test('goals use the short values the BE adjusts for', () {
-      expect(request.toBackendJson()['goal'], 'lose');
-      expect(
-          const UpdateHealthProfileRequestDto(
-              heightCm: 1,
-              weightKg: 1,
-              goal: HealthGoal.gainWeight,
-              allergies: [],
-              dietaryRestrictions: []).toBackendJson()['goal'],
-          'gain');
-      expect(request.toJson()['goal'], 'lose_weight',
-          reason: 'the mock keeps its own values');
+    test('goals go as the whitelist of the BE: no short values', () {
+      for (final goal in HealthGoal.values) {
+        expect(
+            UpdateHealthProfileRequestDto(
+                heightCm: 1,
+                weightKg: 1,
+                goal: goal,
+                allergies: const [],
+                dietaryRestrictions: const []).toBackendJson()['goal'],
+            isIn(const [
+              'lose_weight',
+              'maintain',
+              'lean_muscle',
+              'gain_weight'
+            ]));
+      }
+      expect(request.toBackendJson()['goal'], 'lose_weight');
     });
 
-    test('nothing is lost: missing fields come from the saved profile',
+    test('older goals, and the ones with no choice here, still read', () {
+      expect(HealthGoal.fromApi('lose'), HealthGoal.loseWeight);
+      expect(HealthGoal.fromApi('gain'), HealthGoal.gainWeight);
+      expect(HealthGoal.fromApi('lose_weight'), HealthGoal.loseWeight);
+      expect(HealthGoal.fromApi('gain_weight'), HealthGoal.gainWeight);
+      expect(HealthGoal.fromApi('gain_muscle'), HealthGoal.leanMuscle);
+      expect(HealthGoal.fromApi('eat_clean'), HealthGoal.maintain);
+    });
+
+    test('a missing activity level comes from the saved profile (B9)',
         () async {
       final backend = FakeBackend()
         ..on('GET $_profile', 200, fixture('planner_fixture_profile.json'))
@@ -319,10 +453,11 @@ void main() {
               allergies: [],
               dietaryRestrictions: []));
       final body = backend.bodyOf('PUT $_profile');
-      expect(body['gender'], 'Female');
-      expect(body['birthYear'], 1997);
       expect(body['activityLevel'], 'light');
-      expect(body['mealPattern'], ['breakfast', 'lunch', 'snack_pm', 'dinner']);
+      expect(body.containsKey('gender'), isFalse, reason: 'the BE keeps it');
+      expect(body.containsKey('birthYear'), isFalse, reason: 'the BE keeps it');
+      expect(body.containsKey('mealPattern'), isFalse,
+          reason: 'the BE keeps it');
       expect(saved.targetCalories, 2060);
     });
 
@@ -353,93 +488,117 @@ void main() {
     });
   });
 
-  group('the week follows the profile target', () {
-    Map<String, dynamic> profileWithTarget(int target) {
-      final json = fixture('planner_fixture_profile.json');
-      (json['data'] as Map)['targetCalories'] = target;
-      return json;
-    }
-
-    test('on load, with the BE\'s macro split', () async {
-      final backend = _plannerBackend()
-        ..on('GET $_profile', 200, profileWithTarget(1660));
+  group('the week shows what the BE aims it at (B8)', () {
+    test('its targets, even with another one on the profile', () async {
+      final profile = fixture('planner_fixture_profile.json');
+      (profile['data'] as Map)['targetCalories'] = 1660;
+      final backend = _plannerBackend()..on('GET $_profile', 200, profile);
       final c = await backendContainer(backend);
       final plan = (await c.read(mealPlanControllerProvider.future)).plan!;
-      expect(plan.dailyTargets.calories, 1660);
-      expect(plan.dailyTargets.proteinG, 62.3);
-      expect(plan.dailyTargets.carbsG, 228.3);
-      expect(plan.dailyTargets.fatG, 55.3);
-      expect(plan.dailyTargets.fiberG, 30);
+      expect(plan.dailyTargets.calories, 2060);
+      expect(plan.dailyTargets.proteinG, 77.2);
     });
 
-    test('the recorded target needs no change', () async {
-      final c = await backendContainer(_plannerBackend());
-      final plan = (await c.read(mealPlanControllerProvider.future)).plan!;
-      expect(plan.dailyTargets.proteinG, 77.2, reason: 'as the BE sent it');
+    test('a saved profile reads the week again', () async {
+      final backend = _plannerBackend()
+        ..on('PUT $_profile', 200, fixture('planner_fixture_profile.json'));
+      final c = await backendContainer(backend);
+      final state = await c.read(mealPlanControllerProvider.future);
+      final fresh = fixture('planner_fixture_plan.json');
+      ((fresh['data'] as Map)['dailyTargets'] as Map)['calories'] = 1660;
+      backend.on('GET $_plan', 200, fresh);
+
+      await c.read(mealPlanControllerProvider.notifier).updateHealthProfile(
+            heightCm: 170,
+            weightKg: 60,
+            goal: HealthGoal.loseWeight,
+            allergies: const [],
+            dietaryRestrictions: const [],
+            mealPattern: state.pattern,
+          );
+      await pumpEventQueue();
+      expect(
+          c
+              .read(mealPlanControllerProvider)
+              .requireValue
+              .plan!
+              .dailyTargets
+              .calories,
+          1660);
     });
   });
 
-  group('weigh-ins without a POST', () {
-    FakeBackend backendWith(List<Map<String, dynamic>> metricsAnswers) {
-      var i = 0;
-      return FakeBackend({
-        'GET $_metrics': (_) => (
-              200,
-              envelope(
-                  [metricsAnswers[i < metricsAnswers.length ? i++ : i - 1]])
-            ),
-      })
-        ..on('GET $_profile', 200, fixture('planner_fixture_profile.json'))
-        ..on('PUT $_profile', 200, fixture('planner_fixture_profile.json'));
-    }
+  group('weigh-ins', () {
+    const logged = {
+      'id': 'm2',
+      'weightKg': 64.2,
+      'heightCm': 172,
+      'bmi': 21.7,
+      'waistCm': 75.5,
+      'bodyFatPct': 18.2,
+      'loggedAt': '2026-10-31T07:19:11.062Z',
+    };
 
-    Map<String, dynamic> row(String id, double kg, String at) => {
-          'id': id,
-          'weightKg': kg,
-          'heightCm': 172,
-          'bmi': 22.3,
-          'loggedAt': at,
-        };
+    FakeBackend backend() => FakeBackend()
+      ..on('GET $_profile', 200, fixture('planner_fixture_profile.json'))
+      ..on('POST $_metrics', 201, envelope(logged))
+      ..on('PUT $_profile', 200, fixture('planner_fixture_profile.json'))
+      ..on('GET $_metrics', 200, envelope([logged]));
 
-    final Map<String, dynamic> oldRow =
-        row('m1', 66, '2026-10-30T07:19:11.062Z');
+    test('POST the row, then PUT the profile so its target follows (B37)',
+        () async {
+      final b = backend();
+      final c = await backendContainer(b);
+      final result = await c
+          .read(mealPlannerApiProvider)
+          .logBodyMeasurement(const LogMeasurementRequestDto(weightKg: 64.2));
 
-    test('a new weight returns the row the BE logged', () async {
-      final fresh = row('m2', 64.2, '2026-10-31T07:19:11.062Z');
-      final backend = backendWith([oldRow, fresh]);
-      final c = await backendContainer(backend);
+      expect(b.calls, ['GET $_profile', 'POST $_metrics', 'PUT $_profile']);
+      expect(b.bodyOf('POST $_metrics'), {'weightKg': 64.2});
+      final put = b.bodyOf('PUT $_profile');
+      expect(put['weightKg'], 64.2);
+      expect(put['heightCm'], 172);
+      expect(put['activityLevel'], 'light');
+      expect((put['allergies'] as List).length, 2);
+      expect(result.measurement.id, 'm2');
+      expect(result.profile.targetCalories, 2060);
+    });
+
+    test('the row counts even if the PUT after it fails', () async {
+      final b = backend()..on('PUT $_profile', 500, {'statusCode': 500});
+      final c = await backendContainer(b);
       final result = await c
           .read(mealPlannerApiProvider)
           .logBodyMeasurement(const LogMeasurementRequestDto(weightKg: 64.2));
       expect(result.measurement.id, 'm2');
-      expect(backend.calls.where((p) => p.startsWith('POST')), isEmpty);
-      final body = backend.bodyOf('PUT $_profile');
-      expect(body['weightKg'], 64.2);
-      expect(body['heightCm'], 172);
-      expect(body['birthYear'], 1997);
-      expect((body['allergies'] as List).length, 2);
+      expect(result.profile.heightCm, 172);
     });
 
-    test('the same weight logs nothing: a row that is not kept', () async {
-      final backend = backendWith([oldRow, oldRow]);
-      final c = await backendContainer(backend);
-      final result = await c
-          .read(mealPlannerApiProvider)
-          .logBodyMeasurement(const LogMeasurementRequestDto(weightKg: 66));
-      expect(result.measurement.id, startsWith('local_'));
-      expect(result.measurement.toEntity().isLocalOnly, isTrue);
-      expect(result.measurement.loggedAt, testNow);
+    test('what the BE would store blindly is refused first (B36)', () async {
+      for (final bad in const [
+        LogMeasurementRequestDto(weightKg: -5),
+        LogMeasurementRequestDto(weightKg: 0),
+        LogMeasurementRequestDto(weightKg: 251),
+      ]) {
+        final b = backend();
+        final c = await backendContainer(b);
+        await expectLater(
+          c.read(mealPlannerApiProvider).logBodyMeasurement(bad),
+          throwsA(isA<ApiException>()
+              .having((e) => e.statusCode, 'status', 400)
+              .having((e) => e.code, 'code', 'invalid_measurement')),
+        );
+        expect(b.seen, isEmpty, reason: 'nothing is sent: ${bad.toJson()}');
+      }
     });
 
-    test('the controller keeps a local row out of the history', () async {
-      final backend = backendWith([oldRow, oldRow, oldRow]);
-      final c = await backendContainer(backend);
+    test('the controller puts it on top of the history', () async {
+      final c = await backendContainer(backend());
       await c.read(bodyMeasurementsProvider.future);
       final result =
-          await c.read(bodyMeasurementsProvider.notifier).log(weightKg: 66);
-      expect(result.measurement.isLocalOnly, isTrue);
-      expect(c.read(bodyMeasurementsProvider).requireValue.map((m) => m.id),
-          ['m1']);
+          await c.read(bodyMeasurementsProvider.notifier).log(weightKg: 64.2);
+      expect(result.measurement.id, 'm2');
+      expect(c.read(bodyMeasurementsProvider).requireValue.first.id, 'm2');
     });
 
     test('without a profile: the usual message', () async {
@@ -454,14 +613,19 @@ void main() {
               .having((e) => e.statusCode, 'status', 404)
               .having((e) => e.message, 'message',
                   'Bạn chưa tạo hồ sơ sức khỏe.')));
+      expect(backend.calls, ['GET $_profile'], reason: 'no row is made up');
     });
 
-    test('recorded rows: no source, and the pill stays off', () async {
+    test('old rows with waist and body fat still parse; no source', () async {
       final rows = fixtureData<List<dynamic>>('planner_fixture_metrics.json')
           .cast<Map<String, dynamic>>();
       final parsed = rows.map(BodyMeasurementDto.fromJson).toList();
       expect(parsed.first.weightKg, 66);
       expect(parsed.first.source, isNull);
+      final old = BodyMeasurementDto.fromJson(logged);
+      expect(old.bmi, 21.7);
+      expect(old.toEntity().weightKg, 64.2);
+      expect(old.toJson().containsKey('waistCm'), isFalse);
     });
   });
 

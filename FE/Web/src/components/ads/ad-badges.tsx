@@ -3,6 +3,7 @@ import { CalendarClock, CircleCheck, CirclePause, Flag, MousePointerClick } from
 
 import { Badge } from "@/components/ui/badge";
 import { AD_CTA_LABEL, AD_STATUS_LABEL, type AdCtaType, type AdStatus } from "@/types/ads";
+import { dateFormat } from "@/lib/utils";
 
 export function AdStatusBadge({ status }: { status: AdStatus }) {
   switch (status) {
@@ -47,7 +48,7 @@ export function CtaBadge({ cta }: { cta: AdCtaType }) {
 }
 
 /** "05/10/2026" */
-export const dateVi = new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+export const dateVi = dateFormat({ day: "2-digit", month: "2-digit", year: "numeric" });
 
 export const formatDateRange = (startAt: string, endAt: string) => `${dateVi.format(new Date(startAt))} – ${dateVi.format(new Date(endAt))}`;
 

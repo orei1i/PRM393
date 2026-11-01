@@ -24,6 +24,13 @@
 // { "name": "…", "address": "…", "latitude": 10.77, "longitude": 106.70,
 //   "media": [ { "mediaType": "Image", "mediaUrl": "…" }, { "mediaType": "Video", "mediaUrl": "…" } ] }
 // at most 5 images and 1 video, uploaded first with POST /media/images|videos.
+// Answers a suggestion: the restaurant fields plus the ones below.
+//
+// GET /users/me/restaurant-suggestions   (every status, newest first)
+// [ { …restaurant, "status": "Pending" | "Approved" | "Rejected",
+//     "rejectionReason": null, "createdAt": "…", "reviewedAt": null } ]
+// Only Approved places appear in GET /restaurants and /restaurants/suggested;
+// GET /restaurants/{id} of another status is 404 for everyone but its author.
 //
 // GET /restaurants/{id}/reviews
 // [ { "id": 301, "userId": 7, "restaurantId": 21, "rating": 5, "comment": "Bún riêu chay đậm vị…",
@@ -116,6 +123,61 @@ class RestaurantDto {
         reviewCount: reviewCount,
         createdById: createdById,
         createdByName: createdByName,
+      );
+}
+
+/// A member's suggestion: a [RestaurantDto] with where it stands.
+class RestaurantSuggestionDto extends RestaurantDto {
+  const RestaurantSuggestionDto({
+    required super.id,
+    required super.name,
+    required super.address,
+    super.isVeganCertified,
+    super.latitude,
+    super.longitude,
+    super.distanceKm,
+    super.averageRating,
+    super.reviewCount,
+    super.createdById,
+    super.createdByName,
+    this.status = RestaurantSuggestionStatus.pending,
+    this.rejectionReason,
+    this.submittedAt,
+    this.reviewedAt,
+  });
+
+  factory RestaurantSuggestionDto.fromJson(Map<String, dynamic> json) {
+    final r = RestaurantDto.fromJson(json);
+    return RestaurantSuggestionDto(
+      id: r.id,
+      name: r.name,
+      address: r.address,
+      isVeganCertified: r.isVeganCertified,
+      latitude: r.latitude,
+      longitude: r.longitude,
+      distanceKm: r.distanceKm,
+      averageRating: r.averageRating,
+      reviewCount: r.reviewCount,
+      createdById: r.createdById,
+      createdByName: r.createdByName,
+      status: RestaurantSuggestionStatus.fromApi(json['status']),
+      rejectionReason: json['rejectionReason'] as String?,
+      submittedAt: readDateTime(json['createdAt']),
+      reviewedAt: readDateTime(json['reviewedAt']),
+    );
+  }
+
+  final RestaurantSuggestionStatus status;
+  final String? rejectionReason;
+  final DateTime? submittedAt;
+  final DateTime? reviewedAt;
+
+  RestaurantSuggestion toSuggestion() => RestaurantSuggestion(
+        restaurant: toEntity(),
+        status: status,
+        rejectionReason: rejectionReason,
+        submittedAt: submittedAt,
+        reviewedAt: reviewedAt,
       );
 }
 
@@ -243,7 +305,7 @@ class NewRestaurantMediaDto {
       {'mediaType': mediaType.apiValue, 'mediaUrl': mediaUrl};
 }
 
-/// POST /restaurants. The server sets `createdBy` = me and
+/// POST /restaurants. The server sets `createdBy` = me, `status` = Pending and
 /// `isVeganCertified` = false; the coordinates and media are optional.
 class CreateRestaurantRequestDto {
   const CreateRestaurantRequestDto({

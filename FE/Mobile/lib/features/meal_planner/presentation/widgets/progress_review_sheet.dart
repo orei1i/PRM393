@@ -59,17 +59,6 @@ class ProgressReviewSheet extends ConsumerWidget {
             _ReviewRow(
                 icon: Icons.monitor_weight_outlined, text: review.weightRow),
             _ReviewRow(icon: Icons.speed_rounded, text: review.bmiRow),
-            if (review.waistRow case final waist?) ...[
-              _ReviewRow(icon: Icons.straighten_rounded, text: waist),
-              if (review.waistCaution)
-                Padding(
-                  padding: const EdgeInsets.only(left: 30, bottom: 8),
-                  child: MetricPill.tone(context, BodyProgress.whtrCautionLabel,
-                      VerdictTone.caution),
-                ),
-            ],
-            if (review.bodyFatRow case final fat?)
-              _ReviewRow(icon: Icons.water_drop_outlined, text: fat),
             if (review.energyRow case final energy?)
               _ReviewRow(
                   icon: Icons.local_fire_department_outlined, text: energy),
@@ -164,8 +153,7 @@ class _ReviewRow extends StatelessWidget {
   }
 }
 
-/// Rounded label that wraps at large text sizes (verdicts, WHtR caution,
-/// history chips).
+/// Rounded label that wraps at large text sizes (verdicts, history chips).
 class MetricPill extends StatelessWidget {
   const MetricPill({
     super.key,
@@ -200,7 +188,7 @@ class MetricPill extends StatelessWidget {
     };
   }
 
-  /// Plain grey label ("Từ Hồ sơ sức khoẻ", "Mỡ 26,2 %").
+  /// Plain grey label ("Từ Hồ sơ sức khoẻ").
   factory MetricPill.neutral(BuildContext context, String label) => MetricPill(
         label: label,
         background: context.colors.surfaceContainer,

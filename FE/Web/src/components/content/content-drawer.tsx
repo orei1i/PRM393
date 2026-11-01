@@ -2,7 +2,7 @@
 "use client";
 
 import * as React from "react";
-import { CircleCheck, CircleX, ExternalLink, Eye, EyeOff, MapPin, Pin, PinOff, RotateCcw, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
+import { CircleCheck, CircleX, ExternalLink, Eye, EyeOff, MapPin, Pin, PinOff, RotateCcw, ShieldCheck, Sparkles, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { InitialsAvatar } from "@/components/admin/initials-avatar";
@@ -14,9 +14,9 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, Di
 import { Label, Textarea } from "@/components/ui/form-controls";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { describeError } from "@/lib/api_error";
-import { isMock, UNSUPPORTED_ACTION } from "@/lib/backend_modules";
+import { isMock } from "@/lib/backend_modules";
 import { useContentAction, useReviewPost } from "@/lib/hooks/use-admin";
-import { formatAge, formatNumber } from "@/lib/utils";
+import { dateFormat, formatAge, formatNumber } from "@/lib/utils";
 import { CONTENT_KIND_LABEL, type ContentAction, type ContentItem, type PostDecision } from "@/types/admin";
 import { FLAG_CATEGORY_LABEL, MIN_AUDIT_NOTE_LENGTH } from "@/types/moderation";
 
@@ -25,15 +25,19 @@ import { MediaBadge, PostStatusBadge, VideoAiBadge } from "./content-table";
 const ACTION_DONE: Record<ContentAction, string> = {
   hide: "Đã ẩn khỏi bảng tin",
   unhide: "Đã hiện lại trên bảng tin",
+  restore: "Đã khôi phục và đăng lại bài",
   pin: "Đã ghim lên đầu bảng tin",
   unpin: "Đã bỏ ghim",
   delete: "Đã xoá bài viết",
   retry_ai: "Đã gửi video vào hàng chờ AI",
 };
 
-const dateTimeVi = new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" });
+const dateTimeVi = dateFormat({ hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" });
 
-/** Real mode: the backend can list and delete posts; hide, pin, review and re-run AI have no route yet. */
+/**
+ * Real mode: review, hide (= back to Pending), unhide, restore and delete work. Pin and re-run AI have no route.
+ * The backend keeps the reject reason but returns it to nobody, and has no way to edit a post.
+ */
 const REAL = !isMock("content");
 
 export function ContentDrawer({
@@ -62,6 +66,8 @@ function Detail({ item, onClose, onItemChange }: { item: ContentItem; onClose: (
   const [approveNote, setApproveNote] = React.useState("");
   const [rejectOpen, setRejectOpen] = React.useState(false);
   const [rejectNote, setRejectNote] = React.useState("");
+  /** Real mode: hide is a one-click move to Pending, so this drawer offers to undo it. */
+  const [justHidden, setJustHidden] = React.useState(false);
   const rejectId = React.useId();
   const approveId = React.useId();
 
@@ -73,8 +79,11 @@ function Detail({ item, onClose, onItemChange }: { item: ContentItem; onClose: (
     action.mutate(
       { id: item.id, action: a },
       {
-        onSuccess: () => {
-          toast.success(ACTION_DONE[a]);
+        onSuccess: (updated) => {
+          toast.success(ACTION_DONE[a], REAL && a === "hide" ? { description: "Bài chuyển về Chờ duyệt." } : undefined);
+          setJustHidden(a === "hide");
+          // The item may leave the current tab, so the list cannot refresh the drawer.
+          if (REAL && updated) onItemChange?.(updated);
           if (a === "delete") {
             setConfirmDelete(false);
             onClose();
@@ -93,7 +102,7 @@ function Detail({ item, onClose, onItemChange }: { item: ContentItem; onClose: (
       {
         onSuccess: (updated) => {
           toast.success(decision === "Approve" ? "Đã duyệt & đăng bài" : "Đã từ chối bài viết", {
-            description: decision === "Approve" ? "Bài đã hiện trên bảng tin." : "Tác giả sẽ thấy ghi chú trong ứng dụng.",
+            description: decision === "Approve" ? "Bài đã hiện trên bảng tin." : REAL ? "Bài đã rời bảng tin." : "Tác giả sẽ thấy ghi chú trong ứng dụng.",
           });
           setRejectOpen(false);
           onItemChange?.(updated);
@@ -199,28 +208,41 @@ function Detail({ item, onClose, onItemChange }: { item: ContentItem; onClose: (
         {item.status === "Pending" && (
           <section className="flex flex-col gap-3 rounded-lg border p-3">
             <h3 className="text-sm font-bold">Duyệt bài chờ</h3>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor={approveId}>Ghi chú khi duyệt (không bắt buộc)</Label>
-              <Textarea
-                id={approveId}
-                value={approveNote}
-                onChange={(e) => setApproveNote(e.target.value)}
-                placeholder="VD: Đã kiểm tra nguồn, nội dung phù hợp."
-                rows={2}
-                disabled={busy}
-              />
-            </div>
+            {!REAL && (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor={approveId}>Ghi chú khi duyệt (không bắt buộc)</Label>
+                <Textarea
+                  id={approveId}
+                  value={approveNote}
+                  onChange={(e) => setApproveNote(e.target.value)}
+                  placeholder="VD: Đã kiểm tra nguồn, nội dung phù hợp."
+                  rows={2}
+                  disabled={busy}
+                />
+              </div>
+            )}
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" disabled={busy || REAL} onClick={() => decide("Approve")}>
+              {REAL && justHidden && (
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => run("unhide")}>
+                  <Undo2 aria-hidden />
+                  Hoàn tác ẩn bài
+                </Button>
+              )}
+              <Button size="sm" disabled={busy} onClick={() => decide("Approve")}>
                 <CircleCheck aria-hidden />
                 {review.isPending && !rejectOpen ? "Đang lưu…" : "Duyệt & đăng"}
               </Button>
-              <Button size="sm" variant="destructive" disabled={busy || REAL} onClick={() => setRejectOpen(true)}>
+              <Button size="sm" variant="destructive" disabled={busy} onClick={() => setRejectOpen(true)}>
                 <CircleX aria-hidden />
                 Từ chối
               </Button>
             </div>
-            {REAL && <p className="text-xs text-muted-foreground">{UNSUPPORTED_ACTION}</p>}
+            {REAL && (
+              <p className="text-xs text-muted-foreground">
+                Máy chủ hiện vẫn đăng bài mới ngay, nên bài ở đây do nhận đủ 3 báo cáo hoặc do quản trị viên ẩn; máy chủ không cho biết lý do hay số báo cáo. Duyệt & đăng sẽ đưa bài lên bảng tin và xoá
+                số báo cáo.
+              </p>
+            )}
           </section>
         )}
 
@@ -246,24 +268,25 @@ function Detail({ item, onClose, onItemChange }: { item: ContentItem; onClose: (
             <h3 className="text-sm font-bold">Hiển thị trên bảng tin</h3>
             <div className="flex flex-wrap gap-2">
               {item.hidden ? (
-                <Button size="sm" variant="outline" disabled={busy || REAL} onClick={() => run("unhide")}>
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => run("unhide")}>
                   <Eye aria-hidden />
                   Hiện lại
                 </Button>
               ) : (
-                <Button size="sm" variant="warn" disabled={busy || REAL} onClick={() => run("hide")}>
+                <Button size="sm" variant="warn" disabled={busy} onClick={() => run("hide")}>
                   <EyeOff aria-hidden />
                   Ẩn bài
                 </Button>
               )}
-              {!item.hidden &&
+              {!REAL &&
+                !item.hidden &&
                 (item.pinned ? (
-                  <Button size="sm" variant="outline" disabled={busy || REAL} onClick={() => run("unpin")}>
+                  <Button size="sm" variant="outline" disabled={busy} onClick={() => run("unpin")}>
                     <PinOff aria-hidden />
                     Bỏ ghim
                   </Button>
                 ) : (
-                  <Button size="sm" variant="outline" disabled={busy || REAL} onClick={() => run("pin")}>
+                  <Button size="sm" variant="outline" disabled={busy} onClick={() => run("pin")}>
                     <Pin aria-hidden />
                     Ghim lên đầu
                   </Button>
@@ -273,15 +296,27 @@ function Detail({ item, onClose, onItemChange }: { item: ContentItem; onClose: (
                 Xoá
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">{REAL ? UNSUPPORTED_ACTION : "Ẩn bài có thể hoàn tác; tác giả nhận thông báo trong ứng dụng."}</p>
+            <p className="text-xs text-muted-foreground">
+              {REAL
+                ? "Ẩn bài sẽ gỡ bài khỏi bảng tin và chuyển về Chờ duyệt (máy chủ chưa có trạng thái Đã ẩn riêng)."
+                : "Ẩn bài có thể hoàn tác; tác giả nhận thông báo trong ứng dụng."}
+            </p>
           </div>
         ) : (
           <div className="flex flex-col gap-2">
             <p className="text-xs text-muted-foreground">
               {item.status === "Pending"
                 ? "Bài chưa hiển thị trên bảng tin; chỉ tác giả thấy nhãn “Chờ duyệt”."
-                : "Bài không hiển thị trên bảng tin. Tác giả có thể sửa và gửi lại từ ứng dụng."}
+                : REAL
+                  ? "Bài không hiển thị trên bảng tin; chỉ tác giả còn mở được."
+                  : "Bài không hiển thị trên bảng tin. Tác giả có thể sửa và gửi lại từ ứng dụng."}
             </p>
+            {REAL && item.status === "Rejected" && (
+              <Button size="sm" variant="outline" className="w-fit" disabled={busy} onClick={() => run("restore")}>
+                <Undo2 aria-hidden />
+                Khôi phục & đăng lại
+              </Button>
+            )}
             <Button size="sm" variant="outline" className="w-fit" disabled={busy} onClick={() => setConfirmDelete(true)}>
               <Trash2 aria-hidden />
               Xoá bài
@@ -298,7 +333,7 @@ function Detail({ item, onClose, onItemChange }: { item: ContentItem; onClose: (
       >
         <DialogContent>
           <DialogTitle>Từ chối bài viết?</DialogTitle>
-          <DialogDescription>“{item.title}” sẽ không lên bảng tin. Tác giả có thể sửa và gửi lại để duyệt.</DialogDescription>
+          <DialogDescription>“{item.title}” sẽ không lên bảng tin.{REAL ? "" : " Tác giả có thể sửa và gửi lại để duyệt."}</DialogDescription>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor={rejectId}>
               Lý do từ chối <span className="text-destructive">(bắt buộc)</span>
@@ -313,7 +348,9 @@ function Detail({ item, onClose, onItemChange }: { item: ContentItem; onClose: (
               disabled={review.isPending}
             />
             <p id={`${rejectId}-hint`} className="flex justify-between gap-3 text-xs text-muted-foreground">
-              <span>Ghi chú sẽ gửi cho tác giả · tối thiểu {MIN_AUDIT_NOTE_LENGTH} ký tự</span>
+              <span>
+                {REAL ? "Ghi chú được lưu ở máy chủ, ứng dụng chưa hiện cho tác giả" : "Ghi chú sẽ gửi cho tác giả"} · tối thiểu {MIN_AUDIT_NOTE_LENGTH} ký tự
+              </span>
               <span className="font-mono tabular">{rejectNote.trim().length}</span>
             </p>
           </div>

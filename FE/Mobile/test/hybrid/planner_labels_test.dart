@@ -1,6 +1,7 @@
 // test/hybrid/planner_labels_test.dart
 // §9 of the plan, word for word: what the planner, recipe, fridge and scanner
 // screens hide and say when the real BE can't do something.
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -12,20 +13,24 @@ import 'package:veganlife_mobile/core/session/session_controller.dart';
 import 'package:veganlife_mobile/core/widgets/demo_data_banner.dart';
 import 'package:veganlife_mobile/features/ingredient/presentation/screens/pantry_screen.dart';
 import 'package:veganlife_mobile/features/meal_planner/data/mock_meal_planner_repository.dart';
-import 'package:veganlife_mobile/features/meal_planner/data/meal_planner_api_service.dart';
-import 'package:veganlife_mobile/features/meal_planner/data/models/body_measurement_model.dart';
 import 'package:veganlife_mobile/features/meal_planner/data/models/pantry_model.dart';
 import 'package:veganlife_mobile/features/meal_planner/data/pantry_api_service.dart';
 import 'package:veganlife_mobile/features/meal_planner/domain/entities/meal_plan.dart';
 import 'package:veganlife_mobile/features/meal_planner/presentation/widgets/check_in_sheet.dart';
 import 'package:veganlife_mobile/features/meal_planner/presentation/widgets/meal_picker_sheet.dart';
-import 'package:veganlife_mobile/features/meal_planner/presentation/widgets/progress_review_sheet.dart';
 import 'package:veganlife_mobile/features/recipe/data/models/recipe_detail_model.dart';
 import 'package:veganlife_mobile/features/recipe/data/recipe_api_service.dart';
 import 'package:veganlife_mobile/features/recipe/presentation/screens/recipe_detail_screen.dart';
 import 'package:veganlife_mobile/features/recipe/presentation/widgets/recipe_note_card.dart';
 import 'package:veganlife_mobile/features/recipe/presentation/widgets/servings_stepper.dart';
+import 'package:veganlife_mobile/features/meal_planner/data/meal_planner_api_service.dart';
+import 'package:veganlife_mobile/features/meal_planner/presentation/controllers/meal_plan_controller.dart';
+import 'package:veganlife_mobile/features/scanner/data/mock_scanner_repository.dart';
+import 'package:veganlife_mobile/features/scanner/data/models/scan_result_model.dart';
 import 'package:veganlife_mobile/features/scanner/data/scan_image_source.dart';
+import 'package:veganlife_mobile/features/scanner/data/scanner_api_service.dart';
+import 'package:veganlife_mobile/features/scanner/presentation/controllers/scanner_controller.dart';
+import 'package:veganlife_mobile/features/scanner/presentation/widgets/scanned_ingredients_sheet.dart';
 import 'package:veganlife_mobile/features/scanner/domain/scan_mode.dart';
 import 'package:veganlife_mobile/features/scanner/presentation/screens/ingredient_scanner_screen.dart';
 
@@ -48,6 +53,15 @@ class _Recipes implements RecipeApiService {
       });
 }
 
+class _NoDishes extends MockScannerRepository {
+  _NoDishes() : super(scenario: 'normal');
+
+  @override
+  Future<List<MenuSuggestionDto>> generateMenu(
+          GenerateMenuRequestDto request) async =>
+      const [];
+}
+
 class _NoPhoto implements ScanImageSource {
   @override
   Future<Uint8List?> pickFromGallery() async => null;
@@ -64,29 +78,12 @@ class _Fridge extends MockPantryRepository {
           quantity: 200,
           unit: 'g',
           expiryDate: DateTime.now().add(const Duration(days: 2)),
-          allergyWarning: 'Món có thể gây dị ứng',
+          allergyWarning: 'Cảnh báo dị ứng: soy, lá lốt',
         ),
         const PantryItemDto(
             id: 'p2', ingredient: 'Gạo lứt', quantity: 1, unit: 'phần'),
+        const PantryItemDto(id: 'p3', ingredient: 'Bơ', isVegan: false),
       ];
-}
-
-class _SameWeightPlanner extends MockMealPlannerRepository {
-  _SameWeightPlanner() : super(userId: 'u_me');
-
-  @override
-  Future<LogMeasurementResultDto> logBodyMeasurement(
-      LogMeasurementRequestDto request) async {
-    final profile = (await getHealthProfile())!;
-    return LogMeasurementResultDto(
-      measurement: BodyMeasurementDto(
-          id: 'local_1',
-          weightKg: request.weightKg,
-          heightCm: profile.heightCm,
-          loggedAt: DateTime.now()),
-      profile: profile,
-    );
-  }
 }
 
 Future<void> _pump(WidgetTester tester, Widget home,
@@ -133,10 +130,7 @@ void main() {
       BackendModules.debugOverride({BackendModule.recipes});
       await open(tester, _realId);
 
-      expect(
-          find.text(
-              'Công thức này chưa có định lượng chi tiết nên chưa chỉnh được số người hay đổi nguyên liệu.'),
-          findsOneWidget);
+      expect(find.text(RecipeDetailScreen.readOnlyNote), findsOneWidget);
       expect(find.text('Nguyên liệu'), findsOneWidget);
       expect(find.text('Cách làm'), findsOneWidget);
       expect(find.text('Đánh giá'), findsNothing);
@@ -189,49 +183,27 @@ void main() {
     Future<void> open(WidgetTester tester) =>
         _pump(tester, const Scaffold(body: CheckInSheet(heightCm: 172)));
 
-    testWidgets('waist and body fat are hidden on the real BE', (tester) async {
+    testWidgets('only the weight is asked, on the real BE', (tester) async {
       BackendModules.debugOverride(BackendModules.supportedByBackend);
       await open(tester);
-      expect(find.text('Vòng eo và tỉ lệ mỡ tạm chưa lưu được nên đã ẩn.'),
-          findsOneWidget);
+      expect(find.byType(TextFormField), findsOneWidget);
+      expect(find.textContaining('Vòng eo'), findsNothing);
+      expect(find.textContaining('Tỉ lệ mỡ'), findsNothing);
+    });
+
+    testWidgets('and with the mock', (tester) async {
+      BackendModules.debugOverride(const {});
+      await open(tester);
       expect(find.byType(TextFormField), findsOneWidget);
     });
 
-    testWidgets('and shown with the mock', (tester) async {
-      BackendModules.debugOverride(const {});
+    testWidgets('a weight the rules refuse stays in the sheet', (tester) async {
+      BackendModules.debugOverride(BackendModules.supportedByBackend);
       await open(tester);
-      expect(find.byType(TextFormField), findsNWidgets(3));
-      expect(find.textContaining('tạm chưa lưu được'), findsNothing);
-    });
-
-    testWidgets('the same weight: the snackbar instead of the review',
-        (tester) async {
-      BackendModules.debugOverride(const {});
-      await _pump(
-        tester,
-        Scaffold(
-          body: Builder(
-            builder: (context) => TextButton(
-              onPressed: () => CheckInSheet.open(context,
-                  heightCm: 172, origin: ReviewOrigin.values.first),
-              child: const Text('Mở'),
-            ),
-          ),
-        ),
-        overrides: [
-          mealPlannerApiProvider.overrideWithValue(_SameWeightPlanner()),
-        ],
-      );
-      await tester.tap(find.text('Mở'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextFormField).first, '66');
+      await tester.enterText(find.byType(TextFormField).first, '5');
       await tester.tap(find.text('Lưu'));
-      await tester.pump(const Duration(seconds: 3));
-      await tester.pumpAndSettle();
-      expect(
-          find.text('Cân nặng không đổi nên chưa thêm dòng mới vào lịch sử.'),
-          findsOneWidget);
-      expect(find.byType(ProgressReviewSheet), findsNothing);
+      await tester.pump();
+      expect(find.text('Cân nặng từ 30 đến 250 kg'), findsOneWidget);
     });
   });
 
@@ -247,21 +219,17 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('no macro inputs on the real BE', (tester) async {
+    testWidgets('macro inputs on the real BE', (tester) async {
       BackendModules.debugOverride({BackendModule.planner});
-      await open(tester);
-      expect(
-          find.text(
-              'Máy chủ chưa lưu đạm, tinh bột, chất béo của món tự nhập.'),
-          findsOneWidget);
-      expect(find.text('Đạm (g)'), findsNothing);
-    });
-
-    testWidgets('with the mock they stay', (tester) async {
-      BackendModules.debugOverride(const {});
       await open(tester);
       expect(find.text('Đạm (g)'), findsOneWidget);
       expect(find.textContaining('Máy chủ chưa lưu'), findsNothing);
+    });
+
+    testWidgets('and with the mock', (tester) async {
+      BackendModules.debugOverride(const {});
+      await open(tester);
+      expect(find.text('Đạm (g)'), findsOneWidget);
     });
   });
 
@@ -278,7 +246,11 @@ void main() {
       await open(tester);
       expect(find.textContaining('200 g · HSD '), findsOneWidget);
       expect(find.text('Sắp hết hạn'), findsOneWidget);
-      expect(find.text('Món có thể gây dị ứng'), findsOneWidget);
+      expect(find.text('Bạn đã khai báo dị ứng với đậu nành, lá lốt'),
+          findsOneWidget,
+          reason: 'the app\'s names, not the raw ids of the BE');
+      expect(find.textContaining('soy'), findsNothing);
+      expect(find.text('Máy chủ ghi: không thuần chay'), findsOneWidget);
       expect(find.textContaining('1 phần'), findsNothing,
           reason: 'the default amount says nothing');
 
@@ -292,6 +264,50 @@ void main() {
       BackendModules.debugOverride(const {});
       await open(tester);
       expect(find.byTooltip('Sửa số lượng & hạn dùng'), findsNothing);
+    });
+  });
+
+  group('scanner, nothing to suggest', () {
+    Future<void> open(WidgetTester tester, {required String userId}) async {
+      await _pump(
+        tester,
+        Scaffold(
+          body: Stack(children: [
+            ScannedIngredientsSheet(onRescan: () {}, onOpenPlanner: () {}),
+          ]),
+        ),
+        overrides: [
+          scannerApiProvider.overrideWithValue(_NoDishes()),
+          mealPlannerApiProvider
+              .overrideWithValue(MockMealPlannerRepository(userId: userId)),
+        ],
+      );
+      final c = ProviderScope.containerOf(
+          tester.element(find.byType(ScannedIngredientsSheet)));
+      c.read(mealPlanControllerProvider);
+      await tester.pump(const Duration(seconds: 3));
+      final scanner = c.read(scannerControllerProvider.notifier)
+        ..addManual('Cà chua');
+      unawaited(scanner.generateMenu());
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump(const Duration(seconds: 1));
+    }
+
+    testWidgets('no plan this week: says why, and where to go', (tester) async {
+      BackendModules.debugOverride({BackendModule.recipes});
+      await open(tester, userId: 'u_new_without_plan');
+      expect(find.text(ScannedIngredientsSheet.noPlanNote, skipOffstage: false),
+          findsOneWidget);
+      expect(find.text('Mở Thực đơn', skipOffstage: false), findsOneWidget);
+      await _drain(tester);
+    });
+
+    testWidgets('fully mock: not a word about it', (tester) async {
+      BackendModules.debugOverride(const {});
+      await open(tester, userId: 'u_new_without_plan');
+      expect(find.text(ScannedIngredientsSheet.noPlanNote, skipOffstage: false),
+          findsNothing);
+      await _drain(tester);
     });
   });
 

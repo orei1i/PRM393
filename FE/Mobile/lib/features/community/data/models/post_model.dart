@@ -476,11 +476,12 @@ class CreatePostRequestDto {
       };
 }
 
-/// PUT /posts/{id}. The server re-screens the text and returns the new
-/// `status` (an edited Rejected post always goes back to Pending). The
-/// attachment can't change once posted.
+/// PUT /posts/{id}: the body of POST /posts. The server returns the new
+/// `status` (an edited post goes back to Pending). The attachment can't change
+/// once posted.
 class UpdatePostRequestDto {
   const UpdatePostRequestDto({
+    this.type,
     required this.title,
     required this.body,
     this.tags = const [],
@@ -489,6 +490,8 @@ class UpdatePostRequestDto {
     this.restaurant,
   });
 
+  /// The category can't change; it is sent so the body matches POST /posts.
+  final PostType? type;
   final String title;
   final String body;
   final List<String> tags;
@@ -499,10 +502,12 @@ class UpdatePostRequestDto {
   final TaggedRestaurant? restaurant;
 
   Map<String, dynamic> toJson() => {
+        if (type != null) 'type': type!.apiValue,
         'title': title,
         'body': body,
         'tags': tags,
-        'mediaType': mediaType.apiValue,
+        'mediaType':
+            (mediaUrl == null ? PostMediaType.text : mediaType).apiValue,
         'mediaUrl': mediaUrl,
         'restaurantId': restaurant?.id,
       };

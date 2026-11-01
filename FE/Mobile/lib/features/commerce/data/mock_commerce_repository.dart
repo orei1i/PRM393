@@ -62,6 +62,15 @@ class MockCommerceRepository implements CommerceApiService {
   }
 
   @override
+  Future<OrderDto> payWithWallet(String orderId) async {
+    await mockDelay(600);
+    final o = _myOrder(orderId);
+    MockCommerceDb.emptyScenario(); // 503 in the `error` scenario
+    _db.payFromWallet(o);
+    return _order(o);
+  }
+
+  @override
   Future<PaymentDto> mockConfirmPayment(String paymentId,
       {required bool success}) async {
     await mockDelay(400);

@@ -105,7 +105,7 @@ class _List extends ConsumerWidget {
         separatorBuilder: (_, __) => const SizedBox(height: 10),
         itemBuilder: (context, i) => BookingCard(
           booking: items[i],
-          needsAction: memberNeedsAction(items[i]),
+          needsAction: memberNeedsAction(items[i], DateTime.now()),
           onTap: () => AppNav.open(
               Navigator.of(context), BookingDetailScreen.route(items[i].id)),
         ),

@@ -16,28 +16,40 @@ import { useRestaurants } from "@/lib/hooks/use-restaurants";
 import { formatNumber } from "@/lib/utils";
 import {
   RESTAURANT_SOURCE_LABEL,
+  RESTAURANT_STATUS_LABEL,
+  RESTAURANT_STATUSES,
   type AdminRestaurant,
   type RestaurantCertifiedFilter,
   type RestaurantSource,
+  type RestaurantStatus,
 } from "@/types/restaurants";
 
-const TABS: { value: RestaurantCertifiedFilter; label: string }[] = [
+type StatusTab = RestaurantStatus | "all";
+
+const TABS: { value: StatusTab; label: string }[] = [
+  ...RESTAURANT_STATUSES.map((s) => ({ value: s as StatusTab, label: RESTAURANT_STATUS_LABEL[s] })),
   { value: "all", label: "Tất cả" },
-  { value: "uncertified", label: "Chưa chứng nhận" },
-  { value: "certified", label: "Đã chứng nhận" },
 ];
 
+const EMPTY: Record<StatusTab, { title: string; description: string }> = {
+  Pending: { title: "Không còn quán chờ duyệt", description: "Quán người dùng gợi ý từ ứng dụng sẽ xuất hiện ở đây; chưa duyệt thì chưa hiện công khai." },
+  Approved: { title: "Chưa có quán đã duyệt", description: "Quán đã duyệt hiện công khai trong ứng dụng và mới được chứng nhận." },
+  Rejected: { title: "Chưa có quán bị từ chối", description: "Quán bị từ chối kèm lý do gửi cho người gợi ý nằm ở đây." },
+  all: { title: "Chưa có quán nào", description: "Quán do người dùng gợi ý hoặc Ban quản trị thêm sẽ xuất hiện ở đây." },
+};
+
 export default function RestaurantsPage() {
+  const [status, setStatus] = React.useState<StatusTab>("Pending");
   const [certified, setCertified] = React.useState<RestaurantCertifiedFilter>("all");
   const [source, setSource] = React.useState<RestaurantSource>("all");
   const [searchInput, setSearchInput] = React.useState("");
   const search = React.useDeferredValue(searchInput);
   const [selected, setSelected] = React.useState<AdminRestaurant | null>(null);
 
-  const query = React.useMemo(() => ({ certified, source, search }), [certified, source, search]);
+  const query = React.useMemo(() => ({ status, certified, source, search }), [status, certified, source, search]);
   const restaurants = useRestaurants(query);
-  // Tab counts: the same source/search without the certification filter (one shared request on "Tất cả").
-  const unfiltered = useRestaurants(React.useMemo(() => ({ certified: "all" as const, source, search }), [source, search]));
+  // Tab counts: the same certification/source/search without the status filter (one shared request on "Tất cả").
+  const unfiltered = useRestaurants(React.useMemo(() => ({ status: "all" as const, certified, source, search }), [certified, source, search]));
 
   // Keep the drawer in sync with refetched / optimistically patched rows.
   const selectedId = selected?.id ?? null;
@@ -47,27 +59,26 @@ export default function RestaurantsPage() {
     if (fresh) setSelected((current) => (current && current !== fresh ? fresh : current));
   }, [restaurants.data, unfiltered.data, selectedId]);
 
-  const countFor = (tab: RestaurantCertifiedFilter) => {
+  const countFor = (tab: StatusTab) => {
     const rows = unfiltered.data;
     if (!rows) return "–";
-    if (tab === "all") return formatNumber(rows.length);
-    return formatNumber(rows.filter((r) => r.isVeganCertified === (tab === "certified")).length);
+    return formatNumber(tab === "all" ? rows.length : rows.filter((r) => r.status === tab).length);
   };
 
-  const filtered = source !== "all" || search.trim().length > 0;
+  const filtered = certified !== "all" || source !== "all" || search.trim().length > 0;
   const withoutCoords = restaurants.data?.filter((r) => r.latitude === null || r.longitude === null).length ?? 0;
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Quán chay"
-        description="Quán do người dùng gợi ý từ ứng dụng và do Ban quản trị thêm. Xác minh rồi bật chứng nhận thuần chay."
+        description="Quán người dùng gợi ý chờ duyệt ở đây, duyệt xong mới hiện công khai. Chứng nhận thuần chay là bước riêng, chỉ cho quán đã duyệt."
         actions={
           <Button
             variant="outline"
             onClick={() => {
               restaurants.refetch();
-              if (certified !== "all") unfiltered.refetch();
+              if (status !== "all") unfiltered.refetch();
             }}
             disabled={restaurants.isFetching}
           >
@@ -80,11 +91,11 @@ export default function RestaurantsPage() {
       <Card className="gap-0 py-0">
         <div className="flex flex-wrap items-center gap-3 border-b p-4">
           <Tabs
-            value={certified}
-            onValueChange={(v) => setCertified(v as RestaurantCertifiedFilter)}
+            value={status}
+            onValueChange={(v) => setStatus(v as StatusTab)}
             className="w-full min-w-0 max-w-full lg:w-auto"
           >
-            <TabsList className="max-w-full justify-start overflow-x-auto" aria-label="Lọc theo chứng nhận">
+            <TabsList className="max-w-full justify-start overflow-x-auto" aria-label="Lọc theo trạng thái duyệt">
               {TABS.map((t) => (
                 <TabsTrigger key={t.value} value={t.value}>
                   {t.label}
@@ -93,7 +104,7 @@ export default function RestaurantsPage() {
               ))}
             </TabsList>
           </Tabs>
-          <div className="relative w-full sm:w-64 lg:ml-auto">
+          <div className="relative w-full sm:w-52 lg:ml-auto">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
             <Input
               type="search"
@@ -105,10 +116,20 @@ export default function RestaurantsPage() {
             />
           </div>
           <NativeSelect
+            aria-label="Lọc theo chứng nhận"
+            value={certified}
+            onChange={(e) => setCertified(e.target.value as RestaurantCertifiedFilter)}
+            className="w-full sm:w-44"
+          >
+            <option value="all">Mọi chứng nhận</option>
+            <option value="uncertified">Chưa chứng nhận</option>
+            <option value="certified">Đã chứng nhận</option>
+          </NativeSelect>
+          <NativeSelect
             aria-label="Lọc theo nguồn"
             value={source}
             onChange={(e) => setSource(e.target.value as RestaurantSource)}
-            className="w-full sm:w-48"
+            className="w-full sm:w-40"
           >
             <option value="all">Tất cả nguồn</option>
             <option value="user">{RESTAURANT_SOURCE_LABEL.user}</option>
@@ -117,7 +138,7 @@ export default function RestaurantsPage() {
           <p className="w-full text-sm text-muted-foreground" aria-live="polite">
             {restaurants.data
               ? `${formatNumber(restaurants.data.length)} quán${withoutCoords ? ` · ${formatNumber(withoutCoords)} chưa có toạ độ` : ""}`
-              : "Đang tải…"}
+              : restaurants.isError ? "" : "Đang tải…"}
           </p>
         </div>
 
@@ -126,14 +147,8 @@ export default function RestaurantsPage() {
         ) : restaurants.data?.length === 0 ? (
           <EmptyState
             icon={Store}
-            title={
-              certified === "uncertified" && !filtered ? "Không còn quán chờ chứng nhận" : "Không có quán khớp bộ lọc"
-            }
-            description={
-              certified === "uncertified" && !filtered
-                ? "Quán người dùng gợi ý từ ứng dụng sẽ xuất hiện ở đây."
-                : "Thử đổi nguồn hoặc bỏ bớt từ khoá."
-            }
+            title={filtered ? "Không có quán khớp bộ lọc" : EMPTY[status].title}
+            description={filtered ? "Thử đổi chứng nhận, nguồn hoặc bỏ bớt từ khoá." : EMPTY[status].description}
             action={
               filtered ? (
                 <Button
@@ -141,6 +156,7 @@ export default function RestaurantsPage() {
                   onClick={() => {
                     setSearchInput("");
                     setSource("all");
+                    setCertified("all");
                   }}
                 >
                   Xoá bộ lọc

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, LogOut } from "lucide-react";
 
+import { authApi } from "@/lib/admin_api";
 import { clearSession, readSession } from "@/lib/auth";
 import type { AdminSession } from "@/types/admin";
 
@@ -35,7 +36,8 @@ export function UserMenu() {
     };
   }, [open]);
 
-  function signOut() {
+  async function signOut() {
+    await authApi.logout();
     clearSession();
     queryClient.clear();
     router.replace("/login");

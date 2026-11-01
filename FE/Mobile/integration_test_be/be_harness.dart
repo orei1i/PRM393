@@ -96,11 +96,48 @@ class BeHarness {
       email: email,
       password: password,
       token: result.accessToken,
+      refreshToken: result.refreshToken!,
     );
   }
 
+  /// The dev seed accounts (`DatabaseSeeder.cs`), for what a new account can't
+  /// be: an admin, a chef. Read-only: tests must not change them.
+  Future<RawResponse> seedLogin(String email, {String path = '/auth/login'}) =>
+      rawRequest('POST', path,
+          data: {'email': email, 'password': _seedPassword()});
+
+  /// A token of the seeded admin; for moderation checks.
+  Future<String> adminToken() async =>
+      (await seedLogin(seedAdminEmail, path: '/auth/admin/login'))
+          .dataMap['accessToken'] as String;
+
   /// The same pipeline as `dioProvider` for someone who isn't signed in.
   Dio guestDio() => _pipeline(() => {'X-Guest-Token': 'guest_feit'});
+}
+
+const seedAdminEmail = 'admin@veganlife.vn';
+const seedChefEmail = 'chef.hoang@veganlife.vn';
+const seedMemberEmail = 'minhanh.nguyen@gmail.com';
+
+/// From the BE's own seeder, so that no password lives in this repository's
+/// app code. The tests run from `FE/Mobile` or `FE/Mobile/integration_test_be`.
+String _seedPassword() {
+  var dir = Directory.current;
+  while (true) {
+    final seeder = File(
+        '${dir.path}/BE/InfrastructureLayer/Seed/DatabaseSeeder.cs'
+            .replaceAll('/', Platform.pathSeparator));
+    if (seeder.existsSync()) {
+      return RegExp(r'HashPassword\("([^"]+)"\)')
+          .firstMatch(seeder.readAsStringSync())!
+          .group(1)!;
+    }
+    final up = dir.parent;
+    if (up.path == dir.path) {
+      fail('BE/InfrastructureLayer/Seed/DatabaseSeeder.cs not found');
+    }
+    dir = up;
+  }
 }
 
 String randomHex(int length) {
@@ -138,6 +175,7 @@ class BeUser {
     required this.email,
     required this.password,
     required this.token,
+    required this.refreshToken,
   }) {
     dio = _pipeline(() => {'Authorization': 'Bearer $token'});
   }
@@ -147,6 +185,7 @@ class BeUser {
   final String email;
   final String password;
   final String token;
+  final String refreshToken;
 
   late final Dio dio;
 
@@ -161,10 +200,13 @@ class BeUser {
   Future<ProviderContainer> container({
     bool realDio = false,
     String? tokenOverride,
+    String? refreshTokenOverride,
     String? displayName,
   }) async {
     SharedPreferences.setMockInitialValues({
       SessionController.accessTokenKey: tokenOverride ?? token,
+      if (refreshTokenOverride != null)
+        SessionController.refreshTokenKey: refreshTokenOverride,
       'vl.user_id': id,
       'vl.display_name': displayName ?? name,
       'vl.role': 'User',

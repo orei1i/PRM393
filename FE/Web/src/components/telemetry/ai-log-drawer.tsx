@@ -13,7 +13,7 @@ import { Label, Skeleton, Textarea } from "@/components/ui/form-controls";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { describeError } from "@/lib/api_error";
 import { useAiLogDetail, useLabelAiLog } from "@/lib/hooks/use-telemetry";
-import { formatNumber, formatTime } from "@/lib/utils";
+import { dateFormat, formatNumber, formatTime } from "@/lib/utils";
 import { TASK_LABEL, type AiLog, type AiLogVerdict } from "@/types/moderation";
 
 import { LOG_STATUS } from "./live-log-table";
@@ -25,7 +25,7 @@ const REF_LABEL: Record<string, string> = {
   user_ingredients: "Nguyên liệu người dùng",
 };
 
-const dateTimeVi = new Intl.DateTimeFormat("vi-VN", {
+const dateTimeVi = dateFormat({
   hour: "2-digit",
   minute: "2-digit",
   second: "2-digit",

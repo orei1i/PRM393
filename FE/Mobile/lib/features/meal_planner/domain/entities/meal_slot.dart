@@ -104,7 +104,7 @@ abstract final class MealPattern {
       Iterable<MealSlot> slots, int dailyKcal) {
     final list = normalize(slots);
     final total = list.fold<int>(0, (sum, s) => sum + s.kcalWeight);
-    if (total == 0) return const {};
+    if (total == 0 || dailyKcal <= 0) return const {};
     return {
       for (final s in list) s: (dailyKcal * s.kcalWeight / total).round(),
     };

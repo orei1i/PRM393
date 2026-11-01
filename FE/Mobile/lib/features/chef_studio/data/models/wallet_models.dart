@@ -1,32 +1,39 @@
 // lib/features/chef_studio/data/models/wallet_models.dart
 //
-// Chef wallet. Needs SQL tables the 26-table design doesn't have yet:
-// `wallets`, `wallet_transactions`, `withdrawal_requests`, `bank_accounts`.
+// Wallets of chefs and members. Needs SQL tables the 26-table design doesn't
+// have yet: `wallets`, `wallet_transactions`, `withdrawal_requests`,
+// `bank_accounts`.
 //
-// Same shapes as the web console (FE/Web src/types/payouts.ts). Earnings come
-// from booking escrow holds: one Income row per paid booking whose status
-// follows the hold — Held ("Đang giữ", until releaseAt = plan end date 23:59
-// + 3 days) → Frozen ("Tạm giữ do khiếu nại") → Available ("Có thể rút", net
-// of the 10 % fee; a Split decision releases price − refund) or Reversed
-// ("Đã hoàn", fully refunded to the member).
+// Same shapes as the web console (FE/Web src/types/payouts.ts). A chef's
+// earnings come from booking escrow holds: one Income row per paid booking
+// whose status follows the hold — Held ("Đang giữ", until releaseAt = the
+// contract's completion + 7 days, no date before that) → Frozen ("Tạm giữ do
+// khiếu nại") → Available ("Có thể rút", net of the 10 % fee; a Split decision
+// releases price − refund) or Reversed ("Đã hoàn", refunded to the member).
+// A member's wallet holds refunds, minus bookings paid from it and withdrawals.
+// A user has one wallet, whatever their role.
 //
-// GET /chefs/me/wallet                WalletDto
-// { "available": 110000, "pending": 1134000, "frozen": 945000, "withdrawn": 1000000,
-//   "processing": 5100000, "feeRate": 0.1, "holdDays": 3, "bankAccount": BankAccountDto | null }
+// GET /chefs/me/wallet, GET /users/me/wallet      WalletDto
+// { "available": 110000, "pending": 2214000, "frozen": 945000, "withdrawn": 1000000,
+//   "processing": 5100000, "feeRate": 0.1, "holdDays": 7, "bankAccount": BankAccountDto | null }
+//   Member: pending and frozen are 0.
 // GET /chefs/me/wallet/transactions?month=2026-10   [WalletTransactionDto]
-// { "id": "tx_in_b_vy_tam_active", "type": "Income" | "Refund" | "Withdrawal", "createdAt": "…",
+// GET /users/me/wallet/transactions                [WalletTransactionDto]
+// { "id": "tx_in_b_vy_tam_active", "type": "Income" | "Refund" | "Payment" | "Withdrawal", "createdAt": "…",
 //   "status": "Held" | "Frozen" | "Available" | "Reversed" | "Processing" | "Completed" | "Rejected",
 //   "bookingId": "b_vy_tam_active", "orderId": "ord_603", "transactionRef": "VL2610120001",
 //   "planTitle": "Thực đơn 7 ngày · Có phản hồi mỗi ngày", "memberName": "Thảo Vy",
 //   "gross": 1260000, "fee": 126000, "net": 1134000,   // net is signed: withdrawals < 0
-//   "releaseAt": "…" | null,        // Held rows: when the escrow is released
+//   "releaseAt": "…" | null,        // Held rows: when the escrow is released; null until completed
 //   "complaintId": "cp_…" | null,   // Frozen rows: the complaint holding the money
 //   "bankName": null, "note": null }
 // Legacy: status "Pending" reads as Held; serviceTitle / buyerName as
 // planTitle / memberName.
-// PUT /chefs/me/bank-account          { "bankName", "accountNumber", "accountHolder" } → BankAccountDto
-// POST /chefs/me/withdrawals          { "amount": 1500000 } → WithdrawalDto
-// GET /chefs/me/withdrawals           [WithdrawalDto]
+// PUT /chefs/me/bank-account, PUT /users/me/bank-account
+//                                     { "bankName", "accountNumber", "accountHolder" } → BankAccountDto
+// POST /chefs/me/withdrawals, POST /users/me/withdrawals
+//                                     { "amount": 1500000 } → WithdrawalDto (Processing: waits for an admin)
+// GET /chefs/me/withdrawals, GET /users/me/withdrawals   [WithdrawalDto]
 // { "id": 1, "amount": 1500000, "status": "Processing", "bankName": "Vietcombank",
 //   "accountNumber": "•••• 6789", "createdAt": "…", "processedAt": null, "reason": null }
 import '../../../../core/utils/json_helpers.dart';
@@ -38,9 +45,13 @@ T _fromApi<T extends Enum>(
       orElse: () => values.first);
 }
 
+/// Whose wallet a shared screen works on (bank account, withdrawal).
+enum WalletOwner { chef, member }
+
 enum WalletEntryType {
   income('Income', 'Thu nhập'),
   refund('Refund', 'Hoàn tiền'),
+  payment('Payment', 'Thanh toán'),
   withdrawal('Withdrawal', 'Rút tiền');
 
   const WalletEntryType(this.apiValue, this.label);
@@ -59,7 +70,7 @@ enum LedgerStatus {
   frozen('Frozen', 'Tạm giữ do khiếu nại'),
   available('Available', 'Có thể rút'),
   reversed('Reversed', 'Đã hoàn'),
-  processing('Processing', 'Đang xử lý'),
+  processing('Processing', 'Chờ duyệt'),
   completed('Completed', 'Đã chuyển'),
   rejected('Rejected', 'Bị từ chối');
 
@@ -114,7 +125,7 @@ class WalletDto {
     this.frozen = 0,
     this.processing = 0,
     this.feeRate = 0.1,
-    this.holdDays = 3,
+    this.holdDays = 7,
     this.bankAccount,
   });
 
@@ -125,7 +136,7 @@ class WalletDto {
         withdrawn: readInt(json['withdrawn']),
         processing: readInt(json['processing']),
         feeRate: json['feeRate'] == null ? 0.1 : readDouble(json['feeRate']),
-        holdDays: json['holdDays'] == null ? 3 : readInt(json['holdDays']),
+        holdDays: json['holdDays'] == null ? 7 : readInt(json['holdDays']),
         bankAccount: BankAccountDto.fromJsonValue(json['bankAccount']),
       );
 
@@ -133,8 +144,8 @@ class WalletDto {
   /// still being processed.
   final int available;
 
-  /// "Đang giữ": net of bookings still in escrow (until the plan's end date
-  /// + [holdDays]).
+  /// "Đang giữ": net of bookings still in escrow (until [holdDays] days after
+  /// the contract is completed).
   final int pending;
 
   /// "Tạm giữ do khiếu nại": net of holds frozen by an open complaint.
@@ -143,7 +154,7 @@ class WalletDto {
   /// "Đã rút": completed withdrawals.
   final int withdrawn;
 
-  /// Withdrawals in "Đang xử lý" (already out of [available]).
+  /// Withdrawals waiting for an admin (already out of [available]).
   final int processing;
   final double feeRate;
   final int holdDays;

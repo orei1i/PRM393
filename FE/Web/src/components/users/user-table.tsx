@@ -7,12 +7,12 @@ import { InitialsAvatar } from "@/components/admin/initials-avatar";
 import { Skeleton } from "@/components/ui/form-controls";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { isMock } from "@/lib/backend_modules";
-import { formatNumber } from "@/lib/utils";
+import { dateFormat, formatNumber } from "@/lib/utils";
 import type { AdminUser } from "@/types/admin";
 
 import { UserRoleBadges, UserStatusBadge } from "./status-badge";
 
-const dateVi = new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+const dateVi = dateFormat({ day: "2-digit", month: "2-digit", year: "numeric" });
 
 /** The backend's UserResponse has no post or report counts: "—", never a made-up 0. */
 const COUNTS_KNOWN = isMock("users");
@@ -66,7 +66,8 @@ export function UserTable({
                 aria-label={`Mở ${u.fullName}`}
               >
                 <TableCell>
-                  <div className="flex items-center gap-3">
+                  {/* The backend has no name length limit, and `truncate` alone does not stop a table cell from growing. */}
+                  <div className="flex max-w-80 items-center gap-3">
                     <InitialsAvatar name={u.fullName} verified={u.isVerifiedChef} />
                     <div className="min-w-0">
                       <p className="truncate font-semibold">{u.fullName}</p>

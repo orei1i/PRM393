@@ -15,7 +15,9 @@ import 'restaurant_api_service.dart';
 ///
 /// `#fail` in a review comment, a suggested name/address or a list query →
 /// 503; any write on "Quán thử nghiệm QA #fail" → 503 too. Suggestions keep
-/// their coordinates and media (at most 5 photos and 1 video → else 400).
+/// their coordinates and media (at most 5 photos and 1 video → else 400) and
+/// stay private to their author until [demoDecide], which stands in for the web
+/// console so the flow can be shown without one.
 class MockRestaurantRepository implements RestaurantApiService {
   MockRestaurantRepository({
     required this.isSignedIn,
@@ -31,6 +33,10 @@ class MockRestaurantRepository implements RestaurantApiService {
 
   /// Back to the seeds (tests).
   static void reset() => _db.reset();
+
+  /// The reason "Từ chối thử" gives ([demoDecide]).
+  static const demoRejectionReason =
+      'Chưa xác minh được quán này có thuần chay không (từ chối thử ở bản demo).';
 
   static bool _fails(String text) => text.toLowerCase().contains('#fail');
 
@@ -49,16 +55,27 @@ class MockRestaurantRepository implements RestaurantApiService {
     }
   }
 
+  /// A place the caller may see: public, or their own suggestion.
   _RestaurantRow _find(String id) {
     for (final r in _db.restaurants) {
-      if (r.id == id) return r;
+      if (r.id != id) continue;
+      if (r.isPublic || (isSignedIn() && r.createdById == currentUserId())) {
+        return r;
+      }
     }
     throw const ApiException(
         message: 'Quán không còn tồn tại.', statusCode: 404, code: 'not_found');
   }
 
+  /// Name and address as they are typed: the seeds shorten "Quận" and "Phường".
+  static String _addressText(String address) =>
+      '$address ${address.replaceAll(RegExp(r'\bQ\.\s*'), 'Quận ').replaceAll(RegExp(r'\bP\.\s*'), 'Phường ')}';
+
   Iterable<_ReviewRow> _reviewsOf(String restaurantId) =>
       _db.reviews.where((v) => v.restaurantId == restaurantId);
+
+  Iterable<_RestaurantRow> get _public =>
+      _db.restaurants.where((r) => r.isPublic);
 
   /// The texts a dish search looks at: the name and every review comment.
   Map<String, List<String>> _dishTexts(Iterable<_RestaurantRow> rows) => {
@@ -66,12 +83,24 @@ class MockRestaurantRepository implements RestaurantApiService {
           r.id: [r.name, for (final v in _reviewsOf(r.id)) v.comment],
       };
 
-  RestaurantDto _dto(_RestaurantRow r, GeoPoint? near) {
+  RestaurantDto _dto(_RestaurantRow r, GeoPoint? near) =>
+      RestaurantDto.fromJson(_json(r, near));
+
+  RestaurantSuggestionDto _suggestionDto(_RestaurantRow r) =>
+      RestaurantSuggestionDto.fromJson({
+        ..._json(r, null),
+        'status': r.status.apiValue,
+        'rejectionReason': r.rejectionReason,
+        'createdAt': r.submittedAt?.toUtc().toIso8601String(),
+        'reviewedAt': r.reviewedAt?.toUtc().toIso8601String(),
+      });
+
+  Map<String, dynamic> _json(_RestaurantRow r, GeoPoint? near) {
     final reviews = _reviewsOf(r.id).toList();
     final point =
         r.lat != null && r.lng != null ? GeoPoint(r.lat!, r.lng!) : null;
     // Round-trip through the wire format so the parser is exercised too.
-    return RestaurantDto.fromJson({
+    return {
       'id': r.id,
       'createdBy': r.createdById == null
           ? null
@@ -87,7 +116,7 @@ class MockRestaurantRepository implements RestaurantApiService {
           ? null
           : reviews.fold<int>(0, (s, v) => s + v.rating) / reviews.length,
       'reviewCount': reviews.length,
-    });
+    };
   }
 
   ReviewDto _reviewDto(_ReviewRow v) => ReviewDto.fromJson({
@@ -136,11 +165,12 @@ class MockRestaurantRepository implements RestaurantApiService {
     await mockDelay(500);
     final q = query?.trim() ?? '';
     if (_fails(q)) throw _unavailable('tải được danh sách quán');
-    var rows = _db.restaurants.where((r) => !certifiedOnly || r.certified);
+    var rows = _public.where((r) => !certifiedOnly || r.certified);
     if (q.isNotEmpty) {
       final byDish = matchFood(_dishTexts(rows), q);
       rows = rows.where((r) =>
-          byDish.contains(r.id) || matchesQuery('${r.name} ${r.address}', q));
+          byDish.contains(r.id) ||
+          matchesQuery('${r.name} ${_addressText(r.address)}', q));
     }
     var list = rows.map((r) => _dto(r, near)).toList();
     if (radiusKm != null && near != null) {
@@ -199,6 +229,12 @@ class MockRestaurantRepository implements RestaurantApiService {
     await mockDelay(600);
     _requireMember('viết đánh giá');
     final restaurant = _find(restaurantId);
+    if (!restaurant.isPublic) {
+      throw const ApiException(
+          message: 'Quán đang chờ duyệt nên chưa nhận đánh giá.',
+          statusCode: 409,
+          code: 'not_public');
+    }
     final text = comment.trim();
     if (rating < 1 || rating > 5) throw _invalid('Chọn số sao từ 1 đến 5.');
     if (text.length < 10 || text.length > 500) {
@@ -233,7 +269,7 @@ class MockRestaurantRepository implements RestaurantApiService {
   }
 
   @override
-  Future<RestaurantDto> createRestaurant(
+  Future<RestaurantSuggestionDto> createRestaurant(
       CreateRestaurantRequestDto request) async {
     await mockDelay(700);
     _requireMember('gợi ý quán mới');
@@ -260,7 +296,9 @@ class MockRestaurantRepository implements RestaurantApiService {
     if (_fails(name) || _fails(address)) {
       throw _unavailable('gửi được gợi ý quán');
     }
+    // A rejected suggestion may be sent again.
     final duplicate = _db.restaurants.any((r) =>
+        !r.isRejected &&
         foldVietnamese(r.name) == foldVietnamese(name) &&
         foldVietnamese(r.address) == foldVietnamese(address));
     if (duplicate) {
@@ -269,8 +307,9 @@ class MockRestaurantRepository implements RestaurantApiService {
           statusCode: 409,
           code: 'duplicate');
     }
+    final now = DateTime.now();
     final row = _RestaurantRow(
-      id: 'rs_u_${DateTime.now().millisecondsSinceEpoch}_${_db.seq++}',
+      id: 'rs_u_${now.millisecondsSinceEpoch}_${_db.seq++}',
       name: name,
       address: address,
       certified: false,
@@ -278,9 +317,10 @@ class MockRestaurantRepository implements RestaurantApiService {
       createdByName: currentUserName(),
       lat: request.latitude,
       lng: request.longitude,
+      status: RestaurantSuggestionStatus.pending,
+      submittedAt: now,
     );
     _db.restaurants.add(row);
-    final now = DateTime.now();
     for (final m in request.media) {
       _db.media.add(_MediaRow(
         id: 'rm_u_${now.millisecondsSinceEpoch}_${_db.seq++}',
@@ -292,7 +332,33 @@ class MockRestaurantRepository implements RestaurantApiService {
         createdAt: now,
       ));
     }
-    return _dto(row, null);
+    return _suggestionDto(row);
+  }
+
+  @override
+  Future<List<RestaurantSuggestionDto>> getMySuggestions() async {
+    await mockDelay(400);
+    _requireMember('xem quán đã gợi ý');
+    final me = currentUserId();
+    final mine = _db.restaurants.where((r) => r.createdById == me).toList()
+      ..sort((a, b) => (b.submittedAt ?? _db.seedTime)
+          .compareTo(a.submittedAt ?? _db.seedTime));
+    return [for (final r in mine) _suggestionDto(r)];
+  }
+
+  /// The admin's decision on a suggestion, for the demo: approved goes public,
+  /// rejected comes back with a reason. Not part of [RestaurantApiService]: the
+  /// real one happens on the web console.
+  Future<RestaurantSuggestionDto> demoDecide(String id,
+      {required bool approve}) async {
+    await mockDelay(300);
+    final row = _find(id)
+      ..status = approve
+          ? RestaurantSuggestionStatus.approved
+          : RestaurantSuggestionStatus.rejected
+      ..rejectionReason = approve ? null : demoRejectionReason
+      ..reviewedAt = DateTime.now();
+    return _suggestionDto(row);
   }
 
   @override
@@ -300,10 +366,10 @@ class MockRestaurantRepository implements RestaurantApiService {
       {GeoPoint? near, int limit = 3}) async {
     await mockDelay(450);
     if (_fails(food)) throw _unavailable('tải được quán gợi ý');
-    final texts = _dishTexts(_db.restaurants);
+    final texts = _dishTexts(_public);
     final hits = matchFood(texts, food);
     final scores = foodMatchScores(texts, food);
-    final list = _db.restaurants
+    final list = _public
         .where((r) => hits.contains(r.id))
         .map((r) => _dto(r, near))
         .toList()
@@ -330,6 +396,10 @@ class _RestaurantRow {
     this.createdByName,
     this.lat,
     this.lng,
+    this.status = RestaurantSuggestionStatus.approved,
+    this.rejectionReason,
+    this.submittedAt,
+    this.reviewedAt,
   });
 
   final String id;
@@ -340,6 +410,13 @@ class _RestaurantRow {
   final String? createdByName;
   final double? lat;
   final double? lng;
+  RestaurantSuggestionStatus status;
+  String? rejectionReason;
+  final DateTime? submittedAt;
+  DateTime? reviewedAt;
+
+  bool get isPublic => status == RestaurantSuggestionStatus.approved;
+  bool get isRejected => status == RestaurantSuggestionStatus.rejected;
 }
 
 class _MediaRow {
@@ -395,8 +472,12 @@ class _MockRestaurantDb {
   final media = <_MediaRow>[];
   int seq = 0;
 
+  /// When the seeds count as submitted.
+  late DateTime seedTime;
+
   void reset() {
     final now = DateTime.now();
+    seedTime = now.subtract(const Duration(days: 30));
     restaurants
       ..clear()
       ..addAll(mockRestaurantSeeds.map((s) => _RestaurantRow(
@@ -408,7 +489,22 @@ class _MockRestaurantDb {
             createdByName: mockRestaurantPeople[s.createdBy],
             lat: s.lat,
             lng: s.lng,
-          )));
+            submittedAt: seedTime,
+          )))
+      // So "Quán tôi đã gợi ý" shows a refusal without any setup.
+      ..add(_RestaurantRow(
+        id: 'rs_u_rejected_demo',
+        name: 'Cơm Chay Góc Phố Cũ',
+        address: '3 Đường Số 7, P. Bình An, TP. Thủ Đức, TP.HCM',
+        certified: false,
+        createdById: 'u_me',
+        createdByName: mockRestaurantPeople['u_me'],
+        status: RestaurantSuggestionStatus.rejected,
+        rejectionReason:
+            'Không xác minh được địa chỉ: quán đã ngừng hoạt động.',
+        submittedAt: now.subtract(const Duration(days: 12)),
+        reviewedAt: now.subtract(const Duration(days: 10)),
+      ));
     media
       ..clear()
       ..addAll([

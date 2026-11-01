@@ -6,6 +6,8 @@ import '../../../core/utils/text_search.dart';
 import '../../community/data/community_api_service.dart';
 import '../../community/data/models/post_model.dart';
 import '../../community/domain/entities/post.dart';
+import '../../ingredient/data/ingredient_api_service.dart';
+import '../../ingredient/data/models/ingredient_model.dart';
 import '../../meal_planner/data/mock/meal_planner_mock_data.dart';
 import '../../recipe/data/mock/recipe_mock_data.dart';
 import '../../restaurant/data/models/restaurant_model.dart';
@@ -25,10 +27,15 @@ import 'search_api_service.dart';
 /// [suggest] matches word prefixes ("bu" → "bún riêu chay") for the
 /// autocomplete; [discover] fills the idle page.
 class MockSearchRepository implements SearchApiService {
-  MockSearchRepository({required this.community, required this.restaurants});
+  MockSearchRepository({
+    required this.community,
+    required this.restaurants,
+    IngredientApiService? ingredients,
+  }) : ingredients = ingredients ?? MockIngredientRepository();
 
   final CommunityApiService community;
   final RestaurantApiService restaurants;
+  final IngredientApiService ingredients;
 
   /// Related videos/posts shown in the suggestion block.
   static const maxRelatedPosts = 6;
@@ -93,7 +100,7 @@ class MockSearchRepository implements SearchApiService {
   /// "Video" tab: posts with a video attachment (any category).
   static bool _isVideo(PostDto p) => p.hasVideo;
 
-  static String _postText(PostDto p) => [
+  static String postText(PostDto p) => [
         p.title,
         p.body,
         p.author.name,
@@ -143,6 +150,9 @@ class MockSearchRepository implements SearchApiService {
     final restaurantsFuture = wants(SearchType.restaurant)
         ? restaurants.listRestaurants(near: near, query: q)
         : Future.value(const <RestaurantDto>[]);
+    final ingredientsFuture = type == SearchType.all
+        ? ingredients.search(q)
+        : Future.value(const <IngredientSummaryDto>[]);
 
     final folded = foldVietnamese(q);
     final recipes = !wants(SearchType.recipe)
@@ -153,10 +163,11 @@ class MockSearchRepository implements SearchApiService {
             return rank != 0 ? rank : a.name.length - b.name.length;
           }));
 
-    final loaded = await Future.wait<Object>([postsFuture, restaurantsFuture]);
+    final loaded = await Future.wait<Object>(
+        [postsFuture, restaurantsFuture, ingredientsFuture]);
     final posts = loaded[0] as List<PostDto>;
     final nearby = loaded[1] as List<RestaurantDto>;
-    final matched = posts.where((p) => matchesQuery(_postText(p), q)).toList()
+    final matched = posts.where((p) => matchesQuery(postText(p), q)).toList()
       // Title hits before body-only hits; feed order (newest) otherwise.
       ..sort((a, b) {
         final ta = matchesQuery(a.title, q), tb = matchesQuery(b.title, q);
@@ -183,6 +194,8 @@ class MockSearchRepository implements SearchApiService {
           ? matched.where(_isVideo).take(limit).toList()
           : const [],
       recipes: recipes.take(limit).toList(),
+      ingredients:
+          (loaded[2] as List<IngredientSummaryDto>).take(limit).toList(),
       restaurants: nearby.take(limit).toList(),
       suggestion: suggestion,
     );
@@ -227,7 +240,7 @@ class MockSearchRepository implements SearchApiService {
         wanted.every((q) => words.any((w) => w.startsWith(q)));
   }
 
-  static String? _district(String address) {
+  static String? district(String address) {
     final parts = address.split(',').map((p) => p.trim()).toList();
     for (final p in parts.reversed) {
       final lower = p.toLowerCase();
@@ -293,7 +306,7 @@ class MockSearchRepository implements SearchApiService {
           text: r.name,
           id: r.id,
           subtitle:
-              ['Quán', _district(r.address)].whereType<String>().join(' · '),
+              ['Quán', district(r.address)].whereType<String>().join(' · '),
         ),
     ].take(limit).toList();
   }

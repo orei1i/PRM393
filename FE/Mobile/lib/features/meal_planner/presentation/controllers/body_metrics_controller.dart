@@ -61,11 +61,7 @@ class BodyMetricsController extends AsyncNotifier<List<BodyMeasurement>> {
   /// "Cập nhật cân nặng": logs the weigh-in; the planner (header, energy
   /// targets of the week) and Tôi follow the recomputed profile. Throws on
   /// failure (the sheet keeps the input).
-  Future<CheckInResult> log({
-    required double weightKg,
-    double? waistCm,
-    double? bodyFatPct,
-  }) async {
+  Future<CheckInResult> log({required double weightKg}) async {
     final api = ref.read(mealPlannerApiProvider);
     List<BodyMeasurement>? history;
     try {
@@ -74,18 +70,11 @@ class BodyMetricsController extends AsyncNotifier<List<BodyMeasurement>> {
       history = null; // unknown: reloaded after the save
     }
     final before = await _currentProfile();
-    final result = await api.logBodyMeasurement(LogMeasurementRequestDto(
-      weightKg: weightKg,
-      waistCm: waistCm,
-      bodyFatPct: bodyFatPct,
-    ));
+    final result = await api
+        .logBodyMeasurement(LogMeasurementRequestDto(weightKg: weightKg));
     final measurement = result.measurement.toEntity();
     final profile = result.profile.toEntity();
-    if (measurement.isLocalOnly) {
-      // Nothing new on the server: the history stays as it is, and the
-      // reminder doesn't come straight back for a weight just confirmed.
-      unawaited(ref.read(checkInPrefsProvider.notifier).snoozeToday());
-    } else if (history != null) {
+    if (history != null) {
       state = AsyncData([measurement, ...history]);
     } else {
       ref.invalidateSelf();

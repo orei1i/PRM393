@@ -134,7 +134,7 @@ abstract final class BackendModules {
   static bool get commentEdit => isMock(BackendModule.community);
 
   /// GET `/posts/{id}/comments/{cid}/replies` ("Xem thêm N phản hồi").
-  static bool get commentReplyPaging => isMock(BackendModule.community);
+  static bool get commentReplyPaging => true;
 
   /// GET `/users/me/comments` (the "Bình luận" tab of "Nội dung của tôi").
   static bool get myComments => isMock(BackendModule.community);
@@ -146,16 +146,25 @@ abstract final class BackendModules {
   static bool get planAdjust => isMock(BackendModule.planner);
 
   /// Emptying a week that already has meals ("Tự lên thực đơn"): POST
-  /// `/meal-plans` returns that week as it is (B29). A week can still be
-  /// started empty when there is none.
-  static bool get planClear => isMock(BackendModule.planner);
-
-  /// `waistCm` and `bodyFatPct` on a body measurement.
-  static bool get checkInExtras => isMock(BackendModule.planner);
+  /// `/meal-plans` with `empty: true`.
+  static bool get planClear => true;
 
   /// `servings` on POST `/recipes` ("Số phần ăn" of an own recipe).
   static bool get recipeServings => isMock(BackendModule.recipes);
 
+  /// PUT and DELETE on `/recipes/{id}` ("Sửa", "Xoá" in "Công thức của tôi").
+  static bool get myRecipeEdit => isMock(BackendModule.planner);
+
   /// Macros of a typed dish on POST `/meal-plans/current/meals`.
-  static bool get manualMealMacros => isMock(BackendModule.planner);
+  static bool get manualMealMacros => true;
+
+  /// "Thanh toán bằng ví": the wallet and the order must live on the same
+  /// side, a mock wallet can't pay a real order (nor the other way round). The
+  /// member's wallet ships with the chef's ([BackendModule.chefWallet]).
+  static bool get payFromWallet =>
+      isMock(BackendModule.commerce) == isMock(BackendModule.chefWallet);
+
+  /// "Mô phỏng duyệt" / "Mô phỏng từ chối" on a withdrawal: the real approval
+  /// is an admin on web `/payouts`.
+  static bool get walletMockControls => isMock(BackendModule.chefWallet);
 }

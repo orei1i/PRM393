@@ -97,7 +97,12 @@ class MockBookingRepository implements BookingApiService {
     _failIf(request.needs, 'gửi được yêu cầu');
     _check(BookingRules.planDays(request.planDays));
     _check(BookingRules.startDate(request.startDate, _db.today));
-    _check(BookingRules.needs(request.needs));
+    if (request.isFamily) {
+      _check(BookingRules.familySize(request.familySize));
+      _check(BookingRules.familyNote(request.needs));
+    } else {
+      _check(BookingRules.needs(request.needs));
+    }
     _check(BookingRules.budget(request.budgetPerDay));
     if (request.mealPattern.isEmpty) _check('Chọn ít nhất 1 bữa.');
     final chef = _db.commerce.chef(request.chefId);
@@ -113,8 +118,8 @@ class MockBookingRepository implements BookingApiService {
       _check('${chef.fullName} nhận kế hoạch từ ${chef.minPlanDays} đến '
           '${chef.maxPlanDays} ngày.');
     }
-    Map<String, dynamic>? health;
-    if (request.shareHealthProfile) {
+    Map<String, dynamic>? health = request.healthSnapshot;
+    if (request.sendsPersonalProfile && health == null) {
       try {
         // Nothing to share before the member sets a profile up.
         final profile =
@@ -301,6 +306,14 @@ class MockBookingRepository implements BookingApiService {
     _check(BookingRules.declineReason(reason));
     _failIf(reason, 'gửi được phản hồi');
     _db.decline(row, reason);
+    return _dto(row);
+  }
+
+  @override
+  Future<BookingDto> confirmCompletion(String id) async {
+    await mockDelay(600);
+    final row = _as(id, BookingParty.chef);
+    _db.confirmCompletion(row);
     return _dto(row);
   }
 

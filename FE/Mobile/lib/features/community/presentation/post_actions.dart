@@ -6,6 +6,7 @@ import '../../../core/network/api_exception.dart';
 import '../../../core/theme/vl_colors.dart';
 import '../../../core/widgets/sign_in_sheet.dart';
 import '../data/community_api_service.dart';
+import '../data/mock_community_repository.dart';
 import '../domain/entities/post.dart';
 import 'controllers/feed_controller.dart';
 import 'screens/create_post_screen.dart';
@@ -85,12 +86,39 @@ abstract final class PostActions {
     messenger
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
-        content: Text(updated.isPending
-            ? 'Bài đã được gửi lại và đang chờ Ban quản trị duyệt'
-            : 'Đã lưu thay đổi'),
+        content: Text(switch (updated.status) {
+          PostStatus.pending =>
+            'Đã lưu. Bài sẽ hiển thị trên bảng tin sau khi Ban quản trị duyệt.',
+          PostStatus.rejected =>
+            'Đã lưu, nhưng bài vẫn đang bị Ban quản trị từ chối.',
+          PostStatus.published => 'Đã lưu thay đổi',
+        }),
       ));
     feed.postUpdated(updated);
     return updated;
+  }
+
+  /// "Duyệt thử" / "Từ chối thử" of the mock (see
+  /// [MockCommunityRepository.demoDecide]). Returns the decided post; `null`
+  /// on the real BE, where only the web console decides.
+  static Future<Post?> demoDecide(
+      BuildContext context, WidgetRef ref, Post post,
+      {required bool approve}) async {
+    final api = ref.read(communityApiProvider);
+    if (api is! MockCommunityRepository) return null;
+    final messenger = ScaffoldMessenger.of(context);
+    final feed = ref.read(feedControllerProvider.notifier);
+    final decided =
+        (await api.demoDecide(post.id, approve: approve)).toEntity();
+    feed.prepend(decided);
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(approve
+            ? 'Bài đã được duyệt và hiển thị trên bảng tin'
+            : 'Bài đã bị từ chối'),
+      ));
+    return decided;
   }
 
   /// "Xoá bài": confirms, deletes, drops it from the feed. `true` if deleted.

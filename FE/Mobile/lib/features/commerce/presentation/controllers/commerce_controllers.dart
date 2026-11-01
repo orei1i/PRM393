@@ -2,7 +2,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/session/session_controller.dart';
+import '../../../chef_studio/data/models/wallet_models.dart';
 import '../../data/commerce_api_service.dart';
+import '../../data/member_wallet_api_service.dart';
 import '../../data/models/order_model.dart';
 
 /// Bumped after any booking, payment or wallet change (member or chef).
@@ -32,4 +34,29 @@ final orderProvider =
     ..watch(commerceAccountProvider)
     ..watch(commerceRevisionProvider);
   return ref.watch(commerceApiProvider).getOrder(id);
+});
+
+void _watchScope(Ref ref) {
+  ref
+    ..watch(commerceAccountProvider)
+    ..watch(commerceRevisionProvider);
+}
+
+/// "Ví của tôi" of a member: balance (and the wallet option of the payment
+/// screen).
+final memberWalletProvider = FutureProvider.autoDispose<WalletDto>((ref) async {
+  _watchScope(ref);
+  return ref.watch(memberWalletApiProvider).getWallet();
+});
+
+final memberWalletTransactionsProvider =
+    FutureProvider.autoDispose<List<WalletTransactionDto>>((ref) async {
+  _watchScope(ref);
+  return ref.watch(memberWalletApiProvider).transactions();
+});
+
+final memberWithdrawalsProvider =
+    FutureProvider.autoDispose<List<WithdrawalDto>>((ref) async {
+  _watchScope(ref);
+  return ref.watch(memberWalletApiProvider).withdrawals();
 });

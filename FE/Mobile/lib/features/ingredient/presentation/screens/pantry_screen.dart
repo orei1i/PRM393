@@ -236,19 +236,20 @@ class _PantryScreenState extends ConsumerState<PantryScreen> {
     );
   }
 
-  /// The server's warning, else the app's own check: the BE misses most of
-  /// them, because it doesn't compare the item's allergen tags.
+  /// The server's warning, else the app's own check, which also knows the
+  /// names the BE has no keyword for. Always with the app's allergen names: the
+  /// BE's text has raw ids ("Cảnh báo dị ứng: peanut").
   static String? _allergyWarning(PantryItem item, List<String> allergies) {
-    if (item.allergyWarning case final warning?) return warning;
-    final conflicts = allergyConflicts(
-      tags:
-          MockMealPlannerRepository.detectAllergens(item.ingredient, const []),
-      texts: [item.ingredient],
-      userAllergies: allergies,
-    );
+    final conflicts = item.allergyWarning?.split(':').last.split(',') ??
+        allergyConflicts(
+          tags: MockMealPlannerRepository.detectAllergens(
+              item.ingredient, const []),
+          texts: [item.ingredient],
+          userAllergies: allergies,
+        );
     if (conflicts.isEmpty) return null;
     final names =
-        conflicts.map((a) => allergenLabel(a).toLowerCase()).join(', ');
+        conflicts.map((a) => allergenLabel(a.trim()).toLowerCase()).join(', ');
     return 'Bạn đã khai báo dị ứng với $names';
   }
 
@@ -562,6 +563,11 @@ class _PantryRow extends StatelessWidget {
                           if (expiresSoon) ...[
                             const SizedBox(height: 4),
                             VLTag.caution(context, 'Sắp hết hạn'),
+                          ],
+                          if (item.serverSaysNotVegan) ...[
+                            const SizedBox(height: 4),
+                            VLTag.caution(
+                                context, 'Máy chủ ghi: không thuần chay'),
                           ],
                           if (allergyWarning case final warning?) ...[
                             const SizedBox(height: 4),

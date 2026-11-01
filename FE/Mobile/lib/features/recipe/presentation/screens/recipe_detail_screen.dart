@@ -21,8 +21,11 @@ import '../../../ingredient/data/ingredient_api_service.dart';
 import '../../../ingredient/domain/entities/ingredient.dart';
 import '../../../ingredient/presentation/screens/ingredient_detail_screen.dart';
 import '../../../meal_planner/data/meal_planner_api_service.dart';
+import '../../../meal_planner/presentation/controllers/my_recipes_controller.dart';
 import '../../../meal_planner/domain/entities/meal_slot.dart';
 import '../../../meal_planner/presentation/controllers/meal_plan_controller.dart';
+import '../../../meal_planner/presentation/screens/user_recipe_form_screen.dart';
+import '../../../meal_planner/presentation/widgets/planner_shortcuts.dart';
 import '../../../search/presentation/screens/search_screen.dart';
 import '../../data/models/recipe_variant_model.dart';
 import '../../domain/entities/recipe_detail.dart';
@@ -54,14 +57,31 @@ import '../widgets/substitute_sheet.dart';
 /// Opened from a meal card ([contextDate] / [contextSlot]), the swap sheet,
 /// a scanner suggestion, an ingredient and search results.
 ///
-/// A recipe from the real BE ([RecipeDetail.isReadOnly]) has no quantities, so
-/// its page only reads: no scaling, swaps, rating or note. A mock recipe in a
-/// hybrid build keeps everything, under the "Dữ liệu mẫu" banner.
+/// A recipe from the real BE ([RecipeDetail.isFromBackend]) has no rating or
+/// note. Its rows come from `backend_recipe_items.dart`, so it scales and swaps
+/// like a mock one and saves with POST /recipes; one with nothing to scale or
+/// swap by ([RecipeDetail.isReadOnly]: a member's own, an unknown name) only
+/// reads. A mock recipe in a hybrid build keeps everything, under the "Dữ liệu
+/// mẫu" banner.
+///
+/// The app bar has the "Tủ lạnh" and "Nhờ chuyên gia" shortcuts. The member's
+/// own recipe also has "Sửa công thức" ([UserRecipeFormScreen]).
 class RecipeDetailScreen extends ConsumerWidget {
-  /// Under "Nguyên liệu" of a recipe from the real BE.
+  /// Under "Nguyên liệu" of a BE recipe with nothing to scale or swap by.
   static const readOnlyNote =
-      'Công thức này chưa có định lượng chi tiết nên chưa chỉnh được số người '
-      'hay đổi nguyên liệu.';
+      'Công thức này do thành viên tự viết nên chưa có vai trò và lựa chọn '
+      'thay thế cho từng nguyên liệu: chưa chỉnh được số người hay đổi nguyên '
+      'liệu ở đây.';
+
+  /// Above the rows of a recipe that can be changed.
+  static const customizeHint =
+      'Đổi số người ở trên, hoặc bấm "Đổi nguyên liệu" ở từng dòng. Nguyên liệu '
+      'có dấu sao chỉ đổi được sang loại cùng vai trò.';
+
+  /// Beside "Lưu" on a BE recipe: the BE can't overwrite one.
+  static const savesAsCopyNote =
+      'Máy chủ chưa cho sửa công thức nên thay đổi được lưu thành một công '
+      'thức mới; bản cũ vẫn còn và chưa xoá được.';
 
   /// Instead of the ingredients when only the meal plan knows the dish.
   static const snapshotNote = 'Món này chưa có chi tiết công thức.';
@@ -106,6 +126,7 @@ class RecipeDetailScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+        actions: const [PantryShortcutButton(), ChefPlanShortcutButton()],
       ),
       body: recipe != null
           ? _withDemoBanner(
@@ -139,7 +160,7 @@ class RecipeDetailScreen extends ConsumerWidget {
   }
 }
 
-Widget _withDemoBanner(RecipeDetail recipe, Widget body) => recipe.isReadOnly
+Widget _withDemoBanner(RecipeDetail recipe, Widget body) => recipe.isFromBackend
     ? body
     : DemoDataBanner.wrap(BackendModule.recipeSocial, child: body);
 
@@ -149,6 +170,16 @@ class _RecipeBody extends ConsumerWidget {
   final RecipeDetail recipe;
   final DateTime? contextDate;
   final MealSlot? contextSlot;
+
+  /// A change in place shows here; a new copy is one more recipe in the list.
+  Future<void> _editMine(BuildContext context, WidgetRef ref) async {
+    final saved = await Navigator.of(context)
+        .push(UserRecipeFormScreen.route(existing: recipe));
+    if (saved == null) return;
+    ref
+      ..invalidate(myRecipesProvider)
+      ..invalidate(recipeDetailProvider(recipe.id));
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -187,8 +218,12 @@ class _RecipeBody extends ConsumerWidget {
       if (recipe.isVariant) ...[
         const SizedBox(height: 4),
         _VariantOrigin(recipe: recipe),
+      ] else if (recipe.basedOnName case final origin?) ...[
+        const SizedBox(height: 4),
+        Text('Biến thể của «$origin»',
+            style: context.textStyles.bodyMedium?.copyWith(color: vl.muted)),
       ],
-      if (recipe.isPublic && !recipe.isReadOnly) _RatingLine(recipe: recipe),
+      if (recipe.isPublic && !recipe.isFromBackend) _RatingLine(recipe: recipe),
       const SizedBox(height: 10),
       Wrap(
         spacing: 6,
@@ -196,7 +231,8 @@ class _RecipeBody extends ConsumerWidget {
         children: [
           if (kcal != null && (recipe.caloriesCache ?? 0) > 0)
             VLTag(
-              label: energy.modified
+              label: energy.modified ||
+                      (recipe.isFromBackend && recipe.nutritionEstimated)
                   ? '≈ ${formatInt(kcal)} kcal / phần'
                   : '${formatInt(kcal)} kcal / phần',
               icon: Icons.local_fire_department_outlined,
@@ -280,6 +316,16 @@ class _RecipeBody extends ConsumerWidget {
         ),
       ],
       const SizedBox(height: 12),
+      if (_isMine(ref, recipe)) ...[
+        OutlinedButton.icon(
+          onPressed: () => _editMine(context, ref),
+          style:
+              OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(44)),
+          icon: const Icon(Icons.edit_outlined),
+          label: Text(UserRecipeFormScreen.editLabel),
+        ),
+        const SizedBox(height: 8),
+      ],
       OutlinedButton.icon(
         // Never two search pages: an open one is replaced by this query.
         onPressed: () => AppNav.replaceExisting(Navigator.of(context),
@@ -293,7 +339,7 @@ class _RecipeBody extends ConsumerWidget {
 
     // Reviews only on public catalogue recipes; member / chef recipes and
     // variants are private.
-    final reviews = recipe.isPublic && !recipe.isReadOnly;
+    final reviews = recipe.isPublic && !recipe.isFromBackend;
     return DefaultTabController(
       length: reviews ? 3 : 2,
       child: NestedScrollView(
@@ -332,6 +378,12 @@ class _RecipeBody extends ConsumerWidget {
     );
   }
 }
+
+/// The member wrote this recipe or saved it from another.
+bool _isMine(WidgetRef ref, RecipeDetail recipe) =>
+    recipe.createdBy != null &&
+    {ref.read(plannerUserIdProvider), ref.read(plannerPersonaIdProvider)}
+        .contains(recipe.createdBy);
 
 /// "★ 4,6 · 5 đánh giá" / "Chưa có đánh giá" (opens "Đánh giá"). Follows
 /// the reviews tab at once after the member rates; until the reviews load,
@@ -517,6 +569,7 @@ class _IngredientsTabState extends ConsumerState<_IngredientsTab> {
       onSave: (name) => controller.saveVariant(_recipe, name),
     );
     if (saved == null) return;
+    ref.invalidate(myRecipesProvider);
     messenger
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
@@ -654,6 +707,11 @@ class _IngredientsTabState extends ConsumerState<_IngredientsTab> {
           const SizedBox(height: 8),
           Text('cho ${custom.servings} phần',
               style: context.textStyles.bodyMedium?.copyWith(color: vl.muted)),
+          if (recipe.isCustomizable) ...[
+            const SizedBox(height: 4),
+            Text(RecipeDetailScreen.customizeHint,
+                style: context.textStyles.bodySmall?.copyWith(color: vl.muted)),
+          ],
           if (recipe.servings == null)
             Text('Công thức chưa ghi số phần — tính theo 1 phần',
                 style: context.textStyles.bodySmall?.copyWith(color: vl.muted)),
@@ -711,6 +769,16 @@ class _IngredientsTabState extends ConsumerState<_IngredientsTab> {
             icon: const Icon(Icons.bookmark_add_outlined),
             label: const Text('Lưu thành công thức của tôi'),
           ),
+          if (!custom.isModified || (recipe.isFromBackend && !recipe.isPublic))
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                !custom.isModified
+                    ? 'Đổi nguyên liệu để lưu thành công thức của bạn.'
+                    : RecipeDetailScreen.savesAsCopyNote,
+                style: context.textStyles.bodySmall?.copyWith(color: vl.muted),
+              ),
+            ),
         ],
         const SizedBox(height: 8),
         FilledButton.icon(
@@ -767,7 +835,7 @@ class _StepsTab extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(
           16, 14, 16, 24 + MediaQuery.paddingOf(context).bottom),
       children: [
-        if (!recipe.isReadOnly) ...[
+        if (!recipe.isFromBackend) ...[
           RecipeNoteCard(recipeId: recipe.id),
           const SizedBox(height: 16),
         ],

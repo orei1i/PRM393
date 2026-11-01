@@ -34,8 +34,8 @@ enum _UploadPhase { idle, invalid, uploading, done, failed }
 /// One attachment per post. With [editing] it edits the member's own post
 /// ("Sửa bài viết" · "Lưu"); the attachment can't change then.
 ///
-/// Pops the saved [Post]. A new post that the AI pre-screen holds for review
-/// pops `null` after its own snackbar: the feed has nothing to show yet.
+/// Pops the saved [Post]. A new post the server doesn't publish yet pops `null`
+/// after its own snackbar: the feed has nothing to show.
 class CreatePostScreen extends ConsumerStatefulWidget {
   const CreatePostScreen({super.key, this.editing});
 
@@ -245,6 +245,7 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
           UpdatePostRequestDto(
             title: _title.text.trim(),
             body: _body.text.trim(),
+            type: editing.type,
             tags: tags,
             mediaType: editing.mediaType,
             mediaUrl: editing.mediaUrl,
@@ -273,7 +274,7 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
       if (post.isPublished) {
         Navigator.of(context).pop(post);
       } else {
-        _heldForReview();
+        _notPublished(post);
       }
     } catch (e) {
       if (!mounted) return;
@@ -283,8 +284,8 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
     }
   }
 
-  /// Flagged by the AI pre-screen: not on the feed until an admin approves.
-  void _heldForReview() {
+  /// Waiting for an admin (or refused): not on the feed.
+  void _notPublished(Post post) {
     ref.read(communityRevisionProvider.notifier).bump();
     final navigator = Navigator.of(context);
     ScaffoldMessenger.of(context)
@@ -292,12 +293,13 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
       ..showSnackBar(SnackBar(
         duration: const Duration(seconds: 6),
         persist: MediaQuery.accessibleNavigationOf(context),
-        content: const Text(
-            'Bài đã gửi và đang chờ Ban quản trị duyệt — chưa hiển thị trên bảng tin.'),
+        content: Text(post.isRejected
+            ? 'Ban quản trị đã từ chối bài này nên bài không hiển thị trên bảng tin.'
+            : 'Bài đã gửi và đang chờ duyệt. Bài sẽ hiển thị trên bảng tin sau khi Ban quản trị duyệt.'),
         action: SnackBarAction(
           label: 'Xem',
-          onPressed: () => navigator
-              .push(MyPostsScreen.route(initialStatus: PostStatus.pending)),
+          onPressed: () =>
+              navigator.push(MyPostsScreen.route(initialStatus: post.status)),
         ),
       ));
     navigator.pop();
@@ -405,7 +407,7 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                   children: [
                     if (editing != null && !editing.isPublished) ...[
-                      PostStatusBanner(post: editing),
+                      PostStatusBanner(post: editing, showDemoActions: false),
                       if (editing.isRejected)
                         Padding(
                           padding: const EdgeInsets.only(top: 6),
@@ -556,7 +558,7 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
                     ],
                     const SizedBox(height: 20),
                     Text(
-                      'Bài viết về sức khoẻ nên ghi nguồn. Bài sai lệch hoặc quảng cáo sẽ bị AI gắn cờ và Ban quản trị xem xét.',
+                      'Bài viết về sức khoẻ nên ghi nguồn. Bài mới và bài đã sửa có thể phải chờ Ban quản trị duyệt trước khi hiển thị trên bảng tin.',
                       style: context.textStyles.bodySmall
                           ?.copyWith(color: context.vl.muted),
                     ),

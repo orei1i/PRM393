@@ -18,11 +18,13 @@ enum HealthGoal {
   /// Applied to the TDEE for the daily kcal target (−15 % / 0 / +5 % / +10 %).
   final double energyAdjustment;
 
-  /// Also reads the server's short values (`lose`, `gain`) so both sides
-  /// aim at the same calorie target; anything unknown → [maintain].
+  /// Also reads the older short values on saved plans (`lose`, `gain`) and the
+  /// goals of the BE this app has no choice for, by what they do to the target
+  /// (`gain_muscle` is +5 %, `eat_clean` is 0 %); anything unknown → [maintain].
   static HealthGoal fromApi(String? value) => switch (value?.trim()) {
         'lose' => HealthGoal.loseWeight,
         'gain' => HealthGoal.gainWeight,
+        'gain_muscle' => HealthGoal.leanMuscle,
         final v => values.firstWhere((g) => g.apiValue == v,
             orElse: () => HealthGoal.maintain),
       };

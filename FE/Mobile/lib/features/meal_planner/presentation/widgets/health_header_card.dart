@@ -155,7 +155,8 @@ class _EnergyLine extends StatelessWidget {
       );
     }
     final who = [
-      if (profile.gender case final g?) g.label,
+      if (profile.gender case final g? when Gender.selectable.contains(g))
+        g.label,
       if (profile.age case final a?) '$a tuổi',
     ].join(', ');
     return Row(

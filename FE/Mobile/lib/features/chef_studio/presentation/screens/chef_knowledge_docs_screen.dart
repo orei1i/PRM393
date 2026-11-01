@@ -1,10 +1,10 @@
 // lib/features/chef_studio/presentation/screens/chef_knowledge_docs_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/session/session_controller.dart';
 import '../../../../core/theme/vl_colors.dart';
+import '../../../../core/utils/open_url.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/vl_card.dart';
 import '../../../commerce/presentation/widgets/commerce_ui.dart';
@@ -98,8 +98,7 @@ class _DocCard extends StatelessWidget {
   final KnowledgeDocDto doc;
 
   Future<void> _open(BuildContext context) async {
-    final ok = await launchUrl(Uri.parse(doc.fileUrl),
-        mode: LaunchMode.externalApplication);
+    final ok = await openExternalUrl(doc.fileUrl);
     if (!ok && context.mounted) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Không mở được tệp.')));

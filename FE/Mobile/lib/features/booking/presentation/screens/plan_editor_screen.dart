@@ -17,6 +17,7 @@ import '../../domain/booking_enums.dart';
 import '../../domain/booking_rules.dart';
 import '../controllers/booking_controllers.dart';
 import '../widgets/booking_plan_tab.dart';
+import '../widgets/booking_ui.dart';
 
 /// A day being edited: its meals by slot and the day note.
 class _Draft {
@@ -400,6 +401,13 @@ class _PlanEditorScreenState extends ConsumerState<PlanEditorScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
+        // Who this plan is for, whichever day is open.
+        Text(
+          b.isFamily ? familySummary(b) : allergySummary(b.allergies),
+          style: context.textStyles.bodySmall
+              ?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
         _DayChips(
           days: _days,
           selected: _selected,

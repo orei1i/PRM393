@@ -90,6 +90,9 @@ class RestaurantMediaViewer extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
+        // The theme's title style has its own dark colour.
+        titleTextStyle:
+            context.textStyles.titleLarge?.copyWith(color: Colors.white),
         title: Text(media.isVideo ? 'Video giới thiệu' : 'Ảnh của quán'),
       ),
       body: Column(

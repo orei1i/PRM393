@@ -15,8 +15,6 @@ BodyMeasurement _m(
   int daysAgo,
   double kg, {
   int hour = 9,
-  double? waist,
-  double? fat,
   MeasurementSource source = MeasurementSource.checkIn,
 }) {
   final day = _now.subtract(Duration(days: daysAgo));
@@ -25,8 +23,6 @@ BodyMeasurement _m(
     weightKg: kg,
     heightCm: 172,
     bmi: BodyProgress.bmiOf(heightCm: 172, weightKg: kg),
-    waistCm: waist,
-    bodyFatPct: fat,
     source: source,
     loggedAt: DateTime(day.year, day.month, day.day, hour),
   );
@@ -43,21 +39,12 @@ HealthProfile _minhAnh(double kg) => HealthProfile(
     );
 
 void main() {
-  group('BMI, WHtR, healthy range', () {
+  group('BMI, healthy range', () {
     test('172 cm, 65,4 kg → BMI 22,1 Bình thường (Asia-Pacific)', () {
       final bmi = BodyProgress.bmiOf(heightCm: 172, weightKg: 65.4);
       expect(bmi, 22.1);
       expect(Bmi.categorize(bmi).label, 'Bình thường');
       expect(BodyProgress.bmiOf(heightCm: 172, weightKg: 66), 22.3);
-    });
-
-    test('WHtR: 70 / 172 → 0,41; ≥ 0,5 needs caution', () {
-      expect(BodyProgress.formatWhtr(70 / 172), '0,41');
-      expect(BodyProgress.whtrNeedsCaution(70 / 172), isFalse);
-      expect(BodyProgress.whtrNeedsCaution(86 / 172), isTrue);
-      expect(BodyProgress.whtrNeedsCaution(85 / 172), isFalse); // 0,49
-      expect(_m(0, 65, waist: 70).waistToHeight, closeTo(0.407, 0.001));
-      expect(_m(0, 65).waistToHeight, isNull);
     });
 
     test('healthy weight for 172 cm: 54,7 – 68,0 kg; BMI band 18,5–22,9', () {
@@ -151,8 +138,7 @@ void main() {
           'Chưa đúng hướng mục tiêu Tăng cân');
       expect(label(HealthGoal.leanMuscle, -0.6),
           'Chưa đúng hướng mục tiêu Tăng cơ');
-      expect(label(HealthGoal.leanMuscle, 0.1),
-          'Ổn định — theo dõi thêm vòng eo và tỉ lệ mỡ');
+      expect(label(HealthGoal.leanMuscle, 0.1), 'Ổn định — tiếp tục theo dõi');
       expect(label(HealthGoal.leanMuscle, 0.2), 'Đúng hướng mục tiêu Tăng cơ');
     });
 
@@ -237,10 +223,41 @@ void main() {
     });
   });
 
+  group('BMI chart of the check-in sheet', () {
+    final now = DateTime(2026, 10, 29, 9);
+
+    test('no weigh-in: nothing, or just what is typed', () {
+      expect(BodyProgress.bmiPreviewSeries(const [], heightCm: 172, now: now),
+          isEmpty);
+      final typed = BodyProgress.bmiPreviewSeries(const [],
+          heightCm: 172, now: now, typedWeightKg: 65.4);
+      expect(typed.single.value, 22.1);
+      expect(typed.single.day, DateTime(2026, 10, 29));
+    });
+
+    test('one weigh-in stays one point until a weight is typed', () {
+      final history = [_m(8, 66.0)];
+      expect(BodyProgress.bmiPreviewSeries(history, heightCm: 172, now: now),
+          hasLength(1));
+      final points = BodyProgress.bmiPreviewSeries(history,
+          heightCm: 172, now: now, typedWeightKg: 65.4);
+      expect([for (final p in points) p.value], [22.3, 22.1]);
+    });
+
+    test('what is typed replaces a weigh-in of today, oldest first', () {
+      final points = BodyProgress.bmiPreviewSeries(
+          [_m(0, 70.0), _m(8, 66.0), _m(14, 65.8)],
+          heightCm: 172, now: now, typedWeightKg: 65.4);
+      expect(points, hasLength(3));
+      expect(points.last.value, 22.1);
+      expect(points.first.day.isBefore(points[1].day), isTrue);
+    });
+  });
+
   group('progress review', () {
     test('Minh Anh 66,0 → 65,4 kg after 8 days (spec §5.2)', () {
-      final previous = _m(8, 66.0, waist: 70);
-      final current = _m(0, 65.4, waist: 70, fat: 26.2);
+      final previous = _m(8, 66.0);
+      final current = _m(0, 65.4);
       final review = ProgressReview.of(
         current: current,
         previous: previous,
@@ -250,10 +267,6 @@ void main() {
       expect(review.subtitle, 'So với lần cân 21/10 (8 ngày trước)');
       expect(review.weightRow, 'Cân nặng: 66,0 → 65,4 kg (−0,6 kg)');
       expect(review.bmiRow, 'BMI: 22,3 → 22,1 · Bình thường');
-      expect(review.waistRow, 'Vòng eo: 70 → 70 cm · WHtR 0,41');
-      expect(review.waistCaution, isFalse);
-      expect(review.bodyFatRow, isNull,
-          reason: 'the previous weigh-in has no body fat');
       final before = _minhAnh(66.0).dailyKcalTarget!;
       final after = _minhAnh(65.4).dailyKcalTarget!;
       if (before != after) {
@@ -266,14 +279,12 @@ void main() {
       expect(review.fastLoss, isFalse);
     });
 
-    test('rows only when both weigh-ins have the field; fast loss', () {
+    test('no energy row without a "before" profile; fast loss', () {
       final review = ProgressReview.of(
-        current: _m(0, 64.0, fat: 26.0, waist: 90),
-        previous: _m(8, 66.0, fat: 27.0),
+        current: _m(0, 64.0),
+        previous: _m(8, 66.0),
         after: _minhAnh(64.0),
       );
-      expect(review.waistRow, isNull);
-      expect(review.bodyFatRow, 'Tỉ lệ mỡ: 27 → 26 %');
       expect(review.energyRow, isNull, reason: 'no "before" profile');
       expect(review.fastLoss, isTrue);
       expect(BodyProgress.fastLossMessage,
@@ -303,14 +314,9 @@ void main() {
       expect(BodyProgress.validateWeight('65.4'), isNull);
     });
 
-    test('waist and body fat are optional', () {
-      expect(BodyProgress.validateWaist(''), isNull);
-      expect(BodyProgress.validateWaist('39'), 'Vòng eo từ 40 đến 200 cm');
-      expect(BodyProgress.validateWaist('70,5'), isNull);
-      expect(BodyProgress.validateBodyFat(''), isNull);
-      expect(BodyProgress.validateBodyFat('71'), 'Tỉ lệ mỡ từ 3 đến 70 %');
-      expect(BodyProgress.validateBodyFat('2'), 'Tỉ lệ mỡ từ 3 đến 70 %');
-      expect(BodyProgress.validateBodyFat('26,2'), isNull);
+    test('a weight that is already a number', () {
+      expect(BodyProgress.validateMeasurement(64.2), isNull);
+      expect(BodyProgress.validateMeasurement(-5), 'Cân nặng từ 30 đến 250 kg');
     });
   });
 }

@@ -3,7 +3,7 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import type { AdminRestaurant, AdminReview, RestaurantQuery } from "@/types/restaurants";
+import type { AdminRestaurant, AdminReview, RestaurantQuery, RestaurantReviewInput } from "@/types/restaurants";
 
 import { restaurantsApi } from "../restaurants_api";
 
@@ -22,8 +22,65 @@ export function useRestaurants(query: RestaurantQuery) {
   });
 }
 
+const PENDING_QUERY: RestaurantQuery = { status: "Pending", certified: "all", source: "all", search: "" };
+
+/** Sidebar and overview: how many suggestions are waiting. */
+export function usePendingRestaurantCount() {
+  return useQuery({
+    queryKey: restaurantKeys.list(PENDING_QUERY),
+    queryFn: () => restaurantsApi.list(PENDING_QUERY),
+    select: (rows) => rows.length,
+    refetchInterval: 60_000,
+  });
+}
+
 export function useRestaurantReviews(id: string) {
   return useQuery({ queryKey: restaurantKeys.reviews(id), queryFn: () => restaurantsApi.reviews(id) });
+}
+
+/** What the server will do, applied locally so the row and drawer update at once. */
+function project(r: AdminRestaurant, input: RestaurantReviewInput, now: string): AdminRestaurant {
+  const rejected = input.decision === "Reject";
+  return {
+    ...r,
+    status: rejected ? "Rejected" : "Approved",
+    rejectionReason: rejected ? (input.reason?.trim() ?? "") : null,
+    isVeganCertified: rejected ? false : r.isVeganCertified,
+    reviewedAt: now,
+  };
+}
+
+/**
+ * Approve / reject a suggestion. The row changes at once and stays in its tab until the refetch
+ * moves it; on error every cached list is restored.
+ */
+export function useReviewRestaurant() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: RestaurantReviewInput) => restaurantsApi.review(input),
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: restaurantKeys.lists });
+      const snapshots = qc.getQueriesData<AdminRestaurant[]>({ queryKey: restaurantKeys.lists });
+      const now = new Date().toISOString();
+      qc.setQueriesData<AdminRestaurant[]>({ queryKey: restaurantKeys.lists }, (old) =>
+        old?.map((r) => (r.id === input.id ? project(r, input, now) : r)),
+      );
+      return { snapshots };
+    },
+    onError: (_e, _v, context) => {
+      context?.snapshots.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSuccess: (restaurant) => {
+      qc.setQueriesData<AdminRestaurant[]>({ queryKey: restaurantKeys.lists }, (old) =>
+        old?.map((r) => (r.id === restaurant.id ? restaurant : r)),
+      );
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: restaurantKeys.lists });
+      qc.invalidateQueries({ queryKey: ["ads"] });
+      qc.invalidateQueries({ queryKey: ["overview"] });
+    },
+  });
 }
 
 /**

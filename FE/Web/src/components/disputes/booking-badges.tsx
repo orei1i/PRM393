@@ -1,6 +1,6 @@
 // src/components/disputes/booking-badges.tsx
 // Badges, VN-time formatters and the step list shared by /disputes and the /orders drawer.
-// Booking dates follow Asia/Ho_Chi_Minh (the escrow rule is "end date 23:59 VN + 3 days").
+// Booking dates follow Asia/Ho_Chi_Minh; a hold's release date is 7 days after the contract completes.
 import {
   Ban,
   CircleCheck,
@@ -18,9 +18,12 @@ import {
   Wallet,
 } from "lucide-react";
 
+import { formatVnd } from "@/components/orders/order-badges";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+import { cn, dateFormat } from "@/lib/utils";
 import {
+  AUTO_COMPLETE_DAYS,
+  autoCompleteAt,
   BOOKING_STATUS_LABEL,
   BOOKING_TYPE_LABEL,
   COMPLAINT_DECISION_LABEL,
@@ -33,13 +36,15 @@ import {
   type ComplaintReason,
   type ComplaintStatus,
   type DateOnly,
+  type EscrowHold,
   type EscrowStatus,
+  vnDateOf,
 } from "@/types/bookings";
 
 const TZ = "Asia/Ho_Chi_Minh";
-const dateTimeVn = new Intl.DateTimeFormat("vi-VN", { timeZone: TZ, hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" });
-const dateVn = new Intl.DateTimeFormat("vi-VN", { timeZone: TZ, day: "2-digit", month: "2-digit", year: "numeric" });
-const weekdayVn = new Intl.DateTimeFormat("vi-VN", { timeZone: TZ, weekday: "long" });
+const dateTimeVn = dateFormat({ timeZone: TZ, hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" });
+const dateVn = dateFormat({ timeZone: TZ, day: "2-digit", month: "2-digit", year: "numeric" });
+const weekdayVn = dateFormat({ timeZone: TZ, weekday: "long" });
 
 /** ISO → "14:05 17/10/2026" (VN time). */
 export const formatVnDateTime = (iso: string) => dateTimeVn.format(new Date(iso));
@@ -57,11 +62,60 @@ export function formatPlanDay(d: DateOnly) {
 /** "còn 2 ngày" / "còn 5 giờ" / "đã qua" until an instant. */
 export function timeLeft(iso: string, now = Date.now()) {
   const ms = Date.parse(iso) - now;
+  if (Number.isNaN(ms)) return "—";
   if (ms <= 0) return "đã đến hạn";
   const hours = Math.floor(ms / 3_600_000);
   if (hours < 1) return `còn ${Math.max(1, Math.round(ms / 60_000))} phút`;
   if (hours < 48) return `còn ${hours} giờ`;
   return `còn ${Math.floor(hours / 24)} ngày`;
+}
+
+/** Who has the money right now, in one line. Every page that shows a hold uses this. */
+export function moneyLocation(e: Pick<EscrowHold, "status" | "releaseAt" | "releasedAmount" | "feeAmount" | "refundedAmount">) {
+  switch (e.status) {
+    case "Held":
+      return e.releaseAt ? `VeganLife giữ đến ${formatVnDateTime(e.releaseAt)}` : "VeganLife giữ, chờ chuyên gia xác nhận hoàn thành";
+    case "Frozen":
+      return "VeganLife tạm giữ, chờ quyết định khiếu nại";
+    case "Released":
+      return `Ví chuyên gia ${formatVnd(e.releasedAmount - e.feeAmount)} · phí ${formatVnd(e.feeAmount)}`;
+    case "Refunded":
+      return `Ví thành viên ${formatVnd(e.refundedAmount)}`;
+    case "PartiallyRefunded":
+      return `Ví thành viên ${formatVnd(e.refundedAmount)} · ví chuyên gia ${formatVnd(e.releasedAmount - e.feeAmount)}`;
+  }
+}
+
+/** "Xác nhận 14:05 17/10/2026" / "Hệ thống tự hoàn tất 23:59 17/10/2026". */
+export const completionLabel = (completedAt: string, autoCompleted: boolean) =>
+  `${autoCompleted ? "Hệ thống tự hoàn tất" : "Xác nhận"} ${formatVnDateTime(completedAt)}`;
+
+export const AUTO_COMPLETE_RULE = `Chuyên gia không xác nhận sau ${AUTO_COMPLETE_DAYS} ngày kể từ ngày kết thúc kế hoạch`;
+
+/** "Ban quản trị xử lý 14:05 17/10/2026": a stuck hold decided with no complaint. */
+export const adminResolvedLabel = (at: string) => `Ban quản trị xử lý ${formatVnDateTime(at)}`;
+
+/**
+ * Where an uncompleted hold stands. A chef may confirm only with every day delivered and today on or
+ * after the plan's end; without confirmation the system completes it at endDate 23:59 + 3 days, unless
+ * days were missing at that moment. Those are the holds `attention` flags for an admin: days still missing,
+ * or every day delivered but some after the moment (the chef can still confirm those).
+ */
+export function completionHint(b: { deliveredDays: number; planDays: number; endDate: DateOnly | null }, frozen: boolean, now = Date.now()) {
+  const none = { text: "Chuyên gia chưa xác nhận", attention: false };
+  if (frozen) return { text: "Chưa xác nhận · khiếu nại chặn tự hoàn tất", attention: false };
+  if (!b.endDate) return none;
+  const missing = b.planDays - b.deliveredDays;
+  const reachedEnd = vnDateOf(now) >= b.endDate;
+  const autoAt = autoCompleteAt(b.endDate);
+  if (missing > 0) {
+    if (Date.parse(autoAt) <= now) return { text: `Thiếu ${missing} ngày nên không tự hoàn tất · cần Ban quản trị xem xét`, attention: true };
+    return { text: reachedEnd ? `Chưa xác nhận được: còn thiếu ${missing} ngày` : `Chưa xác nhận được: cần giao đủ ngày và tới ${formatDateOnly(b.endDate)}`, attention: false };
+  }
+  if (!reachedEnd) return { text: `Đã giao đủ · xác nhận được từ ${formatDateOnly(b.endDate)}`, attention: false };
+  // Still uncompleted past the moment with every day in: the last of them came after it.
+  if (Date.parse(autoAt) <= now) return { text: `Giao đủ sau ${formatVnDateTime(autoAt)} nên không tự hoàn tất · cần Ban quản trị xem xét`, attention: true };
+  return { text: `Chuyên gia chưa xác nhận · hệ thống tự hoàn tất lúc ${formatVnDateTime(autoAt)}`, attention: false };
 }
 
 export function BookingTypeBadge({ type }: { type: BookingType }) {

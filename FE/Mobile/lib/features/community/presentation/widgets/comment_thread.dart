@@ -161,17 +161,7 @@ class CommentThreadList extends StatelessWidget {
                                 child: _tile(r),
                               ),
                             if (t.hiddenReplies > 0 &&
-                                !BackendModules.commentReplyPaging)
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                    vertical: 6, horizontal: 8),
-                                child: Text(
-                                  'Còn ${t.hiddenReplies} phản hồi khác, chưa xem được trên bản này',
-                                  style: context.textStyles.bodySmall
-                                      ?.copyWith(color: context.vl.muted),
-                                ),
-                              )
-                            else if (t.hiddenReplies > 0)
+                                BackendModules.commentReplyPaging)
                               Align(
                                 alignment: Alignment.centerLeft,
                                 child: t.loadingReplies

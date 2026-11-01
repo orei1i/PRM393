@@ -299,12 +299,12 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
     }
 
-    testWidgets('the real BE cannot empty it: not offered', (tester) async {
+    testWidgets('the real BE can empty it: offered', (tester) async {
       BackendModules.debugOverride({BackendModule.planner});
       addTearDown(() => BackendModules.debugOverride(null));
       await openMenu(tester);
       expect(find.text('Tạo lại bằng AI'), findsOneWidget);
-      expect(find.text('Tự lên thực đơn'), findsNothing);
+      expect(find.text('Tự lên thực đơn'), findsOneWidget);
     });
 
     testWidgets('mock mode keeps it', (tester) async {

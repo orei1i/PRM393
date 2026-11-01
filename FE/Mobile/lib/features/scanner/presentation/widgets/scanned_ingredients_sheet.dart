@@ -37,6 +37,11 @@ import 'dashed_border.dart';
 /// is added to today's plan its button reads "Xem thực đơn" (leaves the
 /// scanner for the Thực đơn tab).
 class ScannedIngredientsSheet extends ConsumerStatefulWidget {
+  /// Under an empty "Gợi ý món" when the catalogue could only be partly read.
+  static const noPlanNote =
+      'Chưa có thực đơn tuần này nên chỉ tìm được trong các món hợp với tủ lạnh. '
+      'Tạo thực đơn để tìm trong toàn bộ công thức.';
+
   const ScannedIngredientsSheet({
     super.key,
     required this.onRescan,
@@ -217,6 +222,13 @@ class _ScannedIngredientsSheetState
     } finally {
       if (mounted) setState(() => _savingPantry = false);
     }
+  }
+
+  /// Without a plan this week the real BE only offers what suits the fridge.
+  bool get _catalogueIsPartial {
+    if (BackendModules.isMock(BackendModule.recipes)) return false;
+    final planner = ref.watch(mealPlanControllerProvider).valueOrNull;
+    return planner != null && planner.plan == null;
   }
 
   void _openPlanner() {
@@ -532,12 +544,28 @@ class _ScannedIngredientsSheetState
                       ],
                     ),
                     const SizedBox(height: 8),
-                    if (state.menu.isEmpty)
+                    if (state.menu.isEmpty) ...[
                       Text(
                         'Chưa ghép được món nào từ các nguyên liệu này. Thêm 1–2 nguyên liệu rồi thử lại nhé.',
                         style: context.textStyles.bodyMedium
                             ?.copyWith(color: vl.muted),
                       ),
+                      if (_catalogueIsPartial) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          ScannedIngredientsSheet.noPlanNote,
+                          style: context.textStyles.bodySmall
+                              ?.copyWith(color: vl.muted),
+                        ),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton(
+                            onPressed: _openPlanner,
+                            child: const Text('Mở Thực đơn'),
+                          ),
+                        ),
+                      ],
+                    ],
                     for (final m in state.menu)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 8),
@@ -816,7 +844,7 @@ class _IngredientTile extends StatelessWidget {
                                 )
                               else
                                 TextSpan(
-                                  text: '${(item.confidence * 100).round()}%',
+                                  text: item.confidenceLabel,
                                   style: AppTypography.mono(
                                       size: 11,
                                       color: pending

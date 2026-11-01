@@ -589,20 +589,20 @@ void main() {
           find.text(
               'Nhu cầu ≈ ${formatInt(Energy.roundForDisplay(me))} kcal/ngày'),
           findsOneWidget);
-      for (final label in ['Nam', 'Nữ', 'Khác', 'Ít', 'Nhẹ', 'Vừa', 'Nhiều']) {
+      for (final label in ['Nam', 'Nữ', 'Ít', 'Nhẹ', 'Vừa', 'Nhiều']) {
         expect(find.text(label), findsOneWidget, reason: label);
       }
+      expect(find.text('Khác'), findsNothing);
 
-      // "Khác" uses the mean constant: −78 instead of −161.
-      await tester.tap(find.text('Khác'));
+      await tester.tap(find.text('Nam'));
       await tester.pump();
-      final other = Energy.tdee(
+      final male = Energy.tdee(
           Energy.bmr(
-              gender: Gender.other, weightKg: 66, heightCm: 172, age: age),
+              gender: Gender.male, weightKg: 66, heightCm: 172, age: age),
           ActivityLevel.light);
       expect(
           find.text(
-              'Nhu cầu ≈ ${formatInt(Energy.roundForDisplay(other))} kcal/ngày'),
+              'Nhu cầu ≈ ${formatInt(Energy.roundForDisplay(male))} kcal/ngày'),
           findsOneWidget);
 
       await tester.enterText(

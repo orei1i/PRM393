@@ -225,7 +225,7 @@ class _ScannerViewState extends ConsumerState<_ScannerView>
     if (camera == null) return;
     try {
       await camera.setFlashMode(_torchOn ? FlashMode.off : FlashMode.torch);
-      setState(() => _torchOn = !_torchOn);
+      if (mounted) setState(() => _torchOn = !_torchOn);
     } on CameraException {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
