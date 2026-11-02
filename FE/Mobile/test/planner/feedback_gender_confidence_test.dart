@@ -1,6 +1,6 @@
 // test/planner/feedback_gender_confidence_test.dart
 // Tester feedback: only Nam and Nữ in the health profile form, with an old "Khác"
-// asked again on save; the scan's percentages say what they are.
+// asked again on save; the scan shows no percentages.
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -130,12 +130,7 @@ void main() {
       ],
     );
 
-    test('in words', () {
-      expect(low.confidenceLabel, 'Độ tin cậy 58%');
-      expect(confidenceLabelOf(0.96), 'Độ tin cậy 96%');
-    });
-
-    testWidgets('the confirm sheet says what the numbers are, and fits',
+    testWidgets('the confirm sheet shows no percentages, and fits',
         (tester) async {
       await _pump(
           tester,
@@ -146,9 +141,9 @@ void main() {
           textScale: 1.3,
           theme: AppTheme.dark());
       await tester.pump();
-      expect(find.textContaining('Độ tin cậy 58%'), findsNWidgets(2));
-      expect(find.text('Độ tin cậy 21%'), findsOneWidget);
-      expect(find.text('58%'), findsNothing);
+      expect(find.text('Rau chân vịt'), findsOneWidget);
+      expect(find.text('Rau muống'), findsOneWidget);
+      expect(find.textContaining('%'), findsNothing);
       expect(tester.takeException(), isNull);
     });
   });

@@ -1,7 +1,6 @@
 // lib/features/scanner/presentation/widgets/confirm_ingredient_sheet.dart
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/app_typography.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../domain/entities/detected_ingredient.dart';
 import 'bounding_box_overlay.dart';
@@ -58,9 +57,9 @@ class _ConfirmIngredientSheetState extends State<ConfirmIngredientSheet> {
   Widget build(BuildContext context) {
     final item = widget.item;
     final vl = context.vl;
-    final options = <(String, double)>[
-      (item.name, item.confidence),
-      for (final a in item.alternatives) (a.name, a.confidence),
+    final options = [
+      item.name,
+      for (final a in item.alternatives) a.name,
     ];
     final canConfirm = (_resolvedName ?? '').isNotEmpty;
     final typed = _otherController.text.trim();
@@ -83,29 +82,17 @@ class _ConfirmIngredientSheetState extends State<ConfirmIngredientSheet> {
           Text('Đây có phải ${item.name.toLowerCase()}?',
               style: context.textStyles.titleLarge),
           const SizedBox(height: 6),
-          Text.rich(
-            TextSpan(
-              style: context.textStyles.bodyMedium?.copyWith(color: vl.muted),
-              children: [
-                TextSpan(
-                  text: item.confidenceLabel,
-                  style: AppTypography.mono(
-                      size: 14, color: context.colors.onSurface),
-                ),
-                const TextSpan(
-                    text:
-                        ' là khá thấp. Nhiều nguyên liệu trông giống nhau nên mình hỏi lại cho chắc.'),
-              ],
-            ),
+          Text(
+            'Nhiều nguyên liệu trông giống nhau nên mình hỏi lại cho chắc.',
+            style: context.textStyles.bodyMedium?.copyWith(color: vl.muted),
           ),
           const SizedBox(height: 16),
-          for (final (name, confidence) in options)
+          for (final name in options)
             OptionTile(
               label: name,
               subtitle: item.veganVerdictFor(name).isVegan
                   ? null
                   : 'Không thuần chay · sẽ không được lưu',
-              trailing: confidenceLabelOf(confidence),
               selected: !_other && _selected == name,
               onTap: () => setState(() {
                 _other = false;
@@ -186,12 +173,10 @@ class OptionTile extends StatelessWidget {
       required this.selected,
       required this.onTap,
       this.subtitle,
-      this.trailing,
       this.icon});
 
   final String label;
   final String? subtitle;
-  final String? trailing;
   final IconData? icon;
   final bool selected;
   final VoidCallback onTap;
@@ -247,10 +232,6 @@ class OptionTile extends StatelessWidget {
                               ],
                             ),
                     ),
-                    if (trailing != null)
-                      Text(trailing!,
-                          style: AppTypography.mono(
-                              size: 12, color: context.vl.muted)),
                   ],
                 ),
               ),

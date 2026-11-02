@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_typography.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../domain/entities/detected_ingredient.dart';
 import 'dashed_border.dart';
@@ -169,15 +168,14 @@ class _DetectionBox extends StatelessWidget {
     final confident = item.confirmed;
     final color = _boxColor(item);
     final vegan = item.isVegan ? 'Thuần chay' : 'Không thuần chay';
-    final percent = '${(item.confidence * 100).round()}%';
     final label = _displayName(item);
     return Semantics(
       button: true,
       label: item.userVerified
           ? '$label, đã xác nhận, $vegan'
           : confident
-              ? '$label, độ tin cậy $percent, $vegan'
-              : 'Cần xác nhận: $label, độ tin cậy $percent, $vegan',
+              ? '$label, $vegan'
+              : 'Cần xác nhận: $label, $vegan',
       excludeSemantics: true,
       child: GestureDetector(
         onTap: onTap,
@@ -200,8 +198,8 @@ class _DetectionBox extends StatelessWidget {
   }
 }
 
-/// "Cà rốt tin cậy 91%" (or "Rau chân vịt? tin cậy 58%", or a check once the user confirmed
-/// it), in the box colour.
+/// "Cà rốt" (or "Rau chân vịt?", with a check once the user confirmed it), in
+/// the box colour.
 class _NameChip extends StatelessWidget {
   const _NameChip({required this.item, required this.onTap});
 
@@ -234,13 +232,10 @@ class _NameChip extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 6),
-              if (item.userVerified)
-                const Icon(Icons.check_rounded, size: 14, color: chipText)
-              else
-                Text('tin cậy ${(item.confidence * 100).round()}%',
-                    style: AppTypography.mono(
-                        size: 11, weight: FontWeight.w700, color: chipText)),
+              if (item.userVerified) ...[
+                const SizedBox(width: 6),
+                const Icon(Icons.check_rounded, size: 14, color: chipText),
+              ],
             ],
           ),
         ),
