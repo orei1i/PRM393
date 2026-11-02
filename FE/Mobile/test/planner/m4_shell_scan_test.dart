@@ -262,6 +262,11 @@ void main() {
       await tester.pump(const Duration(seconds: 3)); // mock vision
       await settle(tester);
 
+      // Neither the chips nor the list show the model's score.
+      expect(find.textContaining('%', skipOffstage: false), findsNothing);
+      expect(find.textContaining('tin cậy', skipOffstage: false), findsNothing);
+      expect(find.text('Chưa chắc chắn', skipOffstage: false), findsOneWidget);
+
       final tray = find
           .descendant(
               of: find.byType(ScannedIngredientsSheet),

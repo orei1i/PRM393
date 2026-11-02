@@ -754,7 +754,7 @@ class _NothingToSave extends StatelessWidget {
   }
 }
 
-/// Name, vegan badge and confidence; confirm (low confidence) or remove. No
+/// Name and vegan badge; confirm (low confidence) or remove. No
 /// amounts: the fridge only records what is there. A non-vegan item also
 /// shows why and its vegan swaps ([onPickAlternative]).
 class _IngredientTile extends StatelessWidget {
@@ -823,36 +823,18 @@ class _IngredientTile extends StatelessWidget {
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           VeganBadge(isVegan: item.isVegan, onDark: false),
-                          Text.rich(
-                            TextSpan(children: [
-                              if (pending)
-                                TextSpan(
-                                    text: 'Chưa chắc chắn · ',
-                                    style: detailStyle),
-                              if (item.manual)
-                                TextSpan(
-                                    text: 'Thêm thủ công', style: detailStyle)
-                              // Once the user confirmed it, the model score
-                              // is moot.
-                              else if (item.userVerified)
-                                TextSpan(
-                                  text: 'Đã xác nhận',
-                                  style: context.textStyles.bodySmall?.copyWith(
-                                    color: vl.onSuccessContainer,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                )
-                              else
-                                TextSpan(
-                                  text: item.confidenceLabel,
-                                  style: AppTypography.mono(
-                                      size: 11,
-                                      color: pending
-                                          ? vl.onCautionContainer
-                                          : vl.muted),
-                                ),
-                            ]),
-                          ),
+                          if (pending)
+                            Text('Chưa chắc chắn', style: detailStyle),
+                          if (item.manual)
+                            Text('Thêm thủ công', style: detailStyle)
+                          else if (item.userVerified)
+                            Text(
+                              'Đã xác nhận',
+                              style: context.textStyles.bodySmall?.copyWith(
+                                color: vl.onSuccessContainer,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                         ],
                       ),
                     ],
