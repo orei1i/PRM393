@@ -8,7 +8,7 @@ namespace ApplicationLayer.Interfaces
         Task<FeedPageResponse> GetFeedAsync(int page, int pageSize, string? type, string? mediaType, string? currentUserId, string? cursor = null, int? limit = null);
         Task<PostResponse> ModeratePostAsync(string postId, string actionOrDecision, string? reason = null);
         Task<FeedPageResponse> GetAdminPostsAsync(string? status, int page, int pageSize);
-        Task<PostResponse> GetPostByIdAsync(string id, string? currentUserId);
+        Task<PostResponse> GetPostByIdAsync(string id, string? currentUserId, string? role = null);
         Task<PostResponse> CreatePostAsync(CreatePostRequest request, string currentUserId);
         Task<bool> DeletePostAsync(string id, string currentUserId, string? role);
         Task<LikeResponse> ToggleLikeAsync(string postId, string currentUserId);

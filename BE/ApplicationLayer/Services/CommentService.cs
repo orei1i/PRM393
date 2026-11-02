@@ -145,6 +145,12 @@ namespace ApplicationLayer.Services
                     throw new NotFoundException("Không tìm thấy bình luận gốc để phản hồi.");
                 }
 
+                // B16/B39: Flatten reply về root comment (1 cấp duy nhất)
+                if (!string.IsNullOrEmpty(parentComment.ParentId))
+                {
+                    validParentId = parentComment.ParentId;
+                }
+
                 // Tăng reply count cho bình luận gốc
                 await _commentRepo.IncrementFieldAsync(validParentId, c => c.ReplyCount, 1);
             }
@@ -227,12 +233,18 @@ namespace ApplicationLayer.Services
             return true;
         }
 
-        public async Task<IEnumerable<CommentResponse>> GetCommentRepliesAsync(string commentId)
+        public async Task<IEnumerable<CommentResponse>> GetCommentRepliesAsync(string commentId, string? postId = null)
         {
             var parent = await _commentRepo.FindByIdAsync(commentId);
             if (parent == null || parent.IsDeleted)
             {
                 throw new NotFoundException($"Không tìm thấy bình luận với id: {commentId}");
+            }
+
+            // B40: Route replies kiểm tra comment có thuộc về postId hay không
+            if (!string.IsNullOrEmpty(postId) && parent.PostId != postId)
+            {
+                throw new NotFoundException($"Bình luận không thuộc bài viết: {postId}");
             }
 
             var replies = (await _commentRepo.FindAsync(r =>

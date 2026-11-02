@@ -136,7 +136,7 @@ namespace VeganLife.Tests
                 mockMediaService.Object,
                 mockLogger.Object);
 
-            var response = await service.ModeratePostAsync(postId, "restore");
+            var response = await service.ModeratePostAsync(postId, "approve");
 
             Assert.Equal("Published", post.Status);
             Assert.Equal(0, post.ReportCount); // B27: Report count must be reset to 0

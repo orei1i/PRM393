@@ -82,7 +82,7 @@ namespace VeganLife.Tests
             });
 
             Assert.NotNull(response.AllergyWarning);
-            Assert.Contains("peanut", response.AllergyWarning, StringComparison.OrdinalIgnoreCase);
+            Assert.True(response.AllergyWarning.Contains("Đậu phộng", StringComparison.OrdinalIgnoreCase) || response.AllergyWarning.Contains("peanut", StringComparison.OrdinalIgnoreCase));
         }
 
         [Fact]

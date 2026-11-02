@@ -84,10 +84,17 @@ namespace ApplicationLayer.Services
                 var duplicate = existingPantry.FirstOrDefault(p =>
                     (p.NormalizedName == normalized || AllergyMatcher.RemoveDiacritics(p.Ingredient).ToLowerInvariant() == normalized));
 
-
                 if (duplicate != null)
                 {
-                    if (req.Quantity > 0) duplicate.Quantity = req.Quantity;
+                    // B38: Chỉ cập nhật số lượng và đơn vị khi request có truyền giá trị
+                    if (req.Quantity.HasValue && req.Quantity.Value > 0)
+                    {
+                        duplicate.Quantity = req.Quantity.Value;
+                        if (!string.IsNullOrWhiteSpace(req.Unit))
+                        {
+                            duplicate.Unit = req.Unit.Trim();
+                        }
+                    }
                     if (req.ExpiryDate.HasValue) duplicate.ExpiryDate = req.ExpiryDate;
                     if (req.ScannedAt.HasValue) duplicate.ScannedAt = req.ScannedAt;
                     duplicate.NormalizedName = normalized;
@@ -108,7 +115,7 @@ namespace ApplicationLayer.Services
                         IngredientId = matchedIngredient?.Id,
                         Category = matchedIngredient?.Category ?? "vegetable",
                         CaloriesPer100g = matchedIngredient?.CaloriesPer100g,
-                        Quantity = req.Quantity > 0 ? req.Quantity : 1.0,
+                        Quantity = (req.Quantity.HasValue && req.Quantity.Value > 0) ? req.Quantity.Value : 1.0,
                         Unit = string.IsNullOrWhiteSpace(req.Unit) ? "phần" : req.Unit.Trim(),
                         ExpiryDate = req.ExpiryDate,
                         ScannedAt = req.ScannedAt,
@@ -118,9 +125,28 @@ namespace ApplicationLayer.Services
                         CreatedAt = DateTime.UtcNow
                     };
 
-                    await _pantryRepo.CreateAsync(newItem);
-                    existingPantry.Add(newItem);
-                    results.Add(MapToResponse(newItem, userAllergies));
+                    try
+                    {
+                        await _pantryRepo.CreateAsync(newItem);
+                        existingPantry.Add(newItem);
+                        results.Add(MapToResponse(newItem, userAllergies));
+                    }
+                    catch (Exception ex) when (IsDuplicateKeyException(ex))
+                    {
+                        // Xử lý race condition khi quét đồng thời gặp E11000
+                        var recheck = await _pantryRepo.FirstOrDefaultAsync(p => p.UserId == userId && p.NormalizedName == normalized && !p.IsDeleted);
+                        if (recheck != null)
+                        {
+                            if (req.Quantity.HasValue && req.Quantity.Value > 0)
+                            {
+                                recheck.Quantity = req.Quantity.Value;
+                                if (!string.IsNullOrWhiteSpace(req.Unit)) recheck.Unit = req.Unit.Trim();
+                            }
+                            recheck.UpdatedAt = DateTime.UtcNow;
+                            await _pantryRepo.UpdateAsync(recheck.Id, recheck);
+                            results.Add(MapToResponse(recheck, userAllergies));
+                        }
+                    }
                 }
             }
 
@@ -217,7 +243,9 @@ namespace ApplicationLayer.Services
 
                 if (conflicts.Any())
                 {
-                    warning = $"Cảnh báo dị ứng: {string.Join(", ", conflicts)}";
+                    // B14: Định dạng thông báo cảnh báo dị ứng bằng nhãn tiếng Việt ngắn
+                    var shortLabels = conflicts.Select(AllergyMatcher.GetShortLabel);
+                    warning = $"Cảnh báo dị ứng: {string.Join(", ", shortLabels)}";
                 }
             }
 
@@ -256,6 +284,12 @@ namespace ApplicationLayer.Services
                 CautionFor = i.CautionFor
             };
         }
+
+        private static bool IsDuplicateKeyException(Exception ex)
+        {
+            var typeName = ex.GetType().Name;
+            return (typeName == "MongoWriteException" || typeName == "MongoBulkWriteException" || typeName == "MongoDuplicateKeyException")
+                && (ex.Message.Contains("11000") || ex.Message.Contains("DuplicateKey") || ex.Message.Contains("duplicate key"));
+        }
     }
 }
-

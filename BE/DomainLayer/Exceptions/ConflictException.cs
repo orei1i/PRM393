@@ -1,13 +1,13 @@
-namespace DomainLayer.Exceptions;
+﻿namespace DomainLayer.Exceptions;
 
 /// <summary>
-/// Thrown when an operation conflicts with existing data (e.g. duplicate name, duplicate entry).
+/// Thrown when a write conflicts with existing data (e.g., unique email already exists).
 /// Maps to HTTP 409 Conflict.
 /// </summary>
 public class ConflictException : BaseHttpException
 {
-    public ConflictException(string message = "Conflict") : base(message) { }
+    public ConflictException(string message = "Resource conflict", string? errorCode = null) : base(message, errorCode) { }
 
-    public ConflictException(string message, Exception innerException)
-        : base(message, innerException) { }
+    public ConflictException(string message, Exception innerException, string? errorCode = null)
+        : base(message, innerException, errorCode) { }
 }

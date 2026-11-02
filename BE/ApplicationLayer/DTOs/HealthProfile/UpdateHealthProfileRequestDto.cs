@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 
 namespace ApplicationLayer.DTOs.HealthProfile
@@ -11,14 +11,14 @@ namespace ApplicationLayer.DTOs.HealthProfile
         [Range(20, 300, ErrorMessage = "Cân nặng phải nằm trong khoảng từ 20 đến 300 kg.")]
         public double WeightKg { get; set; }
 
-        public string Goal { get; set; } = "maintain";
+        public string? Goal { get; set; }
 
         public string? Gender { get; set; }
 
         [Range(1920, 2015, ErrorMessage = "Năm sinh không hợp lệ (13–100 tuổi).")]
         public int? BirthYear { get; set; }
 
-        public string ActivityLevel { get; set; } = "light";
+        public string? ActivityLevel { get; set; }
 
         public List<string>? MealPattern { get; set; }
 

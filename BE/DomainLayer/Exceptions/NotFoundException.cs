@@ -1,4 +1,4 @@
-namespace DomainLayer.Exceptions;
+﻿namespace DomainLayer.Exceptions;
 
 /// <summary>
 /// Thrown when a requested resource does not exist or has been soft-deleted.
@@ -6,8 +6,8 @@ namespace DomainLayer.Exceptions;
 /// </summary>
 public class NotFoundException : BaseHttpException
 {
-    public NotFoundException(string message = "Entity not found") : base(message) { }
+    public NotFoundException(string message = "Entity not found", string? errorCode = null) : base(message, errorCode) { }
 
-    public NotFoundException(string message, Exception innerException)
-        : base(message, innerException) { }
+    public NotFoundException(string message, Exception innerException, string? errorCode = null)
+        : base(message, innerException, errorCode) { }
 }

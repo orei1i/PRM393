@@ -1,4 +1,4 @@
-namespace ControllerLayer.Models
+﻿namespace ControllerLayer.Models
 {
     /// <summary>
     /// Wrapper response chuẩn cho tất cả API — Flutter parse nhất quán.
@@ -7,6 +7,7 @@ namespace ControllerLayer.Models
     {
         public bool Success { get; set; }
         public string? Message { get; set; }
+        public string? Code { get; set; }
         public T? Data { get; set; }
         public int StatusCode { get; set; }
         public object? Errors { get; set; }
@@ -29,26 +30,29 @@ namespace ControllerLayer.Models
             StatusCode = 201
         };
 
-        public static ApiResponse<T> Fail(string message, int statusCode = 400) => new()
+        public static ApiResponse<T> Fail(string message, int statusCode = 400, string? code = null) => new()
         {
             Success    = false,
             Message    = message,
+            Code       = code,
             Data       = default,
             StatusCode = statusCode
         };
 
-        public static ApiResponse<T> NotFound(string message = "Không tìm thấy dữ liệu.") => new()
+        public static ApiResponse<T> NotFound(string message = "Không tìm thấy dữ liệu.", string? code = "not_found") => new()
         {
             Success    = false,
             Message    = message,
+            Code       = code,
             Data       = default,
             StatusCode = 404
         };
 
-        public static ApiResponse<T> Unauthorized(string message = "Không có quyền truy cập.") => new()
+        public static ApiResponse<T> Unauthorized(string message = "Không có quyền truy cập.", string? code = "unauthorized") => new()
         {
             Success    = false,
             Message    = message,
+            Code       = code,
             Data       = default,
             StatusCode = 401
         };
