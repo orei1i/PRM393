@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 namespace ApplicationLayer.DTOs.MealPlan
 {
@@ -91,7 +91,7 @@ namespace ApplicationLayer.DTOs.MealPlan
         public double? FatG { get; set; }
         public double? FiberG { get; set; }
         public double? Portion { get; set; }
-        public int? PrepMinutes { get; set; } = 15;
+        public int? PrepMinutes { get; set; }
         public List<string>? Ingredients { get; set; }
         public List<string>? Allergens { get; set; }
     }

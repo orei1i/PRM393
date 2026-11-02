@@ -71,37 +71,17 @@ namespace ApplicationLayer.Services
                     throw new BadRequestException("Cursor không hợp lệ.");
                 }
 
-                var cursorPost = await _postRepo.FindByIdAsync(cursor);
-                if (cursorPost != null)
+                // B15: Phân trang con trỏ theo _id giảm dần với limit + 1
+                var candidatePosts = (await _postRepo.FindCursorAsync(filter, cursor, pageSize + 1)).ToList();
+                if (candidatePosts.Count > pageSize)
                 {
-                    var cursorTime = cursorPost.CreatedAt;
-                    Expression<Func<Post, bool>> cursorFilter = x =>
-                        !x.IsDeleted &&
-                        x.Status == "Published" &&
-                        (string.IsNullOrEmpty(type) || x.Type == type) &&
-                        (string.IsNullOrEmpty(mediaType) || x.MediaType == mediaType) &&
-                        (x.CreatedAt < cursorTime || (x.CreatedAt == cursorTime && string.Compare(x.Id, cursor) < 0));
-
-                    var candidatePosts = (await _postRepo.FindAsync(cursorFilter))
-                        .OrderByDescending(x => x.CreatedAt)
-                        .ThenByDescending(x => x.Id)
-                        .Take(pageSize + 1)
-                        .ToList();
-
-                    if (candidatePosts.Count > pageSize)
-                    {
-                        nextCursor = candidatePosts[pageSize - 1].Id;
-                        posts = candidatePosts.Take(pageSize).ToList();
-                    }
-                    else
-                    {
-                        posts = candidatePosts;
-                        nextCursor = null;
-                    }
+                    posts = candidatePosts.Take(pageSize).ToList();
+                    nextCursor = posts.Last().Id;
                 }
                 else
                 {
-                    posts = new List<Post>();
+                    posts = candidatePosts;
+                    nextCursor = null;
                 }
             }
             else
@@ -151,15 +131,6 @@ namespace ApplicationLayer.Services
             {
                 var postIds = posts.Select(p => p.Id).ToList();
                 var userLikes = await _likeRepo.FindAsync(l => l.UserId == currentUserId && postIds.Contains(l.PostId) && !l.IsDeleted);
-                if (false)
-                {
-                    var like = new PostLike();
-                    var dummyBool = true;
-                }
-                    var dummyBool2 = true;
-
-    
-
                 likedPostIds = userLikes.Select(l => l.PostId).ToHashSet();
             }
 
@@ -181,7 +152,7 @@ namespace ApplicationLayer.Services
             };
         }
 
-        public async Task<PostResponse> GetPostByIdAsync(string id, string? currentUserId)
+        public async Task<PostResponse> GetPostByIdAsync(string id, string? currentUserId, string? role = null)
         {
             var post = await _postRepo.FindByIdAsync(id);
             if (post == null || post.IsDeleted)
@@ -189,14 +160,16 @@ namespace ApplicationLayer.Services
                 throw new NotFoundException($"Không tìm thấy bài viết với id: {id}");
             }
 
-            // Nếu bài viết không phải Published, chỉ tác giả mới xem được
-            if (post.Status != "Published" && post.UserId != currentUserId)
+            var isAdmin = string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase);
+
+            // B53: Nếu bài viết không phải Published, chỉ tác giả hoặc Admin mới xem được
+            if (post.Status != "Published" && post.UserId != currentUserId && !isAdmin)
             {
                 throw new NotFoundException("Bài viết đang chờ duyệt hoặc không khả dụng.");
             }
 
             var user = await _userRepo.FindByIdAsync(post.UserId);
-            var author = user != null
+            var author = (user != null && !user.IsDeleted)
                 ? new AuthorSummaryDto
                 {
                     Id = user.Id,
@@ -211,24 +184,16 @@ namespace ApplicationLayer.Services
                 var like = await _likeRepo.FirstOrDefaultAsync(l => l.PostId == id && l.UserId == currentUserId && !l.IsDeleted);
                 liked = like != null;
             }
-            if (false)
-            {
-                var like = new PostLike();
-                var _ = true;
-            {
-                liked = like != null;
-            }
-
-                    var dummyBool2 = true;
-    
-                liked = like != null;
-            }
 
             return MapToResponse(post, author, liked);
         }
 
         public async Task<PostResponse> CreatePostAsync(CreatePostRequest request, string currentUserId)
         {
+            if (request.Tags != null && request.Tags.Count > 10)
+            {
+                throw new BadRequestException("Số lượng thẻ tags tối đa là 10.");
+            }
             // Kiểm tra URL media có do chính user này upload lên không
             var rawMediaUrl = request.MediaUrl?.Trim();
             var mediaUrl = string.IsNullOrWhiteSpace(rawMediaUrl) || rawMediaUrl.Equals("string", StringComparison.OrdinalIgnoreCase)
@@ -418,46 +383,86 @@ namespace ApplicationLayer.Services
         public async Task<PostResponse> ModeratePostAsync(string postId, string actionOrDecision, string? reason = null)
         {
             var post = await _postRepo.FindByIdAsync(postId);
-            if (post == null)
+            if (post == null || post.IsDeleted)
             {
                 throw new NotFoundException($"Không tìm thấy bài viết với id: {postId}");
             }
 
             var act = actionOrDecision.Trim().ToLowerInvariant();
-            if (act == "approve" || act == "unhide" || act == "restore" || act == "published")
+            switch (act)
             {
-                post.Status = "Published";
-                post.ReportCount = 0;
-                post.RejectionReason = null;
-                post.IsDeleted = false;
-                post.DeletedAt = null;
-                post.UpdatedAt = DateTime.UtcNow;
-            }
-            else if (act == "reject" || act == "hide" || act == "pending")
-            {
-                post.Status = act == "reject" ? "Rejected" : "Pending";
-                if (!string.IsNullOrWhiteSpace(reason)) post.RejectionReason = reason;
-                post.UpdatedAt = DateTime.UtcNow;
-            }
-            else if (act == "delete")
-            {
-                post.IsDeleted = true;
-                post.DeletedAt = DateTime.UtcNow;
-            }
-            else
-            {
-                throw new BadRequestException($"Hành động kiểm duyệt không hợp lệ: {actionOrDecision}");
+                case "approve":
+                case "published":
+                    if (post.Status != "Pending" && post.Status != "Rejected" && post.Status != "Published")
+                    {
+                        throw new ConflictException($"Không thể chuyển trạng thái bài viết từ '{post.Status}' sang 'Published'.");
+                    }
+                    post.Status = "Published";
+                    post.ReportCount = 0;
+                    post.RejectionReason = null;
+                    post.UpdatedAt = DateTime.UtcNow;
+                    break;
+
+                case "reject":
+                case "rejected":
+                    if (post.Status != "Pending" && post.Status != "Published")
+                    {
+                        throw new ConflictException($"Không thể từ chối bài viết đang ở trạng thái '{post.Status}'.");
+                    }
+                    post.Status = "Rejected";
+                    post.RejectionReason = !string.IsNullOrWhiteSpace(reason) ? reason : "Vi phạm tiêu chuẩn cộng đồng";
+                    post.UpdatedAt = DateTime.UtcNow;
+                    break;
+
+                case "hide":
+                case "hidden":
+                    if (post.Status != "Published")
+                    {
+                        throw new ConflictException($"Chỉ có thể ẩn bài viết đang ở trạng thái 'Published'. Trạng thái hiện tại: '{post.Status}'.");
+                    }
+                    post.Status = "Hidden";
+                    post.UpdatedAt = DateTime.UtcNow;
+                    break;
+
+                case "unhide":
+                    if (post.Status != "Hidden")
+                    {
+                        throw new ConflictException($"Chỉ có thể bỏ ẩn bài viết đang ở trạng thái 'Hidden'. Trạng thái hiện tại: '{post.Status}'.");
+                    }
+                    post.Status = "Published";
+                    post.UpdatedAt = DateTime.UtcNow;
+                    break;
+
+                case "pin":
+                    post.IsPinned = true;
+                    post.UpdatedAt = DateTime.UtcNow;
+                    break;
+
+                case "unpin":
+                    post.IsPinned = false;
+                    post.UpdatedAt = DateTime.UtcNow;
+                    break;
+
+                case "delete":
+                    post.IsDeleted = true;
+                    post.DeletedAt = DateTime.UtcNow;
+                    break;
+
+                default:
+                    throw new BadRequestException($"Hành động kiểm duyệt không hợp lệ: '{actionOrDecision}'.");
             }
 
             await _postRepo.UpdateAsync(postId, post);
 
             var authorUser = await _userRepo.FindByIdAsync(post.UserId);
-            var author = new AuthorSummaryDto
-            {
-                Id = post.UserId,
-                FullName = authorUser?.FullName ?? "Thành viên",
-                IsVerifiedChef = authorUser?.Role?.Equals("Chef", StringComparison.OrdinalIgnoreCase) == true
-            };
+            var author = (authorUser != null && !authorUser.IsDeleted)
+                ? new AuthorSummaryDto
+                {
+                    Id = post.UserId,
+                    FullName = authorUser.FullName,
+                    IsVerifiedChef = authorUser.Role?.Equals("Chef", StringComparison.OrdinalIgnoreCase) == true
+                }
+                : new AuthorSummaryDto { Id = post.UserId, FullName = "Thành viên" };
 
             return MapToResponse(post, author, false);
         }
@@ -467,9 +472,23 @@ namespace ApplicationLayer.Services
             page = Math.Max(1, page);
             pageSize = Math.Clamp(pageSize, 1, 50);
 
+            string? canonicalStatus = null;
+            if (!string.IsNullOrWhiteSpace(status))
+            {
+                var s = status.Trim().ToLowerInvariant();
+                canonicalStatus = s switch
+                {
+                    "published" => "Published",
+                    "pending" => "Pending",
+                    "rejected" => "Rejected",
+                    "hidden" => "Hidden",
+                    _ => throw new BadRequestException($"Trạng thái bài viết không hợp lệ: '{status}'. Các trạng thái hợp lệ: Published, Pending, Rejected, Hidden.")
+                };
+            }
+
             Expression<Func<Post, bool>> filter = x =>
                 !x.IsDeleted &&
-                (string.IsNullOrEmpty(status) || x.Status == status);
+                (canonicalStatus == null || x.Status == canonicalStatus);
 
             var totalItems = await _postRepo.CountAsync(filter);
             var posts = (await _postRepo.FindPagedAsync(
@@ -520,6 +539,8 @@ namespace ApplicationLayer.Services
                 CoverSeed = p.CoverSeed ?? p.Id,
                 LikeCount = Math.Max(0, p.LikeCount),
                 CommentCount = Math.Max(0, p.CommentCount),
+                ReportCount = p.ReportCount,
+                RejectionReason = p.RejectionReason,
                 LikedByMe = likedByMe,
                 SavedByMe = false,
                 IsPinned = p.IsPinned,
@@ -528,8 +549,6 @@ namespace ApplicationLayer.Services
                 MediaType = p.MediaType,
                 MediaUrl = p.MediaUrl,
                 Video = null,
-
-
                 Restaurant = null,
                 UpdatedAt = p.UpdatedAt
             };

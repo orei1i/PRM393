@@ -48,7 +48,8 @@ namespace ControllerLayer.Controllers
         public async Task<ActionResult<ApiResponse<PostResponse>>> GetPostById(string id)
         {
             var currentUserId = User.GetUserIdOrDefault();
-            var result = await _postService.GetPostByIdAsync(id, currentUserId);
+            var role = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+            var result = await _postService.GetPostByIdAsync(id, currentUserId, role);
             return Ok(ApiResponse<PostResponse>.Ok(result));
         }
 
@@ -144,7 +145,7 @@ namespace ControllerLayer.Controllers
         [ProducesResponseType(typeof(ApiResponse<IEnumerable<CommentResponse>>), StatusCodes.Status200OK)]
         public async Task<ActionResult<ApiResponse<IEnumerable<CommentResponse>>>> GetCommentReplies(string id, string commentId)
         {
-            var result = await _commentService.GetCommentRepliesAsync(commentId);
+            var result = await _commentService.GetCommentRepliesAsync(commentId, id);
             return Ok(ApiResponse<IEnumerable<CommentResponse>>.Ok(result));
         }
     }

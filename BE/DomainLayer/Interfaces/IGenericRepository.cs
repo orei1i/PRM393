@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
@@ -21,7 +21,12 @@ namespace DomainLayer.Interfaces
             int pageSize,
             Expression<Func<T, object>>? sortAsc = null,
             Expression<Func<T, object>>? sortDesc = null);
+        Task<IEnumerable<T>> FindCursorAsync(
+            Expression<Func<T, bool>> predicate,
+            string? lastId,
+            int limit);
         Task<bool> IncrementFieldAsync(string id, Expression<Func<T, int>> field, int value = 1);
+        Task<bool> IncrementFieldAsync(string id, Expression<Func<T, int>> field, int value, bool touchUpdatedAt);
         Task<bool> UpdateFieldAsync<TField>(string id, Expression<Func<T, TField>> field, TField value);
     }
 }

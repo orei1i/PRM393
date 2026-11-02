@@ -1,4 +1,4 @@
-namespace DomainLayer.Exceptions;
+﻿namespace DomainLayer.Exceptions;
 
 /// <summary>
 /// Base class for all HTTP-mappable exceptions.
@@ -8,8 +8,8 @@ public abstract class BaseHttpException : DomainException
 {
     protected BaseHttpException() : base() { }
 
-    protected BaseHttpException(string message) : base(message) { }
+    protected BaseHttpException(string message, string? errorCode = null) : base(message, errorCode) { }
 
-    protected BaseHttpException(string message, Exception innerException)
-        : base(message, innerException) { }
+    protected BaseHttpException(string message, Exception innerException, string? errorCode = null)
+        : base(message, innerException, errorCode) { }
 }

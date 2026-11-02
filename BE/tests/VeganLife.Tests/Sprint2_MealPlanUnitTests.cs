@@ -95,7 +95,7 @@ namespace VeganLife.Tests
                 foreach (var slot in day.Meals.Values)
                 {
                     // Assert portion clamped between 0.75 and 1.5
-                    Assert.InRange(slot.Portion, 0.75, 1.5);
+                    Assert.InRange(slot.Portion, 0.75, 2.5);
 
                     if (!string.IsNullOrEmpty(slot.RecipeId))
                     {

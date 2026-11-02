@@ -42,9 +42,10 @@ namespace ApplicationLayer.DTOs.Users
     public class UpdateUserRequest
     {
         [Required(ErrorMessage = "Họ tên là bắt buộc.")]
+        [StringLength(100, MinimumLength = 2, ErrorMessage = "Họ tên phải từ 2 đến 100 ký tự.")]
         public string FullName { get; set; } = string.Empty;
 
-        [Phone(ErrorMessage = "Số điện thoại không hợp lệ.")]
+        [RegularExpression(@"^$|^(0|\+84)[0-9]{8,11}$", ErrorMessage = "Số điện thoại không hợp lệ.")]
         public string? Phone { get; set; }
     }
 }
