@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
+using ApplicationLayer.DTOs.Auth;
 using ApplicationLayer.DTOs.HealthProfile;
 using ApplicationLayer.DTOs.MealPlan;
 using ApplicationLayer.DTOs.Pantry;
@@ -155,7 +156,7 @@ namespace VeganLife.Tests
             var service = new HealthProfileService(profileRepoMock.Object, logRepoMock.Object, mealPlanRepoMock.Object);
 
             var ex = await Assert.ThrowsAsync<BadRequestException>(() =>
-                service.LogMetricsAsync("u1", new HealthMetricLogDto()));
+                service.LogMetricsAsync("u1", new LogMetricsRequest()));
 
             Assert.Contains("ít nhất một chỉ số", ex.Message);
         }
@@ -176,7 +177,7 @@ namespace VeganLife.Tests
             var service = new HealthProfileService(profileRepoMock.Object, logRepoMock.Object, mealPlanRepoMock.Object);
 
             await Assert.ThrowsAsync<NotFoundException>(() =>
-                service.LogMetricsAsync("u1", new HealthMetricLogDto { WeightKg = 65 }));
+                service.LogMetricsAsync("u1", new LogMetricsRequest { WeightKg = 65 }));
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -219,7 +220,7 @@ namespace VeganLife.Tests
 
             var service = new HealthProfileService(profileRepoMock.Object, logRepoMock.Object, mealPlanRepoMock.Object);
 
-            var result = await service.LogMetricsAsync("u1", new HealthMetricLogDto { WeightKg = 75 });
+            var result = await service.LogMetricsAsync("u1", new LogMetricsRequest { WeightKg = 75 });
             Assert.NotNull(result);
             Assert.True(profile.WeightKg == 75);
             Assert.True(profile.TargetCalories > 0);
@@ -310,16 +311,16 @@ namespace VeganLife.Tests
                 WeightKg = 70,
                 Allergies = null
             });
-            Assert.Contains("peanut", res.Allergies);
+            Assert.Contains(res.Allergies, a => a.AllergenId == "peanut");
 
             // PUT with Vietnamese allergy name -> normalizes to ID
             var res2 = await service.UpdateMyHealthProfileAsync("u1", new UpdateHealthProfileRequest
             {
                 HeightCm = 175,
                 WeightKg = 70,
-                Allergies = new List<string> { "Đậu nành" }
+                Allergies = new List<AllergyItemDto> { new AllergyItemDto { Name = "Đậu nành" } }
             });
-            Assert.Contains("soy", res2.Allergies);
+            Assert.Contains(res2.Allergies, a => a.AllergenId == "soy");
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -361,7 +362,7 @@ namespace VeganLife.Tests
         [Fact]
         public void Test_B14_AllergyMatcher_ShortLabel_AndExcludesMeFromSesame()
         {
-            Assert.Equal("Mè / Vừng", AllergyMatcher.GetShortLabel("sesame"));
+            Assert.Equal("Mè", AllergyMatcher.GetShortLabel("sesame"));
             Assert.Equal("Đậu phộng", AllergyMatcher.GetShortLabel("peanut"));
 
             // "Quả me" must NOT trigger sesame allergy
@@ -564,7 +565,7 @@ namespace VeganLife.Tests
 
             var service = new PantryService(pantryRepoMock.Object, ingRepoMock.Object, profileRepoMock.Object);
 
-            var results = await service.AddPantryItemsAsync("u1", new List<AddPantryItemRequest>
+            var results = await service.AddPantryItemsBatchAsync("u1", new List<AddPantryItemRequest>
             {
                 new()
                 {
@@ -612,11 +613,16 @@ namespace VeganLife.Tests
         [Fact]
         public async Task Test_B16_B39_Comments_FlattensRepliesToRootComment()
         {
-            var rootComment = new Comment { Id = "root_1", PostId = "p1", ParentId = null };
-            var childComment = new Comment { Id = "child_1", PostId = "p1", ParentId = "root_1" };
+            var rootId = "507f1f77bcf86cd799439011";
+            var childId = "507f1f77bcf86cd799439012";
+            var postId = "507f1f77bcf86cd799439013";
+
+            var rootComment = new Comment { Id = rootId, PostId = postId, ParentId = null };
+            var childComment = new Comment { Id = childId, PostId = postId, ParentId = rootId };
 
             var commentRepoMock = new Mock<IGenericRepository<Comment>>();
-            commentRepoMock.Setup(r => r.FindByIdAsync("child_1")).ReturnsAsync(childComment);
+            commentRepoMock.Setup(r => r.FindByIdAsync(childId)).ReturnsAsync(childComment);
+            commentRepoMock.Setup(r => r.FindByIdAsync(rootId)).ReturnsAsync(rootComment);
 
             Comment? savedComment = null;
             commentRepoMock.Setup(r => r.CreateAsync(It.IsAny<Comment>()))
@@ -624,18 +630,21 @@ namespace VeganLife.Tests
                 .ReturnsAsync((Comment c) => c);
 
             var postRepoMock = new Mock<IGenericRepository<Post>>();
+            postRepoMock.Setup(r => r.FindByIdAsync(postId)).ReturnsAsync(new Post { Id = postId, Title = "Post", IsDeleted = false });
+
             var userRepoMock = new Mock<IGenericRepository<User>>();
+            userRepoMock.Setup(r => r.FindByIdAsync("u2")).ReturnsAsync(new User { Id = "u2", FullName = "User 2" });
 
             var service = new CommentService(commentRepoMock.Object, postRepoMock.Object, userRepoMock.Object);
 
-            var reply = await service.CreateCommentAsync("p1", new CreateCommentRequest
+            var reply = await service.CreateCommentAsync(postId, new CreateCommentRequest
             {
                 Content = "Reply to child",
-                ParentId = "child_1"
+                ParentId = childId
             }, "u2");
 
             Assert.NotNull(savedComment);
-            Assert.Equal("root_1", savedComment.ParentId); // Flattened to root!
+            Assert.Equal(rootId, savedComment.ParentId); // Flattened to root!
         }
 
         // ─────────────────────────────────────────────────────────────────────
