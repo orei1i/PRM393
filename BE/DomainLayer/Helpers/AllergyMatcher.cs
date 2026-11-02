@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -31,18 +31,59 @@ namespace DomainLayer.Helpers
             ["celery"] = "Cần tây"
         };
 
+        // B14: Nhãn ngắn tiếng Việt dùng riêng cho thông báo cảnh báo dị ứng
+        public static readonly Dictionary<string, string> ShortAllergenLabels = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["peanut"] = "Đậu phộng",
+            ["tree_nut"] = "Hạt cây",
+            ["soy"] = "Đậu nành",
+            ["gluten"] = "Gluten",
+            ["sesame"] = "Mè",
+            ["mustard"] = "Mù tạt",
+            ["celery"] = "Cần tây"
+        };
+
+        public static string GetShortLabel(string allergenId)
+        {
+            if (string.IsNullOrWhiteSpace(allergenId)) return string.Empty;
+            return ShortAllergenLabels.TryGetValue(allergenId, out var label) ? label : allergenId;
+        }
+
         private static readonly Dictionary<string, List<string>> StandardAllergenKeywords = new(StringComparer.OrdinalIgnoreCase)
         {
             ["peanut"] = new() { "đậu phộng", "dau phong", "lạc", "lac", "peanut" },
             ["soy"] = new() { "đậu nành", "dau nanh", "đậu tương", "dau tuong", "tàu hũ", "tau hu", "đậu phụ", "dau phu", "soy" },
             ["gluten"] = new() { "gluten", "lúa mì", "lua mi", "bột mì", "bot mi", "bánh mì", "banh mi", "yến mạch", "yen mach" },
-            ["sesame"] = new() { "mè", "me", "vừng", "vung", "sesame" },
+            // B14: Bỏ từ khóa "me" không dấu để tránh quả Me bị bắt nhầm thành dị ứng Mè
+            ["sesame"] = new() { "mè", "vừng", "vung", "sesame" },
             ["mustard"] = new() { "mù tạt", "mu tat", "mustard" },
             ["celery"] = new() { "cần tây", "can tay", "celery" },
             ["tree_nut"] = new() { "hạt điều", "hat dieu", "óc chó", "oc cho", "hạnh nhân", "hanh nhan", "dẻ cười", "de cuoi", "macca" }
         };
 
         public static bool IsStandardAllergen(string key) => StandardAllergenIds.Contains(key);
+
+        // B68: Chuẩn hóa tên dị ứng tự do sang AllergenId chuẩn
+        public static string? NormalizeToId(string? input)
+        {
+            if (string.IsNullOrWhiteSpace(input)) return null;
+            var trimmed = input.Trim();
+            if (IsStandardAllergen(trimmed)) return trimmed.ToLowerInvariant();
+
+            var norm = RemoveDiacritics(trimmed).ToLowerInvariant();
+            foreach (var kvp in StandardAllergenKeywords)
+            {
+                foreach (var kw in kvp.Value)
+                {
+                    var kwNorm = RemoveDiacritics(kw).ToLowerInvariant();
+                    if (norm.Contains(kwNorm) || kwNorm.Contains(norm))
+                    {
+                        return kvp.Key;
+                    }
+                }
+            }
+            return null;
+        }
 
         public static string RemoveDiacritics(string text)
         {
@@ -137,4 +178,3 @@ namespace DomainLayer.Helpers
         }
     }
 }
-

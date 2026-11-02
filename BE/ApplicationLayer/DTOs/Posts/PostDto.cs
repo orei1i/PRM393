@@ -29,6 +29,8 @@ namespace ApplicationLayer.DTOs.Posts
         public string? CoverSeed { get; set; }
         public int LikeCount { get; set; }
         public int CommentCount { get; set; }
+        public int ReportCount { get; set; }
+        public string? RejectionReason { get; set; }
         public bool LikedByMe { get; set; }
         public bool SavedByMe { get; set; }
         public bool IsPinned { get; set; }
@@ -43,10 +45,11 @@ namespace ApplicationLayer.DTOs.Posts
 
     public class CreatePostRequest
     {
+        [RegularExpression("^(recipe|discussion)$", ErrorMessage = "Type chỉ chấp nhận 'recipe' hoặc 'discussion'.")]
         public string Type { get; set; } = "discussion"; // "recipe" | "discussion"
 
         [Required(ErrorMessage = "Tiêu đề bài viết là bắt buộc.")]
-        [MaxLength(200, ErrorMessage = "Tiêu đề không được vượt quá 200 ký tự.")]
+        [StringLength(120, MinimumLength = 1, ErrorMessage = "Tiêu đề không được vượt quá 120 ký tự.")]
         public string Title { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "Nội dung bài viết là bắt buộc.")]
@@ -55,6 +58,7 @@ namespace ApplicationLayer.DTOs.Posts
 
         public List<string>? Tags { get; set; }
 
+        [RegularExpression("^(Text|Image|Video)$", ErrorMessage = "MediaType chỉ chấp nhận 'Text', 'Image', hoặc 'Video'.")]
         public string? MediaType { get; set; } = "Text"; // "Text" | "Image" | "Video"
 
         public string? MediaUrl { get; set; }
@@ -74,18 +78,24 @@ namespace ApplicationLayer.DTOs.Posts
 
     public class AdminReviewPostRequest
     {
-        public string Decision { get; set; } = "Approve"; // "Approve" | "Reject"
+        [Required(ErrorMessage = "Quyết định kiểm duyệt là bắt buộc.")]
+        [RegularExpression("^(Approve|Reject)$", ErrorMessage = "Decision chỉ nhận 'Approve' hoặc 'Reject'.")]
+        public string Decision { get; set; } = string.Empty; // "Approve" | "Reject"
         public string? Reason { get; set; }
     }
 
     public class AdminActionPostRequest
     {
-        public string Action { get; set; } = "restore"; // "restore" | "unhide" | "hide" | "delete"
+        [Required(ErrorMessage = "Hành động quản trị là bắt buộc.")]
+        [RegularExpression("^(hide|unhide|pin|unpin|delete)$", ErrorMessage = "Action chỉ nhận 'hide', 'unhide', 'pin', 'unpin', hoặc 'delete'.")]
+        public string Action { get; set; } = string.Empty; // "hide" | "unhide" | "pin" | "unpin" | "delete"
         public string? Reason { get; set; }
     }
 
     public class AdminStatusPostRequest
     {
-        public string Status { get; set; } = "Published"; // "Published" | "Pending" | "Rejected"
+        [Required(ErrorMessage = "Trạng thái là bắt buộc.")]
+        [RegularExpression("^(Published|Pending|Rejected|Hidden)$", ErrorMessage = "Status chỉ nhận 'Published', 'Pending', 'Rejected', hoặc 'Hidden'.")]
+        public string Status { get; set; } = string.Empty; // "Published" | "Pending" | "Rejected" | "Hidden"
     }
 }

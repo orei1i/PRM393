@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
@@ -88,20 +88,48 @@ namespace InfrastructureLayer.Repository
             var findFluent = _collection.Find(predicate);
             if (sortAsc != null)
             {
-                findFluent = findFluent.SortBy(sortAsc);
+                findFluent = findFluent.Sort(Builders<T>.Sort.Ascending(sortAsc).Descending(x => x.Id));
             }
             else if (sortDesc != null)
             {
-                findFluent = findFluent.SortByDescending(sortDesc);
+                findFluent = findFluent.Sort(Builders<T>.Sort.Descending(sortDesc).Descending(x => x.Id));
+            }
+            else
+            {
+                findFluent = findFluent.Sort(Builders<T>.Sort.Descending(x => x.Id));
             }
 
             return await findFluent.Skip(skip).Limit(pageSize).ToListAsync();
         }
 
+        // B15: Cursor pagination query trực tiếp MongoDB theo _id giảm dần
+        public async Task<IEnumerable<T>> FindCursorAsync(
+            Expression<Func<T, bool>> predicate,
+            string? lastId,
+            int limit)
+        {
+            var filter = Builders<T>.Filter.Where(predicate);
+            if (!string.IsNullOrEmpty(lastId))
+            {
+                filter = filter & Builders<T>.Filter.Lt(x => x.Id, lastId);
+            }
+
+            return await _collection.Find(filter)
+                .Sort(Builders<T>.Sort.Descending(x => x.Id))
+                .Limit(limit)
+                .ToListAsync();
+        }
+
+        // B17: Overload 3 tham số mặc định touchUpdatedAt: false để không làm vỡ các Moq test cũ
         public async Task<bool> IncrementFieldAsync(string id, Expression<Func<T, int>> field, int value = 1)
         {
+            return await IncrementFieldAsync(id, field, value, touchUpdatedAt: false);
+        }
+
+        public async Task<bool> IncrementFieldAsync(string id, Expression<Func<T, int>> field, int value, bool touchUpdatedAt)
+        {
             var update = Builders<T>.Update.Inc(field, value);
-            if (typeof(BaseEntity).IsAssignableFrom(typeof(T)))
+            if (touchUpdatedAt && typeof(BaseEntity).IsAssignableFrom(typeof(T)))
             {
                 update = update.Set("UpdatedAt", DateTime.UtcNow);
             }

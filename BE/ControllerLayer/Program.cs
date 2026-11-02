@@ -1,8 +1,9 @@
-using ApplicationLayer.Interfaces;
+﻿using ApplicationLayer.Interfaces;
 using ApplicationLayer.Services;
 using CloudinaryDotNet;
 using ControllerLayer.Filters;
 using ControllerLayer.Middlewares;
+using DomainLayer.Entities;
 using DomainLayer.Interfaces;
 using InfrastructureLayer.Configuration;
 using InfrastructureLayer.Database;
@@ -10,7 +11,10 @@ using InfrastructureLayer.ExternalServices.Gemini;
 using InfrastructureLayer.Repository;
 using InfrastructureLayer.Seed;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using System.Text;
 
 // B12: Tạo sẵn thư mục wwwroot và uploads trước khi CreateBuilder khởi tạo web root
@@ -25,6 +29,9 @@ builder.WebHost.ConfigureKestrel(options =>
     options.Limits.MaxRequestBodySize = 104_857_600; // 100 MB
 });
 
+// ─── In-Memory Cache (cho B54 Token Validation Cache) ──────────────────────────
+builder.Services.AddMemoryCache();
+
 // ─── Controllers + Filters ────────────────────────────────────────────────────
 builder.Services.AddControllers(options =>
 {
@@ -32,22 +39,38 @@ builder.Services.AddControllers(options =>
     options.Filters.Add<ValidationFilter>();
 });
 
-// B25: Chuẩn hoá lỗi ModelState thành envelope ApiResponse thống nhất
+// B25 & B64: Chuẩn hoá lỗi ModelState và JSON Parser thành envelope ApiResponse thống nhất
 builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options =>
 {
     options.InvalidModelStateResponseFactory = context =>
     {
+        var hasJsonError = context.ModelState.Values.Any(v => v.Errors.Any(e =>
+            e.ErrorMessage.Contains("JSON", StringComparison.OrdinalIgnoreCase) ||
+            e.ErrorMessage.Contains("converted", StringComparison.OrdinalIgnoreCase) ||
+            e.Exception is System.Text.Json.JsonException));
+
         var errors = context.ModelState
             .Where(e => e.Value?.Errors.Count > 0)
             .ToDictionary(
                 kvp => kvp.Key,
-                kvp => kvp.Value!.Errors.Select(e => e.ErrorMessage).ToArray()
+                kvp => kvp.Value!.Errors.Select(e =>
+                {
+                    if (e.ErrorMessage.Contains("JSON", StringComparison.OrdinalIgnoreCase) ||
+                        e.ErrorMessage.Contains("converted", StringComparison.OrdinalIgnoreCase) ||
+                        e.Exception is System.Text.Json.JsonException)
+                    {
+                        return "Định dạng JSON gửi lên không hợp lệ.";
+                    }
+                    return string.IsNullOrWhiteSpace(e.ErrorMessage) ? "Dữ liệu không hợp lệ." : e.ErrorMessage;
+                }).ToArray()
             );
+
         var response = new ControllerLayer.Models.ApiResponse<object>
         {
             Success = false,
             StatusCode = StatusCodes.Status400BadRequest,
-            Message = "Dữ liệu yêu cầu không hợp lệ.",
+            Code = hasJsonError ? "invalid_json" : "validation_error",
+            Message = hasJsonError ? "Định dạng JSON gửi lên không hợp lệ." : "Dữ liệu yêu cầu không hợp lệ.",
             Errors = errors
         };
         return new Microsoft.AspNetCore.Mvc.BadRequestObjectResult(response);
@@ -64,7 +87,6 @@ builder.Services.AddSwaggerGen(c =>
         Version = "v1"
     });
 
-    // Swagger hỗ trợ JWT Bearer — chỉ cần paste token, Swagger tự thêm "Bearer "
     c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
     {
         Name         = "Authorization",
@@ -90,15 +112,16 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-// ─── CORS — cho phép Flutter gọi API ─────────────────────────────────────────
+// ─── CORS — cho phép Flutter & Web Admin gọi API (B65 WithExposedHeaders) ──────
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("MobilePolicy", policy =>
     {
         policy
-            .AllowAnyOrigin()   // Flutter mobile không cần restrict origin
+            .AllowAnyOrigin()
             .AllowAnyMethod()
-            .AllowAnyHeader();
+            .AllowAnyHeader()
+            .WithExposedHeaders("X-Total-Count", "X-Page", "X-Page-Size");
     });
 });
 
@@ -118,6 +141,68 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidIssuer              = jwtSettings["Issuer"],
             ValidAudience            = jwtSettings["Audience"],
             IssuerSigningKey         = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey))
+        };
+
+        // B54: OnTokenValidated kiểm tra trạng thái hoạt động của User và cache 45 giây
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var userId = context.Principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                             ?? context.Principal?.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+                             ?? context.Principal?.FindFirst("sub")?.Value;
+
+                if (string.IsNullOrEmpty(userId))
+                {
+                    context.Fail("Token không chứa thông tin định danh người dùng.");
+                    return;
+                }
+
+                var cache = context.HttpContext.RequestServices.GetRequiredService<IMemoryCache>();
+                var userRepo = context.HttpContext.RequestServices.GetRequiredService<IGenericRepository<User>>();
+
+                var cacheKey = DomainLayer.Constants.UserCacheKeys.UserStatus(userId);
+                if (!cache.TryGetValue(cacheKey, out (bool IsActive, string? Reason) cachedStatus))
+                {
+                    try
+                    {
+                        var user = await userRepo.FindByIdAsync(userId);
+                        if (user != null)
+                        {
+                            if (user.IsDeleted)
+                            {
+                                cachedStatus = (false, "Tài khoản không tồn tại hoặc đã bị xóa.");
+                            }
+                            else if (user.Status == DomainLayer.Enums.GeneralEnum.UserStatusEnum.Locked ||
+                                     user.Status == DomainLayer.Enums.GeneralEnum.UserStatusEnum.Banned)
+                            {
+                                cachedStatus = (false, "Tài khoản đã bị tạm khóa hoặc cấm.");
+                            }
+                            else
+                            {
+                                cachedStatus = (true, null);
+                            }
+                        }
+                        else
+                        {
+                            // User không tìm thấy (ví dụ mock user trong integration test)
+                            cachedStatus = (true, null);
+                        }
+                    }
+                    catch
+                    {
+                        // Mongo offline hoặc connection timeout
+                        cachedStatus = (true, null);
+                    }
+
+                    cache.Set(cacheKey, cachedStatus, TimeSpan.FromSeconds(45));
+                }
+
+                if (!cachedStatus.IsActive)
+                {
+                    context.Fail(cachedStatus.Reason ?? "Tài khoản không thể truy cập.");
+                }
+            }
         };
     });
 
@@ -160,20 +245,62 @@ builder.Services.AddHttpClient<IGeminiClient, GeminiClient>(client =>
 // ─────────────────────────────────────────────────────────────────────────────
 // ─── Kiểm tra an toàn khoá bí mật khi khởi động ─────────────────────────────
 var configuredJwtSecret = builder.Configuration["JwtSettings:SecretKey"];
+var configuredManagerPass = builder.Configuration["FranchiseOnboarding:DefaultManagerPassword"];
 if (!builder.Environment.IsDevelopment())
 {
-    if (string.IsNullOrWhiteSpace(configuredJwtSecret) || configuredJwtSecret.Contains("PLACEHOLDER"))
+    if (string.IsNullOrWhiteSpace(configuredJwtSecret) || configuredJwtSecret.Contains("PLACEHOLDER", StringComparison.OrdinalIgnoreCase))
     {
         throw new InvalidOperationException("CRITICAL: JwtSettings:SecretKey chưa được cấu hình hoặc vẫn mang giá trị placeholder!");
+    }
+    if (string.IsNullOrWhiteSpace(configuredManagerPass) || configuredManagerPass.Contains("PLACEHOLDER", StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException("CRITICAL: FranchiseOnboarding:DefaultManagerPassword chưa được cấu hình hoặc vẫn mang giá trị placeholder!");
     }
 }
 
 var app = builder.Build();
 
-// ─── Exception Handling (phải là middleware đầu tiên) ─────────────────────────
-
+// ─── Exception Handling & CORS ────────────────────────────────────────────────
 app.UseCors("MobilePolicy");
 app.UseMiddleware<ExceptionHandlingMiddleware>();
+
+// B63: Bọc 401/403/404 từ framework middleware vào envelope ApiResponse
+app.UseStatusCodePages(async statusCodeContext =>
+{
+    var httpContext = statusCodeContext.HttpContext;
+    var statusCode = httpContext.Response.StatusCode;
+
+    if (statusCode == StatusCodes.Status401Unauthorized ||
+        statusCode == StatusCodes.Status403Forbidden ||
+        statusCode == StatusCodes.Status404NotFound)
+    {
+        httpContext.Response.ContentType = "application/json";
+
+        var (message, code) = statusCode switch
+        {
+            StatusCodes.Status401Unauthorized => ("Chưa xác thực hoặc token không hợp lệ.", "unauthorized"),
+            StatusCodes.Status403Forbidden => ("Không có quyền truy cập tài nguyên này.", "forbidden"),
+            StatusCodes.Status404NotFound => ("Đường dẫn hoặc tài nguyên không tồn tại.", "not_found"),
+            _ => ("Yêu cầu không hợp lệ.", "bad_request")
+        };
+
+        var envelope = new
+        {
+            success = false,
+            message = message,
+            code = code,
+            statusCode = statusCode
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize(envelope, new System.Text.Json.JsonSerializerOptions
+        {
+            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+        });
+
+        await httpContext.Response.WriteAsync(json);
+    }
+});
+
 app.UseStaticFiles();
 
 // ─── Swagger ──────────────────────────────────────────────────────────────────
@@ -185,8 +312,6 @@ if (app.Environment.IsDevelopment())
 }
 
 // ─── Pipeline ─────────────────────────────────────────────────────────────────
-
-
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 
@@ -24,9 +24,9 @@ namespace ApplicationLayer.DTOs.Pantry
         [Required(ErrorMessage = "Tên nguyên liệu không được để trống.")]
         public string Ingredient { get; set; } = string.Empty;
 
-        public double Quantity { get; set; } = 1.0;
+        public double? Quantity { get; set; }
 
-        public string Unit { get; set; } = "phần";
+        public string? Unit { get; set; }
 
         public DateTime? ExpiryDate { get; set; }
 
@@ -47,4 +47,3 @@ namespace ApplicationLayer.DTOs.Pantry
         public DateTime? ExpiryDate { get; set; }
     }
 }
-
