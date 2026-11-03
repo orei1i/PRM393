@@ -70,6 +70,16 @@ npm run dev
 
 Mở `http://localhost:3000`. Tài khoản admin chỉ đăng nhập được trên trang quản trị, không đăng nhập được trên app.
 
+**4. Nạp tài liệu cho trợ lý dinh dưỡng.** Kho tài liệu trên máy mới luôn trống, nên trợ lý sẽ trả lời "Tài liệu chưa có thông tin đó" cho mọi câu hỏi cho tới khi bạn nạp tài liệu. Tài liệu không nằm trong git.
+
+1. Chạy BE có đặt `RagDatabaseName` và `Gemini__ApiKey`, vì BE cần key để tạo chỉ mục cho tài liệu.
+2. Đăng nhập trang quản trị bằng tài khoản admin, mở trang **Tài liệu** (`/knowledge`).
+3. Bấm **Tải tài liệu WHO**, chọn tệp `.pdf` (tối đa 30 MB), `.txt` hoặc `.md` (tối đa 5 MB). Điền tiêu đề và đường dẫn nguồn để trợ lý dẫn lại khi trích.
+4. Tài liệu admin tải lên được duyệt ngay khi tạo chỉ mục xong. Nếu tạo chỉ mục lỗi (key sai, hết hạn mức), tài liệu nằm ở trạng thái chờ duyệt; sửa lỗi rồi duyệt lại để thử lại. Tài liệu do chuyên gia gửi luôn chờ admin duyệt.
+5. Mở **Hỏi AI** trên app, hỏi một câu có trong tài liệu. Câu trả lời đúng phải có số trích dẫn và mở được đoạn trích.
+
+Chỉ nạp tài liệu bạn được phép dùng, và ghi rõ nguồn.
+
 ## Kiểm thử
 
 ```bash
