@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Text.Json;
 using ControllerLayer.Models;
 using DomainLayer.Exceptions;
@@ -60,10 +60,13 @@ namespace ControllerLayer.Middlewares
                 TooManyRequestsException      => ((HttpStatusCode)429,                ex.Message, "too_many_requests"),
                 PayloadTooLargeException      => ((HttpStatusCode)413,                ex.Message, "payload_too_large"),
                 UnsupportedMediaTypeException => ((HttpStatusCode)415,                ex.Message, "unsupported_media_type"),
+                TrialExhaustedException       => ((HttpStatusCode)402,                ex.Message, "trial_exhausted"),
+                ServiceUnavailableException   => ((HttpStatusCode)503,                ex.Message, "ai_unavailable"),
                 ServerFailureException        => (HttpStatusCode.InternalServerError, _env.IsDevelopment() ? ex.Message : "Đã xảy ra lỗi, vui lòng thử lại sau.", "internal_server_error"),
                 DomainException               => (HttpStatusCode.BadRequest,          ex.Message, "bad_request"),
-                KeyNotFoundException          => (HttpStatusCode.NotFound,            ex.Message, "not_found"),
-                UnauthorizedAccessException   => (HttpStatusCode.Unauthorized,        ex.Message, "unauthorized"),
+                KeyNotFoundException          => (HttpStatusCode.NotFound,            _env.IsDevelopment() ? ex.Message : "Không tìm thấy dữ liệu.", "not_found"),
+                UnauthorizedAccessException   => (HttpStatusCode.Unauthorized,        _env.IsDevelopment() ? ex.Message : "Chưa xác thực hoặc token không hợp lệ.", "unauthorized"),
+                BadHttpRequestException { StatusCode: 413 } => ((HttpStatusCode)413,  "Dữ liệu gửi lên vượt quá dung lượng cho phép.", "payload_too_large"),
                 BadHttpRequestException       => (HttpStatusCode.BadRequest,          "Dữ liệu yêu cầu HTTP hoặc JSON không hợp lệ.", "bad_request"),
                 JsonException                 => (HttpStatusCode.BadRequest,          "Định dạng JSON gửi lên không hợp lệ.", "invalid_json"),
                 ArgumentException             => (HttpStatusCode.BadRequest,          _env.IsDevelopment() ? ex.Message : "Dữ liệu yêu cầu không hợp lệ.", "bad_request"),

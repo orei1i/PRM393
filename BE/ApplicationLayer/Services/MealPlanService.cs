@@ -55,7 +55,7 @@ namespace ApplicationLayer.Services
             var plan = await _mealPlanRepo.FindByIdAsync(planId);
             if (plan == null || plan.IsDeleted || plan.UserId != userId)
             {
-                throw new NotFoundException($"Không tìm thấy thực đơn với id: {planId}");
+                throw new NotFoundException("Không tìm thấy thực đơn.");
             }
 
             var userAllergies = await GetUserAllergiesAsync(userId);
@@ -304,7 +304,7 @@ namespace ApplicationLayer.Services
             var plan = await _mealPlanRepo.FindByIdAsync(planId);
             if (plan == null || plan.IsDeleted || plan.UserId != userId)
             {
-                throw new NotFoundException($"Không tìm thấy thực đơn với id: {planId}");
+                throw new NotFoundException("Không tìm thấy thực đơn.");
             }
 
             var day = plan.Days.FirstOrDefault(d => d.Date == request.Date);
@@ -313,15 +313,23 @@ namespace ApplicationLayer.Services
                 throw new NotFoundException($"Không tìm thấy ngày {request.Date} trong thực đơn.");
             }
 
-            var recipe = await _recipeRepo.FindByIdAsync(request.RecipeId);
-            if (recipe == null || recipe.IsDeleted)
+            RecipeRules.RequireSlot(request.Slot);
+            RecipeRules.RequireSource(request.Source);
+            if (request.Portion.HasValue && (request.Portion.Value <= 0 || request.Portion.Value > MaxManualPortion))
             {
-                throw new NotFoundException($"Không tìm thấy công thức với id: {request.RecipeId}");
+                throw new BadRequestException($"Portion phải nằm trong khoảng từ 0.1 đến {MaxManualPortion}.", "invalid_portion");
+            }
+
+            // Công thức riêng tư của người khác cũng coi như không tồn tại, nếu không sẽ đọc được qua thực đơn của mình.
+            var recipe = await _recipeRepo.FindByIdAsync(request.RecipeId);
+            if (recipe == null || !RecipeRules.CanSee(recipe, userId))
+            {
+                throw new NotFoundException("Không tìm thấy công thức.");
             }
 
             var userAllergies = await GetUserAllergiesAsync(userId);
-            var portion = request.Portion.HasValue && request.Portion.Value > 0 ? request.Portion.Value : 1.0;
-            var source = string.IsNullOrWhiteSpace(request.Source) ? "manual" : request.Source;
+            var portion = request.Portion ?? 1.0;
+            var source = string.IsNullOrWhiteSpace(request.Source) ? "manual" : request.Source.Trim().ToLowerInvariant();
 
             var slotItem = MapToMealSlotItem(recipe, source, portion);
             if (!string.IsNullOrWhiteSpace(request.SourceName))
@@ -352,14 +360,7 @@ namespace ApplicationLayer.Services
                 throw new BadRequestException($"Ngày {request.Date} không nằm trong tuần hiện tại.");
             }
 
-            if (request.Calories < 0 || request.Calories > 5000)
-            {
-                throw new BadRequestException("Calories phải nằm trong khoảng từ 0 đến 5000 kcal.");
-            }
-            if (request.Portion.HasValue && (request.Portion.Value <= 0 || request.Portion.Value > MaxManualPortion))
-            {
-                throw new BadRequestException($"Portion phải nằm trong khoảng từ 0.1 đến {MaxManualPortion}.");
-            }
+            RecipeRules.RequireValidMeal(request, MaxManualPortion);
 
             var userAllergies = await GetUserAllergiesAsync(userId);
             var slotItem = new MealSlotItem
@@ -374,9 +375,9 @@ namespace ApplicationLayer.Services
                 FiberG = request.FiberG,
                 PrepMinutes = request.PrepMinutes.HasValue && request.PrepMinutes.Value > 0 ? request.PrepMinutes.Value : (int?)null,
                 Allergens = request.Allergens ?? new List<string>(),
-                Source = string.IsNullOrWhiteSpace(request.Source) ? "manual" : request.Source,
+                Source = string.IsNullOrWhiteSpace(request.Source) ? "manual" : request.Source.Trim().ToLowerInvariant(),
                 SourceName = request.SourceName,
-                Portion = request.Portion.HasValue && request.Portion.Value > 0 ? request.Portion.Value : 1.0
+                Portion = request.Portion ?? 1.0
             };
 
             var texts = (request.Ingredients ?? new List<string>()).Concat(new[] { request.Name });
@@ -409,7 +410,7 @@ namespace ApplicationLayer.Services
                     continue;
                 }
 
-                if (req.Calories < 0 || req.Calories > 5000)
+                if (RecipeRules.MealProblem(req, MaxManualPortion) != null)
                 {
                     skipped++;
                     continue;
@@ -427,9 +428,9 @@ namespace ApplicationLayer.Services
                     FiberG = req.FiberG,
                     PrepMinutes = req.PrepMinutes.HasValue && req.PrepMinutes.Value > 0 ? req.PrepMinutes.Value : (int?)null,
                     Allergens = req.Allergens ?? new List<string>(),
-                    Source = string.IsNullOrWhiteSpace(req.Source) ? "manual" : req.Source,
+                    Source = string.IsNullOrWhiteSpace(req.Source) ? "manual" : req.Source.Trim().ToLowerInvariant(),
                     SourceName = req.SourceName,
-                    Portion = req.Portion.HasValue && req.Portion.Value > 0 ? req.Portion.Value : 1.0
+                    Portion = req.Portion ?? 1.0
                 };
 
                 var texts = (req.Ingredients ?? new List<string>()).Concat(new[] { req.Name });
@@ -465,7 +466,7 @@ namespace ApplicationLayer.Services
             var plan = await _mealPlanRepo.FindByIdAsync(planId);
             if (plan == null || plan.IsDeleted || plan.UserId != userId)
             {
-                throw new NotFoundException($"Không tìm thấy thực đơn với id: {planId}");
+                throw new NotFoundException("Không tìm thấy thực đơn.");
             }
 
             var day = plan.Days.FirstOrDefault(d => d.Date == date);
@@ -487,7 +488,7 @@ namespace ApplicationLayer.Services
             var plan = await _mealPlanRepo.FindByIdAsync(planId);
             if (plan == null || plan.IsDeleted || plan.UserId != userId)
             {
-                throw new NotFoundException($"Không tìm thấy thực đơn với id: {planId}");
+                throw new NotFoundException("Không tìm thấy thực đơn.");
             }
 
             var userAllergies = await GetUserAllergiesAsync(userId);
@@ -540,9 +541,9 @@ namespace ApplicationLayer.Services
         public async Task<RecipeResponse> GetRecipeByIdAsync(string userId, string recipeId)
         {
             var recipe = await _recipeRepo.FindByIdAsync(recipeId);
-            if (recipe == null || recipe.IsDeleted || (recipe.CreatedBy != null && recipe.CreatedBy != userId))
+            if (recipe == null || !RecipeRules.CanSee(recipe, userId))
             {
-                throw new NotFoundException($"Không tìm thấy công thức: {recipeId}");
+                throw new NotFoundException("Không tìm thấy công thức.");
             }
             return MapToRecipeResponse(recipe);
         }
@@ -550,26 +551,17 @@ namespace ApplicationLayer.Services
         // ─── B13, B19: Tạo công thức kiểm tra thuần chay & Map PrepMinutes ────
         public async Task<RecipeResponse> CreateMyRecipeAsync(string userId, CreateRecipeRequest request)
         {
-            if (string.IsNullOrWhiteSpace(request.Name))
-            {
-                throw new BadRequestException("Tên công thức không được để trống.");
-            }
+            RecipeRules.RequireValidRecipe(request);
 
-            // B13: Kiểm tra tính thuần chay của công thức (chặn thịt bò xào...)
-            if (!VeganClassifier.IsVegan(request.Name))
+            string? basedOnName = null;
+            if (!string.IsNullOrWhiteSpace(request.BasedOnRecipeId))
             {
-                throw new BadRequestException("Tên công thức chứa nguyên liệu không thuần chay. VeganLife chỉ chấp nhận các món thuần chay.");
-            }
-
-            if (request.Ingredients != null && request.Ingredients.Any())
-            {
-                foreach (var ing in request.Ingredients)
+                var based = await _recipeRepo.FindByIdAsync(request.BasedOnRecipeId);
+                if (based == null || !RecipeRules.CanSee(based, userId))
                 {
-                    if (!VeganClassifier.IsVegan(ing))
-                    {
-                        throw new BadRequestException($"Nguyên liệu '{ing}' không thuần chay. VeganLife chỉ chấp nhận các nguyên liệu thuần chay.");
-                    }
+                    throw new BadRequestException("Không tìm thấy công thức gốc.", "invalid_based_on");
                 }
+                basedOnName = based.Name;
             }
 
             var recipe = new Recipe
@@ -589,6 +581,10 @@ namespace ApplicationLayer.Services
                 Instructions = request.Instructions ?? new List<string>(),
                 MealTypes = new List<string> { "lunch", "dinner" },
                 IsVegan = true,
+                Servings = request.Servings,
+                IngredientItems = request.IngredientItems,
+                BasedOnRecipeId = basedOnName == null ? null : request.BasedOnRecipeId,
+                BasedOnName = basedOnName,
                 CreatedBy = userId,
                 CreatedAt = DateTime.UtcNow
             };
@@ -650,7 +646,7 @@ namespace ApplicationLayer.Services
             return new List<string> { "breakfast", "lunch", "dinner" };
         }
 
-        private static MealSlotItem MapToMealSlotItem(Recipe r, string source, double portion = 1.0)
+        internal static MealSlotItem MapToMealSlotItem(Recipe r, string source, double portion = 1.0)
         {
             return new MealSlotItem
             {
@@ -672,7 +668,7 @@ namespace ApplicationLayer.Services
             };
         }
 
-        private static MealPlanResponse MapToResponse(MealPlan plan, List<string> userAllergies)
+        internal static MealPlanResponse MapToResponse(MealPlan plan, List<string> userAllergies)
         {
             return new MealPlanResponse
             {
@@ -728,7 +724,7 @@ namespace ApplicationLayer.Services
             };
         }
 
-        private static RecipeResponse MapToRecipeResponse(Recipe r)
+        internal static RecipeResponse MapToRecipeResponse(Recipe r)
         {
             return new RecipeResponse
             {
@@ -749,7 +745,17 @@ namespace ApplicationLayer.Services
                 {
                     Ingredient = r.SeasonalSwap.Ingredient,
                     RecipeId = r.SeasonalSwap.RecipeId
-                } : null
+                } : null,
+                IsVegan = r.IsVegan,
+                Servings = r.Servings,
+                CreatedBy = r.CreatedBy,
+                IngredientItems = r.IngredientItems,
+                BasedOnRecipeId = r.BasedOnRecipeId,
+                BasedOnName = r.BasedOnName,
+                Customizations = r.Customizations ?? new List<RecipeCustomization>(),
+                NutritionEstimated = r.NutritionEstimated,
+                AverageRating = r.AverageRating,
+                RatingCount = r.RatingCount
             };
         }
 
@@ -758,6 +764,8 @@ namespace ApplicationLayer.Services
             int diff = (7 + (dt.DayOfWeek - DayOfWeek.Monday)) % 7;
             return dt.AddDays(-1 * diff).Date;
         }
+
+        internal static string CurrentMondayString() => GetCurrentMondayString();
 
         private static string GetCurrentMondayString()
         {

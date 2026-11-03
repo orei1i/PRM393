@@ -22,6 +22,7 @@ namespace ApplicationLayer.Services
         private readonly IGenericRepository<Ingredient> _ingredientRepo;
         private readonly IGenericRepository<HealthProfile> _healthProfileRepo;
         private readonly ILogger<VisionService> _logger;
+        private readonly AiModelGate? _gate;
 
         private const long MaxFileSizeBytes = 10 * 1024 * 1024; // 10 MB
         private const int MaxCallsPerMinute = 10;
@@ -31,8 +32,10 @@ namespace ApplicationLayer.Services
             IGeminiClient geminiClient,
             IGenericRepository<Ingredient> ingredientRepo,
             IGenericRepository<HealthProfile> healthProfileRepo,
-            ILogger<VisionService> logger)
+            ILogger<VisionService> logger,
+            AiModelGate? gate = null)
         {
+            _gate = gate;
             _geminiClient = geminiClient;
             _ingredientRepo = ingredientRepo;
             _healthProfileRepo = healthProfileRepo;
@@ -44,6 +47,10 @@ namespace ApplicationLayer.Services
             string? currentUserId,
             CancellationToken ct = default)
         {
+            var modelConfig = _gate == null
+                ? null
+                : await _gate.EnsureEnabledAsync(AiModelGate.VisionScan, "Quét ảnh đang tạm tắt. Bạn nhập nguyên liệu thủ công nhé.");
+
             // 1. Kiểm tra rate limit (10 lần / phút cho mỗi user)
             var rateKey = !string.IsNullOrWhiteSpace(currentUserId) ? currentUserId : "anonymous";
             CheckRateLimit(rateKey);
@@ -154,6 +161,9 @@ namespace ApplicationLayer.Services
                 foreach (var rawItem in rawResponse.Items)
                 {
                     if (string.IsNullOrWhiteSpace(rawItem.Label)) continue;
+
+                    // Ngưỡng admin đặt ở /ai-models. Món dưới 0,7 mà trên ngưỡng vẫn do app hỏi xác nhận.
+                    if (modelConfig?.Threshold is { } minConfidence && rawItem.Confidence < minConfidence) continue;
 
                     var labelTrimmed = rawItem.Label.Trim();
                     bool? isVegan = rawItem.IsVegan;

@@ -50,6 +50,14 @@ namespace ApplicationLayer.Services
 
         public async Task<HealthProfileResponse> UpdateMyHealthProfileAsync(string userId, UpdateHealthProfileRequest request)
         {
+            // B41: bữa lạ sẽ thành một ô bữa không ai đọc được khi tạo thực đơn. "snack" là tên cũ, vẫn nhận.
+            if (request.MealPattern != null && request.MealPattern.Any(slot =>
+                    string.IsNullOrWhiteSpace(slot) ||
+                    (!RecipeRules.MealSlots.Contains(slot.Trim()) && !string.Equals(slot.Trim(), "snack", StringComparison.OrdinalIgnoreCase))))
+            {
+                throw new BadRequestException("Bữa ăn không hợp lệ. Các bữa hợp lệ: breakfast, snack_am, lunch, snack_pm, dinner, snack_late.", "invalid_slot");
+            }
+
             var existing = await _profileRepo.FirstOrDefaultAsync(x => x.UserId == userId && !x.IsDeleted);
 
             // B43: Chuẩn hóa goal và ánh xạ alias cũ (lose -> lose_weight, gain -> gain_weight)
@@ -225,6 +233,7 @@ namespace ApplicationLayer.Services
                     WeightKg = request.WeightKg,
                     HeightCm = request.HeightCm,
                     Bmi = bmi,
+                    Source = "profile",
                     LoggedAt = DateTime.UtcNow
                 };
                 await _logRepo.CreateAsync(metricLog);
@@ -287,6 +296,7 @@ namespace ApplicationLayer.Services
                 Bmi = bmi,
                 WaistCm = request.WaistCm,
                 BodyFatPct = request.BodyFatPct,
+                Source = string.IsNullOrWhiteSpace(request.Source) ? "check_in" : request.Source.Trim(),
                 LoggedAt = DateTime.UtcNow
             };
 
@@ -344,7 +354,8 @@ namespace ApplicationLayer.Services
                 Bmi = log.Bmi,
                 WaistCm = log.WaistCm,
                 BodyFatPct = log.BodyFatPct,
-                LoggedAt = log.LoggedAt
+                LoggedAt = log.LoggedAt,
+                Source = log.Source
             };
         }
 
@@ -365,7 +376,8 @@ namespace ApplicationLayer.Services
                 Bmi = l.Bmi,
                 WaistCm = l.WaistCm,
                 BodyFatPct = l.BodyFatPct,
-                LoggedAt = l.LoggedAt
+                LoggedAt = l.LoggedAt,
+                Source = l.Source
             });
         }
 
@@ -388,6 +400,18 @@ namespace ApplicationLayer.Services
                 AllergyMatcher.RemoveDiacritics(a.Name).ToLowerInvariant().Contains(qNorm));
         }
 
+        /// <summary>B43: dòng cũ chưa kịp migrate vẫn đọc đúng mục tiêu, không rơi về maintain.</summary>
+        private static string ReadGoal(string? goal)
+        {
+            var value = goal?.Trim().ToLowerInvariant() ?? "maintain";
+            return value switch
+            {
+                "lose" or "weight_loss" => "lose_weight",
+                "gain" => "gain_weight",
+                _ => ValidGoals.Contains(value) ? value : "maintain"
+            };
+        }
+
         private static HealthProfileResponse MapToResponse(HealthProfile profile)
         {
             return new HealthProfileResponse
@@ -398,7 +422,7 @@ namespace ApplicationLayer.Services
                 WeightKg = profile.WeightKg,
                 Bmi = profile.Bmi,
                 BmiCategory = profile.BmiCategory,
-                Goal = ValidGoals.Contains(profile.Goal) ? profile.Goal : "maintain",
+                Goal = ReadGoal(profile.Goal),
                 Gender = profile.Gender,
                 BirthYear = profile.BirthYear,
                 ActivityLevel = profile.ActivityLevel,

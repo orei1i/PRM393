@@ -7,6 +7,12 @@ namespace DomainLayer.Interfaces
     public interface IGeminiClient
     {
         /// <summary>
+        /// True khi có API key thật. False thì client chạy mock: Vision vẫn demo được,
+        /// còn RAG phải từ chối, không được trình bày câu trả lời mock như câu trả lời thật.
+        /// </summary>
+        bool IsConfigured { get; }
+
+        /// <summary>
         /// Gọi Gemini để sinh dữ liệu JSON có cấu trúc theo generic DTO.
         /// Tự động retry 3 lần cho mã 429 và 503 với exponential backoff.
         /// Ghi log vào ai_logs collection.
@@ -36,7 +42,8 @@ namespace DomainLayer.Interfaces
             string prompt,
             string taskType = "Chat",
             string? userId = null,
-            CancellationToken ct = default);
+            CancellationToken ct = default,
+            string? systemInstruction = null);
 
         /// <summary>
         /// Embed văn bản (gemini-embedding-001, 768 chiều).

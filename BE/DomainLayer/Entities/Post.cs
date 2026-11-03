@@ -27,7 +27,7 @@ namespace DomainLayer.Entities
         [BsonIgnoreIfNull]
         public string? RestaurantId { get; set; }
 
-        public string Status { get; set; } = "Published"; // "Published" | "Pending" | "Rejected"
+        public string Status { get; set; } = "Published"; // "Published" | "Pending" | "Rejected" | "Hidden"
 
         public string? RejectionReason { get; set; }
 

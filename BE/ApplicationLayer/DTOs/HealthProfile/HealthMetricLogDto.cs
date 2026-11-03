@@ -12,6 +12,9 @@ namespace ApplicationLayer.DTOs.HealthProfile
         public double? WaistCm { get; set; }
         public double? BodyFatPct { get; set; }
         public DateTime LoggedAt { get; set; }
+
+        /// <summary>"profile" | "check_in". Dòng cũ không có, app hiểu là profile.</summary>
+        public string? Source { get; set; }
     }
 
     public class LogMetricsRequest
@@ -27,5 +30,8 @@ namespace ApplicationLayer.DTOs.HealthProfile
 
         [Range(3, 60, ErrorMessage = "Tỷ lệ mỡ phải nằm trong khoảng từ 3 đến 60 %.")]
         public double? BodyFatPct { get; set; }
+
+        [RegularExpression("^(profile|check_in)$", ErrorMessage = "Nguồn chỉ nhận 'profile' hoặc 'check_in'.")]
+        public string? Source { get; set; }
     }
 }

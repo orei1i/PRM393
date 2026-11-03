@@ -70,19 +70,27 @@ namespace ApplicationLayer.Services
                 var trimmedName = req.Ingredient.Trim();
                 if (string.IsNullOrWhiteSpace(trimmedName)) continue;
 
-                var normalized = AllergyMatcher.RemoveDiacritics(trimmedName).ToLowerInvariant();
+                var folded = AllergyMatcher.RemoveDiacritics(trimmedName).ToLowerInvariant();
+                var normalized = AllergyMatcher.PantryKey(trimmedName);
 
                 // Tìm trong danh mục nguyên liệu chuẩn
                 var matchedIngredient = await _ingredientRepo.FirstOrDefaultAsync(i =>
                     !i.IsDeleted &&
-                    (i.NormalizedName == normalized || i.Name.ToLower() == trimmedName.ToLower() || i.Aliases.Contains(trimmedName)));
+                    (i.NormalizedName == folded || i.Name.ToLower() == trimmedName.ToLower() || i.Aliases.Contains(trimmedName)));
+
+                // Tên ngắn phải khớp cả dấu: "Me" không phải "Mè" trong danh mục.
+                if (matchedIngredient != null
+                    && AllergyMatcher.PantryKey(matchedIngredient.Name) != normalized
+                    && folded == AllergyMatcher.RemoveDiacritics(matchedIngredient.Name).ToLowerInvariant())
+                {
+                    matchedIngredient = null;
+                }
 
                 var isVegan = VeganClassifier.ClassifyIsVegan(trimmedName, matchedIngredient);
                 var allergens = matchedIngredient?.Allergens ?? new List<string>();
 
                 // Kiểm tra xem món này đã có trong tủ chưa
-                var duplicate = existingPantry.FirstOrDefault(p =>
-                    (p.NormalizedName == normalized || AllergyMatcher.RemoveDiacritics(p.Ingredient).ToLowerInvariant() == normalized));
+                var duplicate = existingPantry.FirstOrDefault(p => AllergyMatcher.PantryKey(p.Ingredient) == normalized);
 
                 if (duplicate != null)
                 {
@@ -158,7 +166,7 @@ namespace ApplicationLayer.Services
             var item = await _pantryRepo.FindByIdAsync(id);
             if (item == null || item.IsDeleted || item.UserId != userId)
             {
-                throw new NotFoundException($"Không tìm thấy nguyên liệu với id: {id}");
+                throw new NotFoundException("Không tìm thấy nguyên liệu.");
             }
 
             if (request.Quantity > 0) item.Quantity = request.Quantity;
@@ -219,7 +227,7 @@ namespace ApplicationLayer.Services
             var item = await _ingredientRepo.FindByIdAsync(id);
             if (item == null || item.IsDeleted)
             {
-                throw new NotFoundException($"Không tìm thấy nguyên liệu với id: {id}");
+                throw new NotFoundException("Không tìm thấy nguyên liệu.");
             }
 
             return MapToIngredientResponse(item);
@@ -260,7 +268,10 @@ namespace ApplicationLayer.Services
                 Quantity = item.Quantity,
                 Unit = item.Unit,
                 ExpiryDate = item.ExpiryDate,
-                IsVegan = item.IsVegan,
+                // Dòng không gắn danh mục được xét lại theo danh sách hiện tại, để dòng cũ bị xếp sai tự đúng.
+                IsVegan = item.IngredientId == null && !string.IsNullOrWhiteSpace(item.Ingredient)
+                    ? VeganClassifier.IsVegan(item.Ingredient)
+                    : item.IsVegan,
                 AllergyWarning = warning
             };
         }

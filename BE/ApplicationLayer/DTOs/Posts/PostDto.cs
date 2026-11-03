@@ -81,6 +81,8 @@ namespace ApplicationLayer.DTOs.Posts
         [Required(ErrorMessage = "Quyết định kiểm duyệt là bắt buộc.")]
         [RegularExpression("^(Approve|Reject)$", ErrorMessage = "Decision chỉ nhận 'Approve' hoặc 'Reject'.")]
         public string Decision { get; set; } = string.Empty; // "Approve" | "Reject"
+
+        [MaxLength(500, ErrorMessage = "Lý do không được vượt quá 500 ký tự.")]
         public string? Reason { get; set; }
     }
 
@@ -89,6 +91,8 @@ namespace ApplicationLayer.DTOs.Posts
         [Required(ErrorMessage = "Hành động quản trị là bắt buộc.")]
         [RegularExpression("^(hide|unhide|pin|unpin|delete)$", ErrorMessage = "Action chỉ nhận 'hide', 'unhide', 'pin', 'unpin', hoặc 'delete'.")]
         public string Action { get; set; } = string.Empty; // "hide" | "unhide" | "pin" | "unpin" | "delete"
+
+        [MaxLength(500, ErrorMessage = "Lý do không được vượt quá 500 ký tự.")]
         public string? Reason { get; set; }
     }
 

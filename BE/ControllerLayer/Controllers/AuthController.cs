@@ -55,7 +55,7 @@ namespace ControllerLayer.Controllers
                          ?? User.FindFirst("sub")?.Value;
             if (!string.IsNullOrEmpty(userId))
             {
-                await _authService.LogoutAsync(userId);
+                await _authService.LogoutAsync(userId, User.FindFirst(ApplicationLayer.Services.AuthService.SessionClaim)?.Value);
             }
             return NoContent();
         }

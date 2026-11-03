@@ -18,10 +18,43 @@ namespace ControllerLayer.Controllers
     public class MealPlansController : ControllerBase
     {
         private readonly IMealPlanService _mealPlanService;
+        private readonly IMealPlanAdjustService _adjustService;
+        private readonly ApplicationLayer.Services.AiModelGate _gate;
+        private const string PlanDisabled = "Gợi ý thực đơn đang tạm tắt. Bạn tự lên thực đơn nhé.";
 
-        public MealPlansController(IMealPlanService mealPlanService)
+        public MealPlansController(IMealPlanService mealPlanService, IMealPlanAdjustService adjustService, ApplicationLayer.Services.AiModelGate gate)
         {
             _mealPlanService = mealPlanService;
+            _adjustService = adjustService;
+            _gate = gate;
+        }
+
+        /// <summary>Đề xuất chỉnh thực đơn tuần hiện tại theo yêu cầu của người dùng. Chưa đổi gì cho tới khi áp dụng.</summary>
+        [HttpPost("current/adjust")]
+        [ProducesResponseType(typeof(ApiResponse<PlanAdjustmentResponse>), StatusCodes.Status200OK)]
+        public async Task<ActionResult<ApiResponse<PlanAdjustmentResponse>>> Adjust([FromBody] AdjustPlanRequest request)
+        {
+            await _gate.EnsureEnabledAsync(ApplicationLayer.Services.AiModelGate.MealPlan, PlanDisabled);
+            var result = await _adjustService.ProposeAsync(User.GetUserId(), request);
+            return Ok(ApiResponse<PlanAdjustmentResponse>.Ok(result));
+        }
+
+        /// <summary>Áp dụng các thay đổi đã chọn của một đề xuất.</summary>
+        [HttpPost("current/adjust/{proposalId}/apply")]
+        [ProducesResponseType(typeof(ApiResponse<MealPlanResponse>), StatusCodes.Status200OK)]
+        public async Task<ActionResult<ApiResponse<MealPlanResponse>>> ApplyAdjustment(string proposalId, [FromBody] ApplyAdjustmentRequest request)
+        {
+            var result = await _adjustService.ApplyAsync(User.GetUserId(), proposalId, request);
+            return Ok(ApiResponse<MealPlanResponse>.Ok(result, "Đã cập nhật thực đơn."));
+        }
+
+        /// <summary>Món từ các ngày kế hoạch chuyên gia đã gửi. Phải khai báo trước route {id}.</summary>
+        [HttpGet("chef-suggestions")]
+        [ProducesResponseType(typeof(ApiResponse<IEnumerable<ChefSuggestionResponse>>), StatusCodes.Status200OK)]
+        public async Task<ActionResult<ApiResponse<IEnumerable<ChefSuggestionResponse>>>> ChefSuggestions()
+        {
+            var result = await _adjustService.GetChefSuggestionsAsync(User.GetUserId());
+            return Ok(ApiResponse<IEnumerable<ChefSuggestionResponse>>.Ok(result));
         }
 
         /// <summary>Lấy thực đơn tuần hiện tại của người dùng.</summary>
@@ -63,6 +96,7 @@ namespace ControllerLayer.Controllers
         public async Task<ActionResult<ApiResponse<MealPlanResponse>>> Generate([FromBody] GenerateMealPlanRequest request)
         {
             var userId = User.GetUserId();
+            await _gate.EnsureEnabledAsync(ApplicationLayer.Services.AiModelGate.MealPlan, PlanDisabled);
             var result = await _mealPlanService.GenerateMealPlanAsync(userId, request);
             return Ok(ApiResponse<MealPlanResponse>.Ok(result, "Tự động sinh thực đơn thành công."));
         }

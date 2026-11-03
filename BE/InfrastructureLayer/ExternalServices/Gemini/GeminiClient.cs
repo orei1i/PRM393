@@ -47,6 +47,13 @@ namespace InfrastructureLayer.ExternalServices.Gemini
             _settings.ApiKey.StartsWith("dummy", StringComparison.OrdinalIgnoreCase) ||
             _settings.ApiKey.Contains("YOUR_GEMINI_API_KEY", StringComparison.OrdinalIgnoreCase);
 
+        private const int StreamMaxAttempts = 4;
+
+        /// <summary>Test đặt về 0 để không phải chờ thật.</summary>
+        internal static TimeSpan StreamRetryBaseDelay { get; set; } = TimeSpan.FromSeconds(1);
+
+        public bool IsConfigured => !IsMockMode;
+
         public async Task<T> GenerateJsonAsync<T>(
             string prompt,
             byte[]? imageBytes = null,
@@ -67,7 +74,6 @@ namespace InfrastructureLayer.ExternalServices.Gemini
                 sw.Stop();
 
                 var mockJson = GetMockJsonForType<T>(taskType);
-                await LogAiCallAsync(taskType, _settings.Model, promptTokens: 120, candidatesTokens: 85, sw.ElapsedMilliseconds, userId, scanId, success: true);
                 return JsonSerializer.Deserialize<T>(mockJson, JsonOptions)!;
             }
 
@@ -123,7 +129,7 @@ namespace InfrastructureLayer.ExternalServices.Gemini
                     {
                         if (attempt == maxRetries)
                         {
-                            throw new TooManyRequestsException("Gemini API bị vượt hạn mức hoặc tạm thời quá tải (429/503).");
+                            throw new TooManyRequestsException("Hệ thống AI đang quá tải. Bạn thử lại sau ít phút nhé.");
                         }
 
                         var delayMs = (int)Math.Pow(2, attempt) * 1000;
@@ -134,8 +140,7 @@ namespace InfrastructureLayer.ExternalServices.Gemini
 
                     if (!response.IsSuccessStatusCode)
                     {
-                        var errorBody = await response.Content.ReadAsStringAsync(ct);
-                        throw new DomainException($"Gemini API trả mã lỗi {(int)response.StatusCode}: {errorBody}");
+                        throw new HttpRequestException($"Gemini API trả mã lỗi {(int)response.StatusCode}.");
                     }
 
                     var responseBody = await response.Content.ReadAsStringAsync(ct);
@@ -179,6 +184,14 @@ namespace InfrastructureLayer.ExternalServices.Gemini
                     _logger.LogWarning(ex, "Lỗi khi gọi Gemini (lần {Attempt}/{MaxRetries}). Đợi {Delay}ms trước khi thử lại...", attempt, maxRetries, delayMs);
                     await Task.Delay(delayMs, ct);
                 }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // Hết lượt thử: người dùng nhận câu dễ hiểu, chi tiết kỹ thuật chỉ vào log.
+                    sw.Stop();
+                    _logger.LogWarning(ex, "Gemini vẫn lỗi sau {MaxRetries} lần thử.", maxRetries);
+                    await LogAiCallAsync(taskType, _settings.Model, promptTokens, candidatesTokens, sw.ElapsedMilliseconds, userId, scanId, success: false, errorMessage: ex.Message);
+                    throw new ServiceUnavailableException("Hệ thống AI tạm thời không phản hồi. Bạn thử lại sau nhé.", ex, "model_unavailable");
+                }
             }
 
             sw.Stop();
@@ -192,7 +205,6 @@ namespace InfrastructureLayer.ExternalServices.Gemini
             if (IsMockMode)
             {
                 sw.Stop();
-                await LogAiCallAsync(taskType, _settings.Model, 50, 50, sw.ElapsedMilliseconds, userId, success: true);
                 return "Mock Gemini text generation response.";
             }
 
@@ -234,7 +246,8 @@ namespace InfrastructureLayer.ExternalServices.Gemini
             string prompt,
             string taskType = "Chat",
             string? userId = null,
-            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default,
+            string? systemInstruction = null)
         {
             if (IsMockMode)
             {
@@ -244,104 +257,211 @@ namespace InfrastructureLayer.ExternalServices.Gemini
                 yield break;
             }
 
+            var sw = Stopwatch.StartNew();
             var requestUrl = $"{_settings.BaseUrl.TrimEnd('/')}/models/{_settings.Model}:streamGenerateContent?alt=sse";
-            using var request = new HttpRequestMessage(HttpMethod.Post, requestUrl);
-            request.Headers.Add("x-goog-api-key", _settings.ApiKey);
-            var payload = new
+            var payload = new Dictionary<string, object>
             {
-                contents = new[]
+                ["contents"] = new[]
                 {
-                    new { parts = new[] { new { text = prompt } } }
-                }
+                    new { role = "user", parts = new[] { new { text = prompt } } }
+                },
+                ["generationConfig"] = new { temperature = 0.2 }
             };
-            request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+            if (!string.IsNullOrWhiteSpace(systemInstruction))
+            {
+                payload["system_instruction"] = new { parts = new[] { new { text = systemInstruction } } };
+            }
+            var body = JsonSerializer.Serialize(payload);
 
-            var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-            response.EnsureSuccessStatusCode();
+            // Chưa có token nào gửi đi nên thử lại an toàn. 503 và 429 của Gemini thường hết sau vài giây.
+            HttpResponseMessage? received = null;
+            for (var attempt = 1; ; attempt++)
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, requestUrl);
+                request.Headers.Add("x-goog-api-key", _settings.ApiKey);
+                request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+                received = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+                var overloaded = received.StatusCode == HttpStatusCode.TooManyRequests || received.StatusCode == HttpStatusCode.ServiceUnavailable;
+                if (!overloaded || attempt >= StreamMaxAttempts) break;
+
+                received.Dispose();
+                await Task.Delay(StreamRetryBaseDelay * Math.Pow(2, attempt - 1), ct);
+            }
+
+            using var response = received;
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Gemini model {Model} trả mã {StatusCode}", _settings.Model, (int)response.StatusCode);
+                await LogAiCallAsync(taskType, _settings.Model, 0, 0, sw.ElapsedMilliseconds, userId, success: false, errorMessage: $"HTTP {(int)response.StatusCode}");
+                throw new ServiceUnavailableException("Hệ thống AI tạm thời không phản hồi. Bạn thử lại sau nhé.", "model_unavailable");
+            }
 
             using var stream = await response.Content.ReadAsStreamAsync(ct);
             using var reader = new System.IO.StreamReader(stream);
+            int promptTokens = 0;
+            int candidatesTokens = 0;
+            string? finishReason = null;
 
-            while (!reader.EndOfStream && !ct.IsCancellationRequested)
+            while (!ct.IsCancellationRequested)
             {
                 var line = await reader.ReadLineAsync(ct);
-                if (string.IsNullOrWhiteSpace(line)) continue;
-                if (line.StartsWith("data: "))
-                {
-                    var dataJson = line.Substring(6);
-                    string? chunkText = null;
-                    try
-                    {
-                        using var doc = JsonDocument.Parse(dataJson);
-                        if (doc.RootElement.TryGetProperty("candidates", out var candidates) && candidates.GetArrayLength() > 0)
-                        {
-                            chunkText = candidates[0].GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString();
-                        }
-                    }
-                    catch
-                    {
-                        // Bỏ qua chunk không parse được
-                    }
+                if (line == null) break;
+                if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("data:")) continue;
 
-                    if (!string.IsNullOrEmpty(chunkText))
+                var dataJson = line.Substring(5).TrimStart();
+                string? chunkText = null;
+                try
+                {
+                    using var doc = JsonDocument.Parse(dataJson);
+                    if (doc.RootElement.TryGetProperty("usageMetadata", out var usage))
                     {
-                        yield return chunkText;
+                        if (usage.TryGetProperty("promptTokenCount", out var pTokens)) promptTokens = pTokens.GetInt32();
+                        if (usage.TryGetProperty("candidatesTokenCount", out var cTokens)) candidatesTokens = cTokens.GetInt32();
+                    }
+                    if (doc.RootElement.TryGetProperty("candidates", out var finishCandidates) && finishCandidates.GetArrayLength() > 0 &&
+                        finishCandidates[0].TryGetProperty("finishReason", out var reason))
+                    {
+                        finishReason = reason.GetString();
+                    }
+                    if (doc.RootElement.TryGetProperty("candidates", out var candidates) && candidates.GetArrayLength() > 0 &&
+                        candidates[0].TryGetProperty("content", out var content) &&
+                        content.TryGetProperty("parts", out var parts) && parts.GetArrayLength() > 0 &&
+                        parts[0].TryGetProperty("text", out var textValue))
+                    {
+                        chunkText = textValue.GetString();
                     }
                 }
+                catch (JsonException)
+                {
+                    // Bỏ qua chunk không parse được
+                }
+
+                if (!string.IsNullOrEmpty(chunkText))
+                {
+                    yield return chunkText;
+                }
             }
+
+            ct.ThrowIfCancellationRequested();
+
+            // Kết nối đóng êm mà không có finishReason nghĩa là luồng bị cắt, hoặc mô hình từ chối trả lời.
+            // Không được coi câu trả lời dở là đã xong. MAX_TOKENS vẫn là câu trả lời dùng được.
+            if (finishReason != "STOP" && finishReason != "MAX_TOKENS")
+            {
+                await LogAiCallAsync(taskType, _settings.Model, promptTokens, candidatesTokens, sw.ElapsedMilliseconds, userId, success: false, errorMessage: $"finishReason={finishReason ?? "none"}");
+                throw new ServiceUnavailableException("Hệ thống AI bị gián đoạn. Bạn thử lại nhé.", "model_unavailable");
+            }
+
+            await LogAiCallAsync(taskType, _settings.Model, promptTokens, candidatesTokens, sw.ElapsedMilliseconds, userId, success: true);
         }
 
         public async Task<List<float[]>> EmbedAsync(IEnumerable<string> texts, string taskType = "RETRIEVAL_DOCUMENT", CancellationToken ct = default)
         {
+            var inputs = new List<string>(texts);
             if (IsMockMode)
             {
                 var mockList = new List<float[]>();
-                foreach (var _ in texts)
+                foreach (var _ in inputs)
                 {
-                    mockList.Add(new float[768]);
+                    mockList.Add(new float[_settings.EmbeddingDimensions]);
                 }
                 return mockList;
             }
 
-            var requestUrl = $"{_settings.BaseUrl.TrimEnd('/')}/models/{_settings.EmbeddingModel}:batchEmbedContents";
-            using var request = new HttpRequestMessage(HttpMethod.Post, requestUrl);
-            request.Headers.Add("x-goog-api-key", _settings.ApiKey);
+            const int batchSize = 100;
+            var sw = Stopwatch.StartNew();
+            var result = new List<float[]>(inputs.Count);
+            for (var offset = 0; offset < inputs.Count; offset += batchSize)
+            {
+                var batch = inputs.GetRange(offset, Math.Min(batchSize, inputs.Count - offset));
+                result.AddRange(await EmbedBatchAsync(batch, taskType, ct));
+            }
 
+            await LogAiCallAsync("Embedding", _settings.EmbeddingModel, 0, 0, sw.ElapsedMilliseconds, success: true);
+            return result;
+        }
+
+        private async Task<List<float[]>> EmbedBatchAsync(List<string> batch, string taskType, CancellationToken ct)
+        {
+            var requestUrl = $"{_settings.BaseUrl.TrimEnd('/')}/models/{_settings.EmbeddingModel}:batchEmbedContents";
             var requests = new List<object>();
-            foreach (var t in texts)
+            foreach (var t in batch)
             {
                 requests.Add(new
                 {
                     model = $"models/{_settings.EmbeddingModel}",
                     content = new { parts = new[] { new { text = t } } },
-                    taskType = taskType
+                    taskType,
+                    outputDimensionality = _settings.EmbeddingDimensions
                 });
             }
+            var body = JsonSerializer.Serialize(new { requests });
 
-            request.Content = new StringContent(JsonSerializer.Serialize(new { requests }), Encoding.UTF8, "application/json");
-            var response = await _httpClient.SendAsync(request, ct);
-            response.EnsureSuccessStatusCode();
-
-            var body = await response.Content.ReadAsStringAsync(ct);
-            using var doc = JsonDocument.Parse(body);
-            var result = new List<float[]>();
-
-            if (doc.RootElement.TryGetProperty("embeddings", out var embeddings))
+            const int maxRetries = 3;
+            for (var attempt = 1; ; attempt++)
             {
-                foreach (var item in embeddings.EnumerateArray())
+                using var request = new HttpRequestMessage(HttpMethod.Post, requestUrl);
+                request.Headers.Add("x-goog-api-key", _settings.ApiKey);
+                request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+
+                HttpResponseMessage response;
+                try
                 {
-                    var values = item.GetProperty("values");
-                    var floatArr = new float[values.GetArrayLength()];
-                    int idx = 0;
-                    foreach (var v in values.EnumerateArray())
+                    response = await _httpClient.SendAsync(request, ct);
+                }
+                catch (Exception ex) when ((ex is HttpRequestException || ex is TaskCanceledException) && !ct.IsCancellationRequested)
+                {
+                    if (attempt < maxRetries)
                     {
-                        floatArr[idx++] = v.GetSingle();
+                        await Task.Delay((int)Math.Pow(2, attempt) * 500, ct);
+                        continue;
                     }
-                    result.Add(floatArr);
+                    throw new ServiceUnavailableException("Không kết nối được dịch vụ embedding. Bạn thử lại sau nhé.", ex);
+                }
+
+                using (response)
+                {
+                    if ((response.StatusCode == HttpStatusCode.TooManyRequests || response.StatusCode == HttpStatusCode.ServiceUnavailable) && attempt < maxRetries)
+                    {
+                        // Nạp tài liệu dài vượt hạn mức theo phút thì chờ qua cửa sổ. Câu hỏi của người dùng không chờ lâu.
+                        var isDocument = taskType == "RETRIEVAL_DOCUMENT";
+                        var wait = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(isDocument ? 60 : Math.Pow(2, attempt) / 2);
+                        await Task.Delay(isDocument ? wait : TimeSpan.FromSeconds(Math.Min(wait.TotalSeconds, 4)), ct);
+                        continue;
+                    }
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        _logger.LogWarning("Gemini embedding trả mã {StatusCode}", (int)response.StatusCode);
+                        throw new ServiceUnavailableException(response.StatusCode == HttpStatusCode.TooManyRequests
+                            ? "Hệ thống AI đang quá tải. Bạn thử lại sau ít phút nhé."
+                            : "Dịch vụ embedding đang lỗi. Bạn thử lại sau nhé.");
+                    }
+
+                    var text = await response.Content.ReadAsStringAsync(ct);
+                    using var doc = JsonDocument.Parse(text);
+                    var vectors = new List<float[]>();
+                    if (doc.RootElement.TryGetProperty("embeddings", out var embeddings))
+                    {
+                        foreach (var item in embeddings.EnumerateArray())
+                        {
+                            var values = item.GetProperty("values");
+                            var floatArr = new float[values.GetArrayLength()];
+                            int idx = 0;
+                            foreach (var v in values.EnumerateArray())
+                            {
+                                floatArr[idx++] = v.GetSingle();
+                            }
+                            vectors.Add(floatArr);
+                        }
+                    }
+                    if (vectors.Count != batch.Count)
+                    {
+                        throw new ServiceUnavailableException("Dịch vụ embedding trả thiếu kết quả. Bạn thử lại sau nhé.");
+                    }
+                    return vectors;
                 }
             }
-
-            return result;
         }
 
         private static string CleanJsonFences(string input)

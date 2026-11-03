@@ -11,6 +11,7 @@ using DomainLayer.Enums;
 using DomainLayer.Exceptions;
 using DomainLayer.Interfaces;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 
 namespace ApplicationLayer.Services
@@ -23,6 +24,12 @@ namespace ApplicationLayer.Services
     {
         private readonly IGenericRepository<User> _userRepo;
         private readonly IConfiguration _config;
+        private readonly IPasswordResetNotifier _resetNotifier;
+        private readonly ILogger<AuthService>? _logger;
+
+        /// <summary>Tên claim giữ id phiên trong access token, để đăng xuất chỉ thu hồi đúng thiết bị đó.</summary>
+        public const string SessionClaim = "vl_sid";
+        private const int MaxSessionsPerUser = 10;
 
         // In-memory rate limiter: email -> (failCount, lockUntil)
         private static readonly ConcurrentDictionary<string, (int Count, DateTime? LockUntil)> _failAttempts = new();
@@ -34,10 +41,16 @@ namespace ApplicationLayer.Services
         private static readonly ConcurrentDictionary<string, int> _resetCodeAttempts = new();
         private static readonly TimeSpan CodeTtl = TimeSpan.FromMinutes(10);
 
-        public AuthService(IGenericRepository<User> userRepo, IConfiguration config)
+        public AuthService(
+            IGenericRepository<User> userRepo,
+            IConfiguration config,
+            IPasswordResetNotifier? resetNotifier = null,
+            ILogger<AuthService>? logger = null)
         {
             _userRepo = userRepo;
             _config   = config;
+            _resetNotifier = resetNotifier ?? new NoPasswordResetNotifier();
+            _logger = logger;
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -61,7 +74,7 @@ namespace ApplicationLayer.Services
                        ?? await _userRepo.FirstOrDefaultAsync(u => u.Email.ToLower() == email && !u.IsDeleted);
 
             // Kiểm tra credentials
-            if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+            if (user == null || string.IsNullOrEmpty(user.PasswordHash) || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             {
                 RecordFailedAttempt(email);
                 throw new UnauthorizedException("Email hoặc mật khẩu không đúng.");
@@ -73,7 +86,7 @@ namespace ApplicationLayer.Services
 
             // Kiểm tra status
             if (user.Status == GeneralEnum.UserStatusEnum.Locked || user.Status == GeneralEnum.UserStatusEnum.Banned)
-                throw new AccountLockedException();
+                throw new AccountLockedException(LockedMessage(user));
 
             // Đăng nhập thành công — xóa fail attempts
             _failAttempts.TryRemove(email, out _);
@@ -98,7 +111,7 @@ namespace ApplicationLayer.Services
             var user = await _userRepo.FirstOrDefaultAsync(u => u.EmailNormalized == email && !u.IsDeleted)
                        ?? await _userRepo.FirstOrDefaultAsync(u => u.Email.ToLower() == email && !u.IsDeleted);
 
-            if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+            if (user == null || string.IsNullOrEmpty(user.PasswordHash) || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             {
                 RecordFailedAttempt(email);
                 throw new UnauthorizedException("Email hoặc mật khẩu không đúng.");
@@ -108,7 +121,7 @@ namespace ApplicationLayer.Services
                 throw new ForbiddenException("Chỉ tài khoản Quản trị viên mới được đăng nhập vào hệ thống quản trị.");
 
             if (user.Status == GeneralEnum.UserStatusEnum.Locked || user.Status == GeneralEnum.UserStatusEnum.Banned)
-                throw new AccountLockedException();
+                throw new AccountLockedException(LockedMessage(user));
 
             _failAttempts.TryRemove(email, out _);
 
@@ -126,33 +139,50 @@ namespace ApplicationLayer.Services
             var hashed = HashToken(request.RefreshToken);
 
             var user = await _userRepo.FirstOrDefaultAsync(u =>
-                u.RefreshTokenHash == hashed && !u.IsDeleted);
+                (u.RefreshTokenHash == hashed || u.RefreshSessions.Any(s => s.TokenHash == hashed)) && !u.IsDeleted);
 
             if (user == null)
                 throw new UnauthorizedException("Refresh token không hợp lệ hoặc đã bị thu hồi.");
 
-            if (!user.RefreshTokenExpiresAt.HasValue || user.RefreshTokenExpiresAt.Value < DateTime.UtcNow)
+            var session = user.RefreshSessions?.FirstOrDefault(s => s.TokenHash == hashed);
+            var expiresAt = session?.ExpiresAt ?? user.RefreshTokenExpiresAt;
+            if (!expiresAt.HasValue || expiresAt.Value < DateTime.UtcNow)
             {
-                user.RefreshTokenHash = null;
-                user.RefreshTokenExpiresAt = null;
+                if (session != null)
+                {
+                    user.RefreshSessions!.Remove(session);
+                }
+                else
+                {
+                    user.RefreshTokenHash = null;
+                    user.RefreshTokenExpiresAt = null;
+                }
                 await _userRepo.UpdateAsync(user.Id, user);
                 throw new UnauthorizedException("Refresh token đã hết hạn. Vui lòng đăng nhập lại.");
             }
 
             if (user.Status == GeneralEnum.UserStatusEnum.Locked || user.Status == GeneralEnum.UserStatusEnum.Banned)
-                throw new AccountLockedException();
+                throw new AccountLockedException(LockedMessage(user));
 
-            return await GenerateAuthResponseWithRefreshTokenAsync(user);
+            return await GenerateAuthResponseWithRefreshTokenAsync(user, session?.Id);
         }
 
         // ─────────────────────────────────────────────────────────────────────
         // LOGOUT
         // ─────────────────────────────────────────────────────────────────────
-        public async Task LogoutAsync(string userId)
+        public async Task LogoutAsync(string userId, string? sessionId = null)
         {
             var user = await _userRepo.FindByIdAsync(userId);
             if (user != null)
             {
+                user.RefreshSessions ??= new List<RefreshSession>();
+                var removed = sessionId != null ? user.RefreshSessions.RemoveAll(s => s.Id == sessionId) : 0;
+
+                // Token đời cũ không có id phiên, hoặc phiên không còn: thu hồi hết cho chắc.
+                if (removed == 0)
+                {
+                    user.RefreshSessions.Clear();
+                }
                 user.RefreshTokenHash = null;
                 user.RefreshTokenExpiresAt = null;
                 await _userRepo.UpdateAsync(user.Id, user);
@@ -207,13 +237,26 @@ namespace ApplicationLayer.Services
             var code = RandomNumberGenerator.GetInt32(100000, 1000000).ToString("D6");
             var expiresAt = DateTime.UtcNow.Add(CodeTtl);
 
+            // Dọn mã hết hạn để email lạ gửi liên tục không làm đầy bộ nhớ.
+            foreach (var old in _resetCodes.Where(kv => kv.Value.ExpiresAt < DateTime.UtcNow).Select(kv => kv.Key).ToList())
+            {
+                _resetCodes.TryRemove(old, out _);
+                _resetCodeAttempts.TryRemove(old, out _);
+            }
+
             _resetCodes[email] = (code, expiresAt, null);
             _resetCodeAttempts.TryRemove(email, out _);
 
-            // Log mã ra console cho môi trường dev
-            Console.WriteLine($"[AUTH DEV] Password reset code for {email}: {code} (expires in 10 mins)");
+            // B23: không bao giờ ghi mã ra log. Email lạ vẫn đi cùng đường này nhưng không gửi gì (vẫn trả 204).
+            var user = await _userRepo.FirstOrDefaultAsync(u =>
+                (u.EmailNormalized == email || u.Email.ToLower() == email) && !u.IsDeleted);
+            if (user == null) return;
 
-            await Task.CompletedTask;
+            if (!_resetNotifier.CanDeliver)
+            {
+                _logger?.LogWarning("Chưa cấu hình gửi email nên mã đặt lại mật khẩu không được gửi cho người dùng.");
+            }
+            await _resetNotifier.SendAsync(email, code);
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -277,6 +320,7 @@ namespace ApplicationLayer.Services
             user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
             user.RefreshTokenHash = null; // B42: Thu hồi refresh token khi reset password
             user.RefreshTokenExpiresAt = null;
+            user.RefreshSessions = new List<RefreshSession>();
             user.UpdatedAt = DateTime.UtcNow;
             await _userRepo.UpdateAsync(user.Id, user);
 
@@ -286,13 +330,45 @@ namespace ApplicationLayer.Services
         // ─────────────────────────────────────────────────────────────────────
         // PRIVATE HELPERS
         // ─────────────────────────────────────────────────────────────────────
-        private async Task<AuthResponse> GenerateAuthResponseWithRefreshTokenAsync(User user)
+        /// <summary>
+        /// B55: mỗi thiết bị một phiên, đăng nhập máy thứ hai không đá máy đầu. sessionId có giá trị là xoay vòng phiên đó.
+        /// Chỉ ghi các trường phiên, để lần đăng nhập đang chạy không đè lên lệnh khoá tài khoản của admin.
+        /// </summary>
+        private async Task<AuthResponse> GenerateAuthResponseWithRefreshTokenAsync(User user, string? sessionId = null)
         {
-            var (token, expiresAt) = GenerateJwtToken(user);
+            var now = DateTime.UtcNow;
             var rawRefreshToken = GenerateRefreshTokenString();
-            user.RefreshTokenHash = HashToken(rawRefreshToken);
-            user.RefreshTokenExpiresAt = DateTime.UtcNow.AddDays(7);
-            await _userRepo.UpdateAsync(user.Id, user);
+
+            var sessions = (user.RefreshSessions ?? new List<RefreshSession>())
+                .Where(s => s.ExpiresAt > now && s.Id != sessionId)
+                .ToList();
+            var current = new RefreshSession
+            {
+                Id = sessionId ?? Guid.NewGuid().ToString("N"),
+                TokenHash = HashToken(rawRefreshToken),
+                ExpiresAt = now.AddDays(7),
+                CreatedAt = now
+            };
+            sessions.Add(current);
+            if (sessions.Count > MaxSessionsPerUser)
+            {
+                sessions = sessions.OrderByDescending(s => s.CreatedAt).Take(MaxSessionsPerUser).ToList();
+            }
+            user.RefreshSessions = sessions;
+            user.LastActiveAt = now;
+
+            await _userRepo.UpdateFieldAsync(user.Id, u => u.RefreshSessions, sessions);
+            await _userRepo.UpdateFieldAsync(user.Id, u => u.LastActiveAt, now);
+            if (user.RefreshTokenHash != null)
+            {
+                // Dòng đời cũ: token cũ đã được thay.
+                user.RefreshTokenHash = null;
+                user.RefreshTokenExpiresAt = null;
+                await _userRepo.UpdateFieldAsync(user.Id, u => u.RefreshTokenHash, null);
+                await _userRepo.UpdateFieldAsync(user.Id, u => u.RefreshTokenExpiresAt, null);
+            }
+
+            var (token, expiresAt) = GenerateJwtToken(user, current.Id);
 
             return new AuthResponse
             {
@@ -329,14 +405,18 @@ namespace ApplicationLayer.Services
             };
         }
 
-        private (string Token, DateTime ExpiresAt) GenerateJwtToken(User user)
+        private static string LockedMessage(User user) => string.IsNullOrWhiteSpace(user.StatusReason)
+            ? "Tài khoản đang bị khoá. Liên hệ hỗ trợ."
+            : $"Tài khoản đang bị khoá. Lý do: {user.StatusReason}";
+
+        private (string Token, DateTime ExpiresAt) GenerateJwtToken(User user, string? sessionId = null)
         {
             var jwt    = _config.GetSection("JwtSettings");
             var key    = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt["SecretKey"]!));
             var creds  = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
             var expiry = int.TryParse(jwt["ExpiryMinutes"], out var m) ? m : 60;
 
-            var claims = new[]
+            var claims = new List<Claim>
             {
                 new Claim(JwtRegisteredClaimNames.Sub,   user.Id),
                 new Claim(JwtRegisteredClaimNames.Email, user.Email),
@@ -344,6 +424,7 @@ namespace ApplicationLayer.Services
                 new Claim(ClaimTypes.Role,               user.Role),
                 new Claim(JwtRegisteredClaimNames.Jti,   Guid.NewGuid().ToString())
             };
+            if (sessionId != null) claims.Add(new Claim(SessionClaim, sessionId));
 
             var expiresAt = DateTime.UtcNow.AddMinutes(expiry);
             var tokenObj  = new JwtSecurityToken(

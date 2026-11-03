@@ -36,6 +36,25 @@ namespace ApplicationLayer.DTOs.Users
         public string Password { get; set; } = string.Empty;
     }
 
+    /// <summary>PATCH /users/{id}/role. "Chef" chỉ được cấp khi duyệt hồ sơ chuyên gia, không đổi ở đây.</summary>
+    public class ChangeUserRoleRequest
+    {
+        [Required(ErrorMessage = "Vai trò là bắt buộc.")]
+        [RegularExpression("^(Admin|User)$", ErrorMessage = "Vai trò chỉ nhận 'Admin' hoặc 'User'.")]
+        public string Role { get; set; } = string.Empty;
+    }
+
+    /// <summary>PATCH /users/{id}/status.</summary>
+    public class ChangeUserStatusRequest
+    {
+        [Required(ErrorMessage = "Trạng thái là bắt buộc.")]
+        [RegularExpression("^(Active|Locked|Banned)$", ErrorMessage = "Trạng thái chỉ nhận 'Active', 'Locked' hoặc 'Banned'.")]
+        public string Status { get; set; } = string.Empty;
+
+        [MaxLength(500, ErrorMessage = "Lý do không được vượt quá 500 ký tự.")]
+        public string? Reason { get; set; }
+    }
+
     /// <summary>
     /// DTO dùng khi cập nhật thông tin cá nhân.
     /// </summary>
