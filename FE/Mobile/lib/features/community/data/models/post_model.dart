@@ -35,6 +35,7 @@
 //   "createdAt": "…", "updatedAt": null, "replyCount": 3, "replies": [ /* first 2 CommentDto */ ] }
 import '../../../../core/models/author_summary.dart';
 import '../../../../core/utils/json_helpers.dart';
+import '../../../../core/config/backend_modules.dart';
 import '../../../video/domain/entities/video_recipe.dart';
 import '../../domain/entities/post.dart';
 
@@ -115,9 +116,18 @@ class PostDto {
     final videoMap = video is Map<String, dynamic> ? video : null;
     final rawType = json['type'] as String? ?? 'discussion';
     final imageUrl = json['imageUrl'] as String?;
-    final videoId = videoMap?['id']?.toString();
+    final postId = json['id']?.toString() ?? '';
+    // Module `video` is still mock on a real BE: a recipe video gets the
+    // labelled sample recipe, so "Xem công thức" can be shown in the demo.
+    final sampleRecipe = videoMap == null &&
+        BackendModules.isHybrid &&
+        BackendModules.isMock(BackendModule.video) &&
+        rawType == 'recipe' &&
+        json['mediaType'] == 'Video';
+    final videoId =
+        sampleRecipe ? postId : videoMap?['id']?.toString();
     return PostDto(
-      id: json['id']?.toString() ?? '',
+      id: postId,
       type: PostType.fromApi(rawType).apiValue,
       author: AuthorSummary.fromJsonValue(json['author']),
       title: json['title'] as String? ?? '',
@@ -134,7 +144,8 @@ class PostDto {
       videoId: videoId,
       videoDurationSeconds:
           videoMap == null ? null : readInt(videoMap['durationSeconds']),
-      videoAiStatus: videoMap?['aiStatus'] as String?,
+      videoAiStatus:
+          sampleRecipe ? 'ready' : videoMap?['aiStatus'] as String?,
       status: PostStatus.fromApi(json['status']).apiValue,
       mediaType: (PostMediaType.tryParse(json['mediaType']) ??
               PostMediaType.derive(
@@ -167,7 +178,8 @@ class PostDto {
   final int? videoDurationSeconds;
   final String? videoAiStatus;
 
-  /// `Pending` | `Published` | `Rejected`.
+  /// `Pending` | `Published` | `Rejected` | `Hidden`; anything else is
+  /// `Unknown`.
   final String status;
 
   /// `Text` | `Image` | `Video`; derived when the server omits it.

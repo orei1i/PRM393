@@ -6,6 +6,7 @@ import '../../../core/config/backend_modules.dart';
 import '../../../core/network/api_endpoints.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
+import '../../community/data/backend_posts.dart';
 import '../../community/data/community_api_service.dart';
 import '../../ingredient/data/ingredient_api_service.dart';
 import '../../restaurant/data/restaurant_api_service.dart';
@@ -37,9 +38,13 @@ abstract interface class SearchApiService {
 }
 
 class RemoteSearchApiService implements SearchApiService {
-  RemoteSearchApiService(this._dio);
+  RemoteSearchApiService(this._dio, {SavedPostsStore? saved}) : _saved = saved;
 
   final Dio _dio;
+  final SavedPostsStore? _saved;
+
+  Map<String, dynamic> _post(Map<String, dynamic> json) =>
+      adaptBackendPost(json, _saved);
 
   @override
   Future<SearchResultDto> search(
@@ -61,7 +66,7 @@ class RemoteSearchApiService implements SearchApiService {
             'limit': limit,
           },
         );
-        return SearchResultDto.fromJson(res.data!);
+        return SearchResultDto.fromJson(res.data!, adaptPost: _post);
       });
 
   @override
@@ -89,11 +94,13 @@ class RemoteSearchApiService implements SearchApiService {
       });
 }
 
-/// The BE has no `/search`: a build with real modules searches their data on
-/// the client ([ClientSearchService]); a fully mock one keeps the sample page.
+/// `/search` on the BE. With module `search` forced to mock, a build with other
+/// real modules searches their data on the client ([ClientSearchService]); a
+/// fully mock one keeps the sample page.
 final searchApiProvider = Provider<SearchApiService>((ref) {
   if (BackendModules.isReal(BackendModule.search)) {
-    return RemoteSearchApiService(ref.watch(dioProvider));
+    return RemoteSearchApiService(ref.watch(dioProvider),
+        saved: ref.watch(savedPostsStoreProvider));
   }
   if (BackendModules.isHybrid) return ClientSearchService.fromRef(ref);
   return MockSearchRepository(

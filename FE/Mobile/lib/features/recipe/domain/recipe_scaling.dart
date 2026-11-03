@@ -14,6 +14,14 @@
 // | Other      | anything else                           | <10 → 0,5; else integer               | 0,5 |
 //
 // Rows without a quantity keep their text ("vừa ăn").
+//
+// Not every row grows with the number of people ([portionFactor]). What each
+// person eats a bowl of (noodles, rice, protein, fruit, milk) does; what is
+// cooked together for the whole pot grows less: f^0.85 for vegetables,
+// mushrooms and nuts, f^0.7 for seasoning and herbs. A soup of tomatoes for 2 is
+// not 4 times the tomatoes for 8.
+import 'dart:math' as math;
+
 import 'entities/recipe_detail.dart';
 
 /// Servings the "Nấu cho" stepper allows.
@@ -56,6 +64,24 @@ const _spoonUnits = {
   'thìa canh',
   'thìa cà phê',
 };
+
+const _sharedPotRoles = {'rau củ', 'rau lá', 'nấm', 'hạt'};
+const _flavourRoles = {'gia vị', 'rau thơm'};
+
+/// What the amount of a row with [role] is multiplied by when cooking [factor]
+/// times the base servings. A row without a known role follows the people.
+double portionFactor(double factor, String? role) {
+  final r = role?.trim().toLowerCase();
+  if (_sharedPotRoles.contains(r)) return math.pow(factor, 0.85).toDouble();
+  if (_flavourRoles.contains(r)) return math.pow(factor, 0.7).toDouble();
+  return factor;
+}
+
+/// [quantity] in grams when [unit] is a mass; `null` otherwise.
+double? gramsOf(double? quantity, String unit) {
+  final toGrams = _massToGrams[unit.trim().toLowerCase()];
+  return quantity == null || toGrams == null ? null : quantity * toGrams;
+}
 
 /// An amount after scaling: a quantity in [unit] (`null` → [unit] is a text
 /// such as "vừa ăn").

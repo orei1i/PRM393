@@ -189,6 +189,8 @@ abstract final class ApiEndpoints {
 
   /// GET, polled every 3 s by the payment screen.
   static String payment(String id) => '/payments/$id';
+  static String paymentSandboxConfirm(String id) =>
+      '/payments/$id/sandbox-confirm';
 
   // Chef tools (role Chef, Tôi › Chuyên gia)
   /// GET / PUT "Hồ sơ & bảng giá".

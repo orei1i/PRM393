@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { NativeSelect } from "@/components/ui/form-controls";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { describeError } from "@/lib/api_error";
+import { isMock } from "@/lib/backend_modules";
 import { useAiLogs, useTelemetrySummary } from "@/lib/hooks/use-telemetry";
 import { cn, formatNumber, formatPercent } from "@/lib/utils";
 import { TASK_LABEL, type AiLog, type AiTaskType, type TelemetryRange } from "@/types/moderation";
@@ -23,7 +24,12 @@ const RANGE_LABEL: Record<TelemetryRange, string> = { "1h": "1 giờ qua", "24h"
 /** Error-rate SLO per task; rows above it are highlighted. */
 const ERROR_SLO = 0.02;
 
-const isTask = (v: string | null): v is AiTaskType => v !== null && v in TASK_LABEL;
+const isTask = (v: string | null): v is AiTaskType => v !== null && v !== "other" && v in TASK_LABEL;
+
+/** Nothing on the server flags content, so there is no rate to show. */
+const NO_FLAG_RATE = !isMock("telemetry");
+
+const tokenHint = (tokens: number) => (tokens >= 1e6 ? `${formatNumber(Math.round(tokens / 1e6))} triệu token` : `${formatNumber(tokens)} token`);
 
 export default function TelemetryPage() {
   return (
@@ -85,7 +91,7 @@ function TelemetryScreen() {
           loading={summary.isLoading}
           value={s ? formatNumber(s.totalCalls) : "–"}
           delta={s?.delta.totalCalls}
-          hint={s ? `${formatNumber(Math.round(s.totalTokens / 1e6))} triệu token` : undefined}
+          hint={s ? tokenHint(s.totalTokens) : undefined}
         />
         <MetricCard
           label="Độ trễ trung bình"
@@ -101,10 +107,10 @@ function TelemetryScreen() {
           label="Tỉ lệ gắn cờ"
           icon={Flag}
           loading={summary.isLoading}
-          value={s ? formatPercent(s.flagRate) : "–"}
-          delta={s?.delta.flagRate}
+          value={s && !NO_FLAG_RATE ? formatPercent(s.flagRate) : "–"}
+          delta={NO_FLAG_RATE ? undefined : s?.delta.flagRate}
           goodWhen="down"
-          hint="trên lượt kiểm duyệt"
+          hint={NO_FLAG_RATE ? "chưa có quy trình AI kiểm duyệt" : "trên lượt kiểm duyệt"}
         />
         <MetricCard
           label="Tỉ lệ lỗi"
@@ -134,6 +140,13 @@ function TelemetryScreen() {
               </TableRow>
             </TableHeader>
             <TableBody className="font-mono text-xs">
+              {s?.byTask.length === 0 && (
+                <TableRow className="hover:bg-transparent">
+                  <TableCell colSpan={5} className="py-6 text-center font-sans text-sm text-muted-foreground">
+                    Chưa có lượt gọi AI nào trong khoảng này.
+                  </TableCell>
+                </TableRow>
+              )}
               {s?.byTask.map((t) => {
                 const breach = t.errorRate > ERROR_SLO;
                 return (
@@ -186,7 +199,9 @@ function TelemetryScreen() {
         ) : (
           <LiveLogTable logs={logs.data} isLoading={logs.isLoading} selectedId={selected?.id ?? null} onSelect={setSelected} />
         )}
-        <p className="border-t px-5 py-3 text-xs text-muted-foreground">Chọn một dòng để xem đầu vào, đầu ra và đánh giá kết quả của AI.</p>
+        <p className="border-t px-5 py-3 text-xs text-muted-foreground">
+          {isMock("telemetry") ? "Chọn một dòng để xem đầu vào, đầu ra và đánh giá kết quả của AI." : "Chọn một dòng để xem chi tiết và đánh giá kết quả của AI. Máy chủ không lưu nội dung câu hỏi và câu trả lời."}
+        </p>
       </Card>
 
       <AiLogDrawer log={selected} onOpenChange={(open) => !open && setSelected(null)} />

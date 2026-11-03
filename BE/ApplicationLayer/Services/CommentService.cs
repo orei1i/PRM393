@@ -12,6 +12,10 @@ namespace ApplicationLayer.Services
 {
     public class CommentService : ICommentService
     {
+        private const string Visible = "Visible";
+        private const string Hidden = "Hidden";
+        private const string CommentNotFound = "Không tìm thấy bình luận.";
+
         private readonly IGenericRepository<Comment> _commentRepo;
         private readonly IGenericRepository<Post> _postRepo;
         private readonly IGenericRepository<User> _userRepo;
@@ -26,20 +30,27 @@ namespace ApplicationLayer.Services
             _userRepo = userRepo;
         }
 
-        public async Task<IEnumerable<CommentResponse>> GetPostCommentsAsync(string postId, int page, int pageSize)
+        /// <summary>B69: bài chưa đăng thì người ngoài coi như không có bài, kể cả bình luận của nó.</summary>
+        private async Task<Post> VisiblePostAsync(string postId, string? currentUserId, string? role)
         {
             var post = await _postRepo.FindByIdAsync(postId);
-            if (post == null || post.IsDeleted)
+            if (post == null || !PostAccess.CanSee(post, currentUserId, role))
             {
-                throw new NotFoundException($"Không tìm thấy bài viết với id: {postId}");
+                throw new NotFoundException(PostAccess.NotFoundMessage);
             }
+            return post;
+        }
+
+        public async Task<IEnumerable<CommentResponse>> GetPostCommentsAsync(string postId, int page, int pageSize, string? currentUserId = null, string? role = null)
+        {
+            await VisiblePostAsync(postId, currentUserId, role);
 
             page = Math.Max(1, page);
             pageSize = Math.Clamp(pageSize, 1, 50);
 
             // Chỉ lấy các bình luận gốc (ParentId == null), mới nhất trước
             var topComments = (await _commentRepo.FindPagedAsync(
-                c => c.PostId == postId && c.ParentId == null && !c.IsDeleted,
+                c => c.PostId == postId && c.ParentId == null && !c.IsDeleted && c.Status != Hidden,
                 page,
                 pageSize,
                 sortDesc: c => c.CreatedAt
@@ -57,76 +68,33 @@ namespace ApplicationLayer.Services
                 r.PostId == postId &&
                 r.ParentId != null &&
                 topCommentIds.Contains(r.ParentId) &&
-                !r.IsDeleted
+                !r.IsDeleted &&
+                r.Status != Hidden
             )).OrderBy(r => r.CreatedAt).ToList();
 
-            // Thu thập toàn bộ UserIds của người bình luận để lấy thông tin tác giả một lần
-            var userIds = topComments.Select(c => c.UserId)
-                .Concat(allReplies.Select(r => r.UserId))
-                .Distinct()
-                .ToList();
-
-            var authors = (await _userRepo.FindAsync(u => userIds.Contains(u.Id) && !u.IsDeleted))
-                .ToDictionary(
-                    u => u.Id,
-                    u => new AuthorSummaryDto
-                    {
-                        Id = u.Id,
-                        FullName = u.FullName,
-                        IsVerifiedChef = u.Role?.Equals("Chef", StringComparison.OrdinalIgnoreCase) == true
-                    });
+            var authors = await AuthorsOfAsync(topComments.Select(c => c.UserId).Concat(allReplies.Select(r => r.UserId)));
 
             var result = new List<CommentResponse>();
             foreach (var comment in topComments)
             {
-                var commentAuthor = authors.TryGetValue(comment.UserId, out var a)
-                    ? a
-                    : new AuthorSummaryDto { Id = comment.UserId, FullName = "Thành viên" };
-
                 var repliesForThisComment = allReplies
                     .Where(r => r.ParentId == comment.Id)
                     .Take(2)
-                    .Select(r => new CommentResponse
-                    {
-                        Id = r.Id,
-                        PostId = r.PostId,
-                        ParentId = r.ParentId,
-                        Author = authors.TryGetValue(r.UserId, out var ra)
-                            ? ra
-                            : new AuthorSummaryDto { Id = r.UserId, FullName = "Thành viên" },
-                        Content = r.Content,
-                        CreatedAt = r.CreatedAt,
-                        UpdatedAt = r.UpdatedAt,
-                        ReplyCount = 0,
-                        Replies = new List<CommentResponse>()
-                    })
+                    .Select(r => MapToResponse(r, authors, 0))
                     .ToList();
 
-                result.Add(new CommentResponse
-                {
-                    Id = comment.Id,
-                    PostId = comment.PostId,
-                    ParentId = null,
-                    Author = commentAuthor,
-                    Content = comment.Content,
-                    CreatedAt = comment.CreatedAt,
-
-    
-                    ReplyCount = Math.Max(comment.ReplyCount, allReplies.Count(r => r.ParentId == comment.Id)),
-                    Replies = repliesForThisComment
-                });
+                var dto = MapToResponse(comment, authors, Math.Max(comment.ReplyCount, allReplies.Count(r => r.ParentId == comment.Id)));
+                dto.ParentId = null;
+                dto.Replies = repliesForThisComment;
+                result.Add(dto);
             }
 
             return result;
         }
 
-        public async Task<CommentResponse> CreateCommentAsync(string postId, CreateCommentRequest request, string currentUserId)
+        public async Task<CommentResponse> CreateCommentAsync(string postId, CreateCommentRequest request, string currentUserId, string? role = null)
         {
-            var post = await _postRepo.FindByIdAsync(postId);
-            if (post == null || post.IsDeleted)
-            {
-                throw new NotFoundException($"Không tìm thấy bài viết với id: {postId}");
-            }
+            await VisiblePostAsync(postId, currentUserId, role);
 
             string? validParentId = null;
             var rawParentId = request.ParentId?.Trim();
@@ -140,7 +108,9 @@ namespace ApplicationLayer.Services
             if (!string.IsNullOrEmpty(validParentId))
             {
                 var parentComment = await _commentRepo.FindByIdAsync(validParentId);
-                if (parentComment == null || parentComment.IsDeleted)
+
+                // B40: phản hồi phải nằm cùng bài với bình luận gốc.
+                if (parentComment == null || parentComment.IsDeleted || parentComment.Status == Hidden || parentComment.PostId != postId)
                 {
                     throw new NotFoundException("Không tìm thấy bình luận gốc để phản hồi.");
                 }
@@ -187,10 +157,33 @@ namespace ApplicationLayer.Services
                 Author = author,
                 Content = comment.Content,
                 CreatedAt = comment.CreatedAt,
-
                 ReplyCount = 0,
                 Replies = new List<CommentResponse>()
             };
+        }
+
+        /// <summary>Chỉ tác giả được sửa, kể cả admin cũng không viết lời vào miệng người khác.</summary>
+        public async Task<CommentResponse> UpdateCommentAsync(string postId, string commentId, UpdateCommentRequest request, string currentUserId, string? role = null)
+        {
+            await VisiblePostAsync(postId, currentUserId, role);
+
+            var comment = await _commentRepo.FindByIdAsync(commentId);
+            if (comment == null || comment.IsDeleted || comment.PostId != postId || comment.Status == Hidden)
+            {
+                throw new NotFoundException(CommentNotFound);
+            }
+
+            if (comment.UserId != currentUserId)
+            {
+                throw new ForbiddenException("Bạn không có quyền sửa bình luận này.");
+            }
+
+            comment.Content = request.Content.Trim();
+            comment.UpdatedAt = DateTime.UtcNow;
+            await _commentRepo.UpdateAsync(commentId, comment);
+
+            var authors = await AuthorsOfAsync(new[] { comment.UserId });
+            return MapToResponse(comment, authors, comment.ReplyCount);
         }
 
         public async Task<bool> DeleteCommentAsync(string commentId, string currentUserId, string? role)
@@ -201,18 +194,161 @@ namespace ApplicationLayer.Services
                 return false;
             }
 
-            var isAdmin = role?.Equals("Admin", StringComparison.OrdinalIgnoreCase) == true;
+            var isAdmin = PostAccess.IsAdmin(role);
             if (comment.UserId != currentUserId && !isAdmin)
             {
                 throw new ForbiddenException("Bạn không có quyền xóa bình luận này.");
             }
 
+            await SoftDeleteBranchAsync(comment);
+            return true;
+        }
+
+        public async Task<IEnumerable<CommentResponse>> GetCommentRepliesAsync(string commentId, string? postId = null, string? currentUserId = null, string? role = null)
+        {
+            var parent = await _commentRepo.FindByIdAsync(commentId);
+            if (parent == null || parent.IsDeleted || parent.Status == Hidden)
+            {
+                throw new NotFoundException(CommentNotFound);
+            }
+
+            // B40: Route replies kiểm tra comment có thuộc về postId hay không
+            if (!string.IsNullOrEmpty(postId) && parent.PostId != postId)
+            {
+                throw new NotFoundException("Bình luận không thuộc bài viết này.");
+            }
+
+            // B69: phản hồi của bài chưa đăng cũng không lộ ra cho người ngoài.
+            await VisiblePostAsync(parent.PostId, currentUserId, role);
+
+            var replies = (await _commentRepo.FindAsync(r =>
+                r.ParentId == commentId &&
+                !r.IsDeleted &&
+                r.Status != Hidden
+            )).OrderBy(r => r.CreatedAt).ToList();
+
+            if (!replies.Any())
+            {
+                return Enumerable.Empty<CommentResponse>();
+            }
+
+            var authors = await AuthorsOfAsync(replies.Select(r => r.UserId));
+            return replies.Select(r => MapToResponse(r, authors, 0)).ToList();
+        }
+
+        public async Task<IEnumerable<MyCommentResponse>> GetMyCommentsAsync(string currentUserId)
+        {
+            var comments = (await _commentRepo.FindPagedAsync(
+                c => c.UserId == currentUserId && !c.IsDeleted && c.Status != Hidden,
+                1,
+                200,
+                sortDesc: c => c.CreatedAt)).ToList();
+            if (!comments.Any()) return Enumerable.Empty<MyCommentResponse>();
+
+            var posts = await PostsOfAsync(comments);
+
+            // Bài đã xoá thì bỏ cả dòng. Bài bị ẩn thì giữ lời của mình nhưng không để lộ tiêu đề.
+            return comments
+                .Where(c => posts.ContainsKey(c.PostId))
+                .Select(c => new MyCommentResponse
+                {
+                    Id = c.Id,
+                    PostId = c.PostId,
+                    PostTitle = PostAccess.CanSee(posts[c.PostId], currentUserId, null) ? posts[c.PostId].Title : "Bài viết không còn hiển thị",
+                    ParentId = c.ParentId,
+                    Content = c.Content,
+                    CreatedAt = c.CreatedAt,
+                    UpdatedAt = c.UpdatedAt
+                })
+                .ToList();
+        }
+
+        public async Task<IEnumerable<AdminCommentResponse>> GetAdminCommentsAsync(string? view, string? search, string? authorId, string? postId)
+        {
+            var mode = string.IsNullOrWhiteSpace(view) ? "all" : view.Trim().ToLowerInvariant();
+            if (mode != "all" && mode != "reported" && mode != "hidden")
+            {
+                throw new BadRequestException("view chỉ nhận all, reported hoặc hidden.", "invalid_view");
+            }
+            authorId = RequireObjectIdOrNull(authorId, "authorId");
+            postId = RequireObjectIdOrNull(postId, "postId");
+
+            var term = string.IsNullOrWhiteSpace(search) ? null : search.Trim().ToLowerInvariant();
+            var matchingAuthors = new List<string>();
+            if (term != null)
+            {
+                matchingAuthors = (await _userRepo.FindAsync(u => u.FullName.ToLower().Contains(term))).Select(u => u.Id).ToList();
+            }
+
+            var comments = (await _commentRepo.FindPagedAsync(
+                c => !c.IsDeleted &&
+                     (mode != "hidden" || c.Status == Hidden) &&
+                     (mode != "reported" || c.ReportCount > 0) &&
+                     (authorId == null || c.UserId == authorId) &&
+                     (postId == null || c.PostId == postId) &&
+                     (term == null || c.Content.ToLower().Contains(term) || matchingAuthors.Contains(c.UserId)),
+                1,
+                200,
+                sortDesc: c => c.CreatedAt)).ToList();
+
+            return await MapAdminAsync(comments);
+        }
+
+        public async Task<bool> AdminDeleteCommentAsync(string commentId, string? reason)
+        {
+            var comment = await _commentRepo.FindByIdAsync(commentId);
+            if (comment == null || comment.IsDeleted) return false;
+
+            comment.DeleteReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+            await SoftDeleteBranchAsync(comment);
+            return true;
+        }
+
+        public async Task<AdminCommentResponse> AdminActOnCommentAsync(string commentId, string action)
+        {
+            var comment = await _commentRepo.FindByIdAsync(commentId);
+            if (comment == null || comment.IsDeleted)
+            {
+                throw new NotFoundException(CommentNotFound);
+            }
+
+            var target = action switch
+            {
+                "hide" => Hidden,
+                "unhide" => Visible,
+                _ => throw new BadRequestException("action chỉ nhận hide hoặc unhide.", "invalid_action")
+            };
+
+            if (comment.Status != target)
+            {
+                comment.Status = target;
+                await _commentRepo.UpdateFieldAsync(commentId, c => c.Status, target);
+
+                // Bình luận bị ẩn không còn tính vào số đếm mà người đọc thấy.
+                var delta = target == Hidden ? -1 : 1;
+                var branch = 1;
+                if (string.IsNullOrEmpty(comment.ParentId))
+                {
+                    branch += (await _commentRepo.FindAsync(c => c.ParentId == commentId && !c.IsDeleted && c.Status != Hidden)).Count();
+                }
+                else
+                {
+                    await _commentRepo.IncrementFieldAsync(comment.ParentId, c => c.ReplyCount, delta);
+                }
+                await _postRepo.IncrementFieldAsync(comment.PostId, p => p.CommentCount, delta * branch);
+            }
+
+            return (await MapAdminAsync(new List<Comment> { comment })).Single();
+        }
+
+        private async Task SoftDeleteBranchAsync(Comment comment)
+        {
             comment.IsDeleted = true;
             comment.DeletedAt = DateTime.UtcNow;
-            await _commentRepo.UpdateAsync(commentId, comment);
+            await _commentRepo.UpdateAsync(comment.Id, comment);
 
-            // Giảm số lượng comment của bài viết
             // B16 Fix: Xoá theo cả nhánh (cascade soft-delete child replies)
+            var commentId = comment.Id;
             var childReplies = (await _commentRepo.FindAsync(c => c.ParentId == commentId && !c.IsDeleted)).ToList();
             foreach (var child in childReplies)
             {
@@ -221,44 +357,67 @@ namespace ApplicationLayer.Services
                 await _commentRepo.UpdateAsync(child.Id, child);
             }
 
-            var totalDeleted = 1 + childReplies.Count;
-            await _postRepo.IncrementFieldAsync(comment.PostId, p => p.CommentCount, -totalDeleted);
+            // Phần đã ẩn thì lúc ẩn đã trừ rồi, không trừ lần nữa.
+            var removed = (comment.Status == Hidden ? 0 : 1 + childReplies.Count(c => c.Status != Hidden));
+            if (removed > 0)
+            {
+                await _postRepo.IncrementFieldAsync(comment.PostId, p => p.CommentCount, -removed);
+            }
 
             // Nếu đây là phản hồi con, giảm replyCount của comment cha
-            if (!string.IsNullOrEmpty(comment.ParentId))
+            if (!string.IsNullOrEmpty(comment.ParentId) && comment.Status != Hidden)
             {
                 await _commentRepo.IncrementFieldAsync(comment.ParentId, c => c.ReplyCount, -1);
             }
-
-            return true;
         }
 
-        public async Task<IEnumerable<CommentResponse>> GetCommentRepliesAsync(string commentId, string? postId = null)
+        private async Task<List<AdminCommentResponse>> MapAdminAsync(List<Comment> comments)
         {
-            var parent = await _commentRepo.FindByIdAsync(commentId);
-            if (parent == null || parent.IsDeleted)
-            {
-                throw new NotFoundException($"Không tìm thấy bình luận với id: {commentId}");
-            }
+            if (!comments.Any()) return new List<AdminCommentResponse>();
 
-            // B40: Route replies kiểm tra comment có thuộc về postId hay không
-            if (!string.IsNullOrEmpty(postId) && parent.PostId != postId)
-            {
-                throw new NotFoundException($"Bình luận không thuộc bài viết: {postId}");
-            }
+            var posts = await PostsOfAsync(comments);
+            var parentIds = comments.Where(c => c.ParentId != null).Select(c => c.ParentId!).Distinct().ToList();
+            var parents = parentIds.Any()
+                ? (await _commentRepo.FindAsync(c => parentIds.Contains(c.Id))).ToDictionary(c => c.Id)
+                : new Dictionary<string, Comment>();
+            var authors = await AuthorsOfAsync(comments.Select(c => c.UserId).Concat(parents.Values.Select(p => p.UserId)));
 
-            var replies = (await _commentRepo.FindAsync(r =>
-                r.ParentId == commentId &&
-                !r.IsDeleted
-            )).OrderBy(r => r.CreatedAt).ToList();
+            return comments
+                .Where(c => posts.ContainsKey(c.PostId))
+                .Select(c =>
+                {
+                    var author = AuthorOf(c.UserId, authors);
+                    Comment? parent = null;
+                    if (c.ParentId != null) parents.TryGetValue(c.ParentId, out parent);
+                    return new AdminCommentResponse
+                    {
+                        Id = c.Id,
+                        PostId = c.PostId,
+                        PostTitle = posts[c.PostId].Title,
+                        ParentId = c.ParentId,
+                        ReplyTo = parent == null ? null : new AdminCommentReplyToDto { Id = parent.Id, AuthorName = AuthorOf(parent.UserId, authors).FullName },
+                        ReplyCount = Math.Max(0, c.ReplyCount),
+                        Author = new AdminCommentAuthorDto { Id = author.Id, FullName = author.FullName },
+                        Content = c.Content,
+                        Status = string.IsNullOrEmpty(c.Status) ? Visible : c.Status,
+                        ReportCount = c.ReportCount,
+                        CreatedAt = c.CreatedAt,
+                        UpdatedAt = c.UpdatedAt
+                    };
+                })
+                .ToList();
+        }
 
-            if (!replies.Any())
-            {
-                return Enumerable.Empty<CommentResponse>();
-            }
+        private async Task<Dictionary<string, Post>> PostsOfAsync(IEnumerable<Comment> comments)
+        {
+            var postIds = comments.Select(c => c.PostId).Distinct().ToList();
+            return (await _postRepo.FindAsync(p => postIds.Contains(p.Id) && !p.IsDeleted)).ToDictionary(p => p.Id);
+        }
 
-            var userIds = replies.Select(r => r.UserId).Distinct().ToList();
-            var authors = (await _userRepo.FindAsync(u => userIds.Contains(u.Id) && !u.IsDeleted))
+        private async Task<Dictionary<string, AuthorSummaryDto>> AuthorsOfAsync(IEnumerable<string> ids)
+        {
+            var userIds = ids.Distinct().ToList();
+            return (await _userRepo.FindAsync(u => userIds.Contains(u.Id) && !u.IsDeleted))
                 .ToDictionary(
                     u => u.Id,
                     u => new AuthorSummaryDto
@@ -267,21 +426,32 @@ namespace ApplicationLayer.Services
                         FullName = u.FullName,
                         IsVerifiedChef = u.Role?.Equals("Chef", StringComparison.OrdinalIgnoreCase) == true
                     });
+        }
 
-            return replies.Select(r => new CommentResponse
+        private static AuthorSummaryDto AuthorOf(string userId, Dictionary<string, AuthorSummaryDto> authors) =>
+            authors.TryGetValue(userId, out var a) ? a : new AuthorSummaryDto { Id = userId, FullName = "Thành viên" };
+
+        private static CommentResponse MapToResponse(Comment c, Dictionary<string, AuthorSummaryDto> authors, int replyCount) => new()
+        {
+            Id = c.Id,
+            PostId = c.PostId,
+            ParentId = c.ParentId,
+            Author = AuthorOf(c.UserId, authors),
+            Content = c.Content,
+            CreatedAt = c.CreatedAt,
+            UpdatedAt = c.UpdatedAt,
+            ReplyCount = replyCount,
+            Replies = new List<CommentResponse>()
+        };
+
+        private static string? RequireObjectIdOrNull(string? value, string name)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return null;
+            if (!MongoDB.Bson.ObjectId.TryParse(value.Trim(), out _))
             {
-                Id = r.Id,
-                PostId = r.PostId,
-                ParentId = r.ParentId,
-                Author = authors.TryGetValue(r.UserId, out var ra)
-                    ? ra
-                    : new AuthorSummaryDto { Id = r.UserId, FullName = "Thành viên" },
-                Content = r.Content,
-                CreatedAt = r.CreatedAt,
-                UpdatedAt = r.UpdatedAt,
-                ReplyCount = 0,
-                Replies = new List<CommentResponse>()
-            });
+                throw new BadRequestException($"{name} không hợp lệ.", "invalid_id");
+            }
+            return value.Trim();
         }
     }
 }

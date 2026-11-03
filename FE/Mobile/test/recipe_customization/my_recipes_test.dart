@@ -260,7 +260,7 @@ void main() {
     });
   });
 
-  group('on the real BE (no PUT or DELETE)', () {
+  group('on the real BE', () {
     const savedId = '6ae5962596695f5c139fa9b6';
     const copyId = '6ae5962596695f5c139fa9b7';
     const dish = 'Đậu hũ sốt cà chua & cơm lứt';
@@ -309,9 +309,15 @@ void main() {
                 backend
                     .envelope({...r.data as Map<String, dynamic>, 'id': copyId})
               ),
+          'PUT /recipes/$savedId': (r) => (
+                200,
+                backend.envelope(
+                    {...r.data as Map<String, dynamic>, 'id': savedId})
+              ),
         })
           ..on('GET /users/me/recipes', 200, backend.envelope([saved]))
           ..on('GET /recipes/$savedId', 200, backend.envelope(saved))
+          ..on('DELETE /recipes/$savedId', 200, backend.envelope(null))
           ..on('GET /meal-plans/current', 404, backend.notFound('Chưa có.'))
           ..on('GET /health-profile/me', 404, backend.notFound('Chưa có.'));
 
@@ -329,20 +335,20 @@ void main() {
     });
 
     testWidgets(
-        'says an edit is a new copy; no "Xoá"; the copy goes through POST and '
-        'keeps the signature rule', (tester) async {
+        'an edit is in place: PUT, same id, keeps where a variant came from and '
+        'the signature rule', (tester) async {
       final fake = server();
       await pumpReal(tester, fake);
       expect(find.text('Đậu hũ sốt của tôi'), findsOneWidget);
-      expect(find.text(MyRecipesScreen.copyNote), findsOneWidget);
-      expect(find.text('Xoá'), findsNothing);
-      expect(find.byType(PopupMenuButton<Object?>), findsNothing);
+      expect(find.text(MyRecipesScreen.copyNote), findsNothing);
 
-      await tester.tap(find.byTooltip('Sửa thành bản mới: Đậu hũ sốt của tôi'));
+      await tester.tap(find.byTooltip('Tuỳ chọn cho Đậu hũ sốt của tôi'));
+      await _wait(tester, 500);
+      await tester.tap(find.text('Sửa'));
       await _wait(tester);
-      expect(find.text('Sửa thành bản mới'), findsOneWidget);
-      expect(find.text(UserRecipeFormScreen.copyNote), findsOneWidget);
-      expect(_field('Đậu hũ sốt của tôi (bản mới)'), findsOneWidget);
+      expect(find.text('Sửa công thức'), findsOneWidget);
+      expect(find.text(UserRecipeFormScreen.copyNote), findsNothing);
+      expect(_field('Đậu hũ sốt của tôi'), findsOneWidget);
 
       // The swapped riêu of the variant: a signature, offered its original.
       expect(find.text('Nấm đùi gà'), findsOneWidget);
@@ -357,39 +363,46 @@ void main() {
 
       await tester.tap(find.widgetWithText(FilledButton, 'Lưu'));
       await _wait(tester);
-      expect(find.text('Đã lưu thành công thức mới. Bản cũ vẫn còn.'),
-          findsOneWidget);
+      expect(find.text('Đã lưu thay đổi'), findsOneWidget);
 
-      final body = fake.bodyOf('POST /recipes');
-      expect(body['name'], 'Đậu hũ sốt của tôi (bản mới)');
+      final body = fake.bodyOf('PUT /recipes/$savedId');
+      expect(body['name'], 'Đậu hũ sốt của tôi');
       expect((body['ingredients'] as List).first, 'Tempeh 200 g');
       expect((body['instructions'] as List).first, savedVariantNote(dish, 2));
-      expect(fake.calls.where((c) => c.contains('PUT') || c.contains('DELETE')),
-          isEmpty);
+      expect(fake.calls.where((c) => c.contains('POST /recipes')), isEmpty);
       await _drain(tester);
     });
 
-    testWidgets('its page has the same honest "Sửa thành bản mới"',
+    testWidgets('"Xoá": asks first, then DELETE', (tester) async {
+      final fake = server();
+      await pumpReal(tester, fake);
+      await tester.tap(find.byTooltip('Tuỳ chọn cho Đậu hũ sốt của tôi'));
+      await _wait(tester, 500);
+      await tester.tap(find.text('Xoá'));
+      await _wait(tester, 500);
+      expect(fake.calls.where((c) => c.contains('DELETE')), isEmpty);
+      fake.on('GET /users/me/recipes', 200, backend.envelope(const <Object>[]));
+      await tester.tap(find.widgetWithText(FilledButton, 'Xoá'));
+      await _wait(tester);
+      expect(fake.calls.where((c) => c.contains('DELETE /recipes/$savedId')),
+          hasLength(1));
+      expect(find.text('Đã xoá «Đậu hũ sốt của tôi»'), findsOneWidget);
+      await _drain(tester);
+    });
+
+    testWidgets('its page says "Sửa công thức", and what it is a variant of',
         (tester) async {
       final fake = server();
       await pumpReal(tester, fake,
           home: const RecipeDetailScreen(recipeId: savedId));
       await _wait(tester);
-      expect(find.text('Sửa thành bản mới'), findsOneWidget);
+      expect(find.text('Sửa công thức'), findsOneWidget);
       expect(find.text('Biến thể của «$dish»'), findsOneWidget);
       expect(find.text('≈ 400 kcal / phần'), findsOneWidget);
       expect(find.text('Năng lượng (ước tính)'), findsOneWidget);
-      await _drain(tester);
-    });
-
-    test('the Remote service never calls what the BE does not have', () async {
-      final fake = backend.FakeBackend();
-      final c = await backend.backendContainer(fake);
-      final api = c.read(mealPlannerApiProvider);
-      expect(() => api.deleteMyRecipe(savedId), throwsException);
-      expect(fake.seen, isEmpty);
       expect(backendRecipeItemsFor(dish), isNotNull);
       expect(recipeFromBackend, isNotNull);
+      await _drain(tester);
     });
   });
 }

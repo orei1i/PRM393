@@ -237,6 +237,7 @@ class CommentComposer extends ConsumerStatefulWidget {
     required this.controller,
     this.focusNode,
     this.onPosted,
+    this.onFailed,
   });
 
   final CommentThreadController controller;
@@ -244,6 +245,9 @@ class CommentComposer extends ConsumerStatefulWidget {
 
   /// After the server confirmed a new comment or reply (e.g. scroll to it).
   final ValueChanged<Comment>? onPosted;
+
+  /// After a new comment or reply failed; the text stays in the field.
+  final VoidCallback? onFailed;
 
   @override
   ConsumerState<CommentComposer> createState() => CommentComposerState();
@@ -425,6 +429,7 @@ class CommentComposerState extends ConsumerState<CommentComposer> {
       // Keep what the member typed.
       setState(() => _input.text = text);
       _snack(describeError(e));
+      widget.onFailed?.call();
     } finally {
       if (mounted) setState(() => _sending = false);
     }

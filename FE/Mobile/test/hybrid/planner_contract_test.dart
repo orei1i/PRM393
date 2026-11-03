@@ -16,6 +16,7 @@ import 'package:veganlife_mobile/features/meal_planner/domain/entities/health_pr
 import 'package:veganlife_mobile/features/meal_planner/domain/entities/meal_plan.dart';
 import 'package:veganlife_mobile/features/meal_planner/presentation/controllers/body_metrics_controller.dart';
 import 'package:veganlife_mobile/features/meal_planner/presentation/controllers/meal_plan_controller.dart';
+import 'package:veganlife_mobile/features/profile/presentation/controllers/profile_controller.dart';
 
 import 'planner_test_support.dart';
 
@@ -419,7 +420,7 @@ void main() {
                 weightKg: 1,
                 goal: goal,
                 allergies: const [],
-                dietaryRestrictions: const []).toBackendJson()['goal'],
+                dietaryRestrictions: const []).toJson()['goal'],
             isIn(const [
               'lose_weight',
               'maintain',
@@ -427,7 +428,7 @@ void main() {
               'gain_weight'
             ]));
       }
-      expect(request.toBackendJson()['goal'], 'lose_weight');
+      expect(request.toJson()['goal'], 'lose_weight');
     });
 
     test('older goals, and the ones with no choice here, still read', () {
@@ -439,10 +440,9 @@ void main() {
       expect(HealthGoal.fromApi('eat_clean'), HealthGoal.maintain);
     });
 
-    test('a missing activity level comes from the saved profile (B9)',
+    test('fields left out stay out, nothing is read first: the BE keeps them',
         () async {
       final backend = FakeBackend()
-        ..on('GET $_profile', 200, fixture('planner_fixture_profile.json'))
         ..on('PUT $_profile', 200, fixture('planner_fixture_profile.json'));
       final c = await backendContainer(backend);
       final saved = await c.read(mealPlannerApiProvider).updateHealthProfile(
@@ -452,8 +452,10 @@ void main() {
               goal: HealthGoal.maintain,
               allergies: [],
               dietaryRestrictions: []));
+      expect(backend.calls, ['PUT $_profile']);
       final body = backend.bodyOf('PUT $_profile');
-      expect(body['activityLevel'], 'light');
+      expect(body.containsKey('activityLevel'), isFalse,
+          reason: 'the BE keeps it (B9)');
       expect(body.containsKey('gender'), isFalse, reason: 'the BE keeps it');
       expect(body.containsKey('birthYear'), isFalse, reason: 'the BE keeps it');
       expect(body.containsKey('mealPattern'), isFalse,
@@ -461,7 +463,7 @@ void main() {
       expect(saved.targetCalories, 2060);
     });
 
-    test('with every field given nothing is read first', () async {
+    test('every field given goes along', () async {
       final backend = FakeBackend()
         ..on('PUT $_profile', 200, fixture('planner_fixture_profile.json'));
       final c = await backendContainer(backend);
@@ -472,7 +474,6 @@ void main() {
 
     test('a first profile leaves them out instead of sending null', () async {
       final backend = FakeBackend()
-        ..on('GET $_profile', 404, notFound('Bạn chưa tạo hồ sơ sức khỏe.'))
         ..on('PUT $_profile', 200, fixture('planner_fixture_profile.json'));
       final c = await backendContainer(backend);
       await c.read(mealPlannerApiProvider).updateHealthProfile(
@@ -542,54 +543,78 @@ void main() {
     FakeBackend backend() => FakeBackend()
       ..on('GET $_profile', 200, fixture('planner_fixture_profile.json'))
       ..on('POST $_metrics', 201, envelope(logged))
-      ..on('PUT $_profile', 200, fixture('planner_fixture_profile.json'))
       ..on('GET $_metrics', 200, envelope([logged]));
 
-    test('POST the row, then PUT the profile so its target follows (B37)',
-        () async {
+    test('POST the row, then read what the BE recomputed (B37)', () async {
       final b = backend();
       final c = await backendContainer(b);
       final result = await c
           .read(mealPlannerApiProvider)
           .logBodyMeasurement(const LogMeasurementRequestDto(weightKg: 64.2));
 
-      expect(b.calls, ['GET $_profile', 'POST $_metrics', 'PUT $_profile']);
+      expect(b.calls, ['POST $_metrics', 'GET $_profile'],
+          reason: 'no PUT: the POST recomputes the profile and the week');
       expect(b.bodyOf('POST $_metrics'), {'weightKg': 64.2});
-      final put = b.bodyOf('PUT $_profile');
-      expect(put['weightKg'], 64.2);
-      expect(put['heightCm'], 172);
-      expect(put['activityLevel'], 'light');
-      expect((put['allergies'] as List).length, 2);
       expect(result.measurement.id, 'm2');
-      expect(result.profile.targetCalories, 2060);
+      expect(result.profile!.targetCalories, 2060);
     });
 
-    test('the row counts even if the PUT after it fails', () async {
-      final b = backend()..on('PUT $_profile', 500, {'statusCode': 500});
+    test('the row counts even if the read after it fails', () async {
+      final b = backend()..on('GET $_profile', 500, {'statusCode': 500});
       final c = await backendContainer(b);
       final result = await c
           .read(mealPlannerApiProvider)
           .logBodyMeasurement(const LogMeasurementRequestDto(weightKg: 64.2));
       expect(result.measurement.id, 'm2');
-      expect(result.profile.heightCm, 172);
+      expect(result.profile, isNull);
+      expect(b.requests('POST $_metrics'), hasLength(1));
     });
 
-    test('what the BE would store blindly is refused first (B36)', () async {
-      for (final bad in const [
-        LogMeasurementRequestDto(weightKg: -5),
-        LogMeasurementRequestDto(weightKg: 0),
-        LogMeasurementRequestDto(weightKg: 251),
-      ]) {
-        final b = backend();
-        final c = await backendContainer(b);
-        await expectLater(
-          c.read(mealPlannerApiProvider).logBodyMeasurement(bad),
-          throwsA(isA<ApiException>()
-              .having((e) => e.statusCode, 'status', 400)
-              .having((e) => e.code, 'code', 'invalid_measurement')),
-        );
-        expect(b.seen, isEmpty, reason: 'nothing is sent: ${bad.toJson()}');
-      }
+    test('that read failing: the review uses the profile from before',
+        () async {
+      final b = backend();
+      final c = await backendContainer(b);
+      final before = await c.read(mealPlannerApiProvider).getHealthProfile();
+      await c.read(bodyMeasurementsProvider.future);
+      b.on('GET $_profile', 500, {'statusCode': 500});
+      // Nothing on screen holds a profile and the read fails too: the row is
+      // saved all the same, and the member is told what is missing.
+      await expectLater(
+          c.read(bodyMeasurementsProvider.notifier).log(weightKg: 64.2),
+          throwsA(isA<ApiException>().having((e) => e.message, 'message',
+              'Đã lưu cân nặng, nhưng chưa tải lại được hồ sơ sức khoẻ.')));
+      expect(c.read(bodyMeasurementsProvider).requireValue.first.id, 'm2');
+
+      b.on('GET $_profile', 200, fixture('planner_fixture_profile.json'));
+      c.read(profileHealthProvider);
+      await c.read(profileHealthProvider.future);
+      b.on('GET $_profile', 500, {'statusCode': 500});
+      final result =
+          await c.read(bodyMeasurementsProvider.notifier).log(weightKg: 64.2);
+      expect(result.profile.dailyKcalTarget, before!.targetCalories);
+    });
+
+    test('a value the BE refuses shows its Vietnamese message (B36)', () async {
+      const message = 'Cân nặng phải nằm trong khoảng từ 20 đến 300 kg.';
+      final b = backend()
+        ..on('POST $_metrics', 400, {
+          'success': false,
+          'code': 'validation_error',
+          'message': 'Dữ liệu yêu cầu không hợp lệ.',
+          'errors': {
+            'WeightKg': [message],
+          },
+        });
+      final c = await backendContainer(b);
+      await expectLater(
+        c
+            .read(mealPlannerApiProvider)
+            .logBodyMeasurement(const LogMeasurementRequestDto(weightKg: -5)),
+        throwsA(isA<ApiException>()
+            .having((e) => e.statusCode, 'status', 400)
+            .having((e) => e.message, 'message', message)),
+      );
+      expect(b.calls, ['POST $_metrics'], reason: 'nothing follows a refusal');
     });
 
     test('the controller puts it on top of the history', () async {
@@ -601,19 +626,42 @@ void main() {
       expect(c.read(bodyMeasurementsProvider).requireValue.first.id, 'm2');
     });
 
-    test('without a profile: the usual message', () async {
-      final backend = FakeBackend()
+    group('without a profile: the 404 of the BE', () {
+      const message = 'Chưa tạo hồ sơ sức khỏe. Vui lòng thiết lập hồ sơ trước '
+          'khi ghi nhận chỉ số.';
+
+      FakeBackend noProfile() => FakeBackend()
+        ..on('POST $_metrics', 404, {
+          'success': false,
+          'code': 'not_found',
+          'message': message,
+        })
+        ..on('GET $_metrics', 200, envelope(const []))
         ..on('GET $_profile', 404, notFound('Bạn chưa tạo hồ sơ sức khỏe.'));
-      final c = await backendContainer(backend);
-      await expectLater(
-          c
-              .read(mealPlannerApiProvider)
-              .logBodyMeasurement(const LogMeasurementRequestDto(weightKg: 60)),
-          throwsA(isA<ApiException>()
-              .having((e) => e.statusCode, 'status', 404)
-              .having((e) => e.message, 'message',
-                  'Bạn chưa tạo hồ sơ sức khỏe.')));
-      expect(backend.calls, ['GET $_profile'], reason: 'no row is made up');
+
+      test('the service says it in Vietnamese, and reads nothing after it',
+          () async {
+        final backend = noProfile();
+        final c = await backendContainer(backend);
+        await expectLater(
+            c.read(mealPlannerApiProvider).logBodyMeasurement(
+                const LogMeasurementRequestDto(weightKg: 60)),
+            throwsA(isA<ApiException>()
+                .having((e) => e.statusCode, 'status', 404)
+                .having((e) => e.message, 'message', message)));
+        expect(backend.calls, ['POST $_metrics']);
+      });
+
+      test('the controller keeps the history and rethrows for the sheet',
+          () async {
+        final c = await backendContainer(noProfile());
+        await c.read(bodyMeasurementsProvider.future);
+        await expectLater(
+            c.read(bodyMeasurementsProvider.notifier).log(weightKg: 60),
+            throwsA(isA<ApiException>()
+                .having((e) => e.message, 'message', message)));
+        expect(c.read(bodyMeasurementsProvider).requireValue, isEmpty);
+      });
     });
 
     test('old rows with waist and body fat still parse; no source', () async {
@@ -672,8 +720,29 @@ void main() {
       expect(recipe.source, 'user_recipe');
     });
 
-    test('"Công thức của tôi": real ones plus variants of mock recipes',
+    test('"Công thức của tôi": no sample variant once reviews are real',
         () async {
+      MockRecipeBook.addUserRecipe(
+          userId: 'u_me',
+          userName: 'Minh Anh',
+          recipe: {'name': 'Biến thể', 'caloriesCache': 300});
+      final backend = FakeBackend()
+        ..on(
+            'GET /users/me/recipes',
+            200,
+            envelope([
+              {'id': _realRecipe, 'name': 'Cơm', 'calories': 500},
+            ]));
+      final c = await backendContainer(backend);
+      final mine = await c.read(mealPlannerApiProvider).getMyRecipes();
+      expect(mine.map((r) => r.name), ['Cơm']);
+    });
+
+    test(
+        '"Công thức của tôi": real ones plus variants of mock recipes, with '
+        'recipeSocial mock', () async {
+      BackendModules.debugOverride({...BackendModules.supportedByBackend}
+        ..remove(BackendModule.recipeSocial));
       MockRecipeBook.addUserRecipe(
           userId: 'u_me',
           userName: 'Minh Anh',
@@ -694,11 +763,38 @@ void main() {
 
     test('"Từ chuyên gia" reads the mock store while bookings are mock',
         () async {
+      BackendModules.debugOverride({...BackendModules.supportedByBackend}
+        ..remove(BackendModule.bookings));
       final backend = FakeBackend();
       final c = await backendContainer(backend);
       final dishes = await c.read(mealPlannerApiProvider).getChefSuggestions();
       expect(dishes, isNotEmpty);
       expect(backend.seen, isEmpty);
+    });
+
+    test('"Từ chuyên gia" reads the route once bookings are real', () async {
+      final backend = FakeBackend()
+        ..on(
+            'GET /meal-plans/chef-suggestions',
+            200,
+            envelope([
+              {
+                'id': 'sg_1',
+                'chefId': 'chef_1',
+                'chefName': 'Chuyên gia',
+                'slot': 'dinner',
+                'targetDate': '2026-10-17',
+                'recipe': {
+                  'id': 'r_1',
+                  'name': 'Gỏi đậu phộng',
+                  'calories': 300,
+                  'allergens': ['peanut'],
+                },
+              },
+            ]));
+      final c = await backendContainer(backend);
+      final dishes = await c.read(mealPlannerApiProvider).getChefSuggestions();
+      expect(dishes.single.recipe.allergens, ['peanut']);
     });
 
     test('a guest has none, without a request', () async {

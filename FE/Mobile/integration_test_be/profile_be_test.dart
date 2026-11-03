@@ -15,7 +15,7 @@ Future<void> main() async {
 
     setUpAll(() async {
       me = await be.newUser(name: 'FE IT Profile');
-      profile = RemoteProfileApiService(me.dio, currentUserId: () => me.id);
+      profile = RemoteProfileApiService(me.dio);
     });
 
     beTest('getMe returns the account', () async {
@@ -94,20 +94,20 @@ Future<void> main() async {
       expect(await stats(), containsPair('posts', 0));
     });
 
-    beTest('a chef application stays on the device, per account', () async {
+    beTest('a chef application reaches the server, per account', () async {
       await profile.submitChefApplication(const ChefApplicationRequest(
         specialties: ['Món chay'],
         yearsExperience: 3,
         city: 'TP.HCM',
-        bio: 'Đầu bếp chay nhiều năm kinh nghiệm.',
-        certificates: [],
+        bio:
+            'Đầu bếp chay nhiều năm kinh nghiệm, chuyên thực đơn thuần chay cho gia đình.',
+        certificates: ['Chứng chỉ dinh dưỡng'],
       ));
       expect((await profile.getMe()).toEntity().chefApplication,
           ChefApplicationStatus.pending);
 
       final other = await be.newUser(name: 'FE IT Profile 2');
-      final otherProfile =
-          RemoteProfileApiService(other.dio, currentUserId: () => other.id);
+      final otherProfile = RemoteProfileApiService(other.dio);
       expect((await otherProfile.getMe()).toEntity().chefApplication,
           ChefApplicationStatus.none);
     });

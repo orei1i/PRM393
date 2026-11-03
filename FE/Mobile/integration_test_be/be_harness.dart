@@ -106,6 +106,22 @@ class BeHarness {
       rawRequest('POST', path,
           data: {'email': email, 'password': _seedPassword()});
 
+  /// A seeded account as a [BeUser], for what a new account can't be. Whatever a
+  /// test does with it stays in the DB, so compare before and after, not totals.
+  Future<BeUser> seedUser(String email) async {
+    final res = await seedLogin(email);
+    expect(res.status, 200, reason: email);
+    final user = res.dataMap['user'] as Map<String, dynamic>;
+    return BeUser._(
+      id: user['id'] as String,
+      name: user['fullName'] as String,
+      email: email,
+      password: _seedPassword(),
+      token: res.dataMap['accessToken'] as String,
+      refreshToken: res.dataMap['refreshToken'] as String,
+    );
+  }
+
   /// A token of the seeded admin; for moderation checks.
   Future<String> adminToken() async =>
       (await seedLogin(seedAdminEmail, path: '/auth/admin/login'))
@@ -188,6 +204,21 @@ class BeUser {
   final String refreshToken;
 
   late final Dio dio;
+
+  /// The same account after a new login (a role change ends the old token).
+  Future<BeUser> signInAgain() async {
+    final res = await rawRequest('POST', '/auth/login',
+        data: {'email': email, 'password': password});
+    expect(res.status, 200, reason: 'login again');
+    return BeUser._(
+      id: id,
+      name: name,
+      email: email,
+      password: password,
+      token: res.dataMap['accessToken'] as String,
+      refreshToken: res.dataMap['refreshToken'] as String,
+    );
+  }
 
   /// A plain request that only reads the status and the envelope, for what the
   /// services hide on purpose.
@@ -274,6 +305,61 @@ Future<RawResponse> rawRequest(
   } finally {
     dio.close();
   }
+}
+
+/// The code of a password reset, from the dev route (`Auth:DevResetCodes=true`
+/// on a Development server; 404 everywhere else). Never printed.
+Future<String> devResetCode(String email) async {
+  final res =
+      await rawRequest('GET', '/dev/auth/reset-code', query: {'email': email});
+  expect(res.status, 200, reason: 'start the BE with Auth__DevResetCodes=true');
+  return res.dataMap['code'] as String;
+}
+
+/// The only DB the time travel below may write to.
+const _timeTravelDb = 'VeganLifeDB_FEIT3';
+
+/// The money rules wait for dates ("from the last day", 3 days, 7 days) that no
+/// test can sit through: this moves one booking of this run into the past, in
+/// the test DB, as if [days] days had gone by. [days] is whole days. Fails when
+/// the server is not on that DB (the id isn't found, and nothing is written).
+Future<void> timeTravel(String bookingId, {required int days}) async {
+  expect(RegExp(r'^[0-9a-f]{24}$').hasMatch(bookingId), isTrue,
+      reason: 'a booking id');
+  final script = '''
+const N = $days;
+const id = ObjectId("$bookingId");
+const b = db.ChefBookings.findOne({ _id: id });
+if (!b) { print("not-found"); quit(0); }
+const dateStr = (s) => { const d = new Date(s + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - N); return d.toISOString().slice(0, 10); };
+const when = (d) => new Date(d.getTime() - N * 86400000);
+const set = { StartDate: dateStr(b.StartDate) };
+if (b.Contract) {
+  set["Contract.StartDate"] = dateStr(b.Contract.StartDate);
+  set["Contract.EndDate"] = dateStr(b.Contract.EndDate);
+  set["Contract.DeliveryDueAt"] = when(b.Contract.DeliveryDueAt);
+  set["Contract.PaymentDueAt"] = when(b.Contract.PaymentDueAt);
+}
+if (b.Escrow) {
+  set["Escrow.HeldAt"] = when(b.Escrow.HeldAt);
+  set["Escrow.AutoCompleteAt"] = when(b.Escrow.AutoCompleteAt);
+  if (b.Escrow.CompletedAt) { set["Escrow.CompletedAt"] = when(b.Escrow.CompletedAt); set["CompletedAt"] = when(b.CompletedAt); }
+  if (b.Escrow.ReleaseAt) set["Escrow.ReleaseAt"] = when(b.Escrow.ReleaseAt);
+}
+(b.Days || []).forEach((day, i) => {
+  set["Days." + i + ".Date"] = dateStr(day.Date);
+  if (day.SentAt) set["Days." + i + ".SentAt"] = when(day.SentAt);
+});
+const res = db.ChefBookings.updateOne({ _id: id }, { \$set: set });
+print(res.matchedCount === 1 ? "moved" : "not-moved");
+''';
+  final file = await tempFile('time_travel.js', utf8.encode(script));
+  final out = await Process.run('mongosh',
+      ['mongodb://localhost:27017/$_timeTravelDb', '--quiet', '--file', file],
+      stdoutEncoding: utf8);
+  expect(out.exitCode, 0, reason: 'mongosh: ${out.stderr}');
+  expect((out.stdout as String).trim(), 'moved',
+      reason: 'the BE must run on $_timeTravelDb to move a booking in time');
 }
 
 /// A multipart body with one file in [field].

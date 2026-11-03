@@ -73,23 +73,70 @@ Future<void> main() async {
       expect(list.map((p) => p.ingredient), isNot(contains('Trứng gà')));
     });
 
-    beTest('B13: what only the BE calls non-vegan is refused and taken out',
+    beTest('B13: "Bơ" is a fruit to the BE too, so it stays in the fridge',
         () async {
       final user = await be.newUser(name: 'FE IT Pantry Bo');
+      final list = await RemotePantryApiService(user.dio).addItems(const [
+        AddPantryItemDto(ingredient: 'Bơ'),
+        AddPantryItemDto(ingredient: 'Rau chân vịt'),
+        AddPantryItemDto(ingredient: 'Đậu gà'),
+      ]);
+      expect(list.map((p) => p.ingredient),
+          containsAll(['Bơ', 'Rau chân vịt', 'Đậu gà']));
+      expect(list.any((p) => p.toEntity().serverSaysNotVegan), isFalse);
+    });
+
+    beTest('B13: "Sữa chua dừa" is vegan to the BE too, so it stays', () async {
+      final user = await be.newUser(name: 'FE IT Pantry Sua Chua');
+      final fridge = RemotePantryApiService(user.dio);
+      final list = await fridge.addItems(const [
+        AddPantryItemDto(ingredient: 'Sữa chua dừa'),
+        AddPantryItemDto(ingredient: 'Phô mai hạt điều'),
+        AddPantryItemDto(ingredient: 'Cà chua'),
+      ]);
+      expect(list.map((p) => p.ingredient),
+          containsAll(['Sữa chua dừa', 'Phô mai hạt điều', 'Cà chua']));
+      expect(list.any((p) => p.toEntity().serverSaysNotVegan), isFalse);
+    });
+
+    beTest(
+        'B13: what the BE alone calls non-vegan is still refused and taken out: '
+        'the BE stores it, flagged', () async {
+      // Tiết canh: the app's own check does not know it, the BE does.
+      final user = await be.newUser(name: 'FE IT Pantry Tiet Canh');
       final fridge = RemotePantryApiService(user.dio);
       await expectLater(
         fridge.addItems(const [
-          AddPantryItemDto(ingredient: 'Bơ'),
+          AddPantryItemDto(ingredient: 'Tiết canh'),
           AddPantryItemDto(ingredient: 'Cà chua'),
         ]),
         throwsA(isA<PantryRefusedException>()
-            .having((e) => e.names, 'names', ['Bơ']).having(
+            .having((e) => e.names, 'names', ['Tiết canh']).having(
                 (e) => e.items.map((p) => p.ingredient), 'items', [
           'Cà chua'
-        ]).having((e) => e.message, 'message', contains('Máy chủ xếp Bơ'))),
+        ]).having((e) => e.message, 'message',
+                contains('Máy chủ xếp Tiết canh'))),
       );
       final list = await fridge.getPantry();
       expect(list.map((p) => p.ingredient), ['Cà chua']);
+    });
+
+    beTest('B13: what the BE used to let through is refused by both', () async {
+      final user = await be.newUser(name: 'FE IT Pantry Miss');
+      final fridge = RemotePantryApiService(user.dio);
+      for (final name in ['Sườn non', 'Gelatin', 'Dê', 'Whey', 'Hải sản']) {
+        await expectApiError(
+          fridge.addItems([AddPantryItemDto(ingredient: name)]),
+          status: 422,
+          code: 'not_vegan',
+        );
+        final raw = await user.raw('POST', '/users/me/ingredients', data: {
+          'items': [
+            {'ingredient': name},
+          ],
+        });
+        expect(raw.dataList.single['isVegan'], isFalse, reason: name);
+      }
     });
 
     beTest('B13: a row the BE called non-vegan says so when it is listed',
@@ -129,8 +176,8 @@ Future<void> main() async {
         AddPantryItemDto(ingredient: 'Cà chua'),
       ]);
       final warnings = {for (final p in list) p.ingredient: p.allergyWarning};
-      expect(warnings['Đậu phộng'], 'Cảnh báo dị ứng: peanut');
-      expect(warnings['Đậu hũ'], 'Cảnh báo dị ứng: soy');
+      expect(warnings['Đậu phộng'], 'Cảnh báo dị ứng: Đậu phộng');
+      expect(warnings['Đậu hũ'], 'Cảnh báo dị ứng: Đậu nành');
       expect(warnings['Cà chua'], isNull);
     });
 

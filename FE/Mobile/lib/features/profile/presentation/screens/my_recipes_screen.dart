@@ -18,9 +18,8 @@ import '../../../recipe/presentation/controllers/recipe_controller.dart';
 import '../../../recipe/presentation/screens/recipe_detail_screen.dart';
 
 /// Tôi › "Công thức của tôi": what the member wrote or saved from a recipe page.
-/// Open, create and edit. A real BE has no PUT or DELETE on recipes
-/// ([BackendModules.myRecipeEdit]): an edit is then saved as a new copy, the page
-/// says so, and there is no "Xoá".
+/// Open, create, edit and delete. Should [BackendModules.myRecipeEdit] be off, an
+/// edit is saved as a new copy, the page says so, and there is no "Xoá".
 class MyRecipesScreen extends ConsumerWidget {
   const MyRecipesScreen({super.key});
 

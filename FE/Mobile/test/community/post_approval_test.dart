@@ -298,7 +298,7 @@ void main() {
       await _dispose(tester);
     });
 
-    testWidgets('hidden on the real BE, where PUT /posts/{id} is a 405',
+    testWidgets('on the real BE too, which has PUT /posts/{id}',
         (tester) async {
       BackendModules.debugOverride({BackendModule.community});
       final post = Post(
@@ -313,7 +313,7 @@ void main() {
       await _pump(tester, Scaffold(body: PostAuthorRow(post: post)));
       await tester.pump();
       await openOwnMenu(tester, find.byType(PostAuthorRow));
-      expect(find.text('Sửa bài'), findsNothing);
+      expect(find.text('Sửa bài'), findsOneWidget);
       expect(find.text('Xoá bài'), findsOneWidget);
     });
   });

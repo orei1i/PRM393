@@ -12,6 +12,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, Di
 import { Label, Textarea } from "@/components/ui/form-controls";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { describeError } from "@/lib/api_error";
+import { isMock } from "@/lib/backend_modules";
 import { useCommentAction } from "@/lib/hooks/use-admin";
 import type { AdminComment } from "@/types/admin";
 
@@ -173,7 +174,7 @@ function Detail({
             tạm, hãy dùng “Ẩn”.
           </DialogDescription>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor={reasonId}>Lý do (gửi cho tác giả)</Label>
+            <Label htmlFor={reasonId}>{isMock("comments") ? "Lý do (gửi cho tác giả)" : "Lý do (lưu lại, chưa gửi cho tác giả)"}</Label>
             <Textarea
               id={reasonId}
               value={reason}

@@ -23,7 +23,8 @@ abstract interface class CommunityApiService {
     int limit = 6,
   });
 
-  /// Non-published posts are 404 for everyone but their author.
+  /// Non-published posts (waiting, rejected, hidden) are 404 for everyone but
+  /// their author.
   Future<PostDto> getPost(String id);
 
   Future<void> setLiked(String postId, {required bool liked});
@@ -49,8 +50,7 @@ abstract interface class CommunityApiService {
   Future<PostDto> createPost(CreatePostRequestDto request);
 
   /// Author only (403 otherwise). The answer says where it stands, like
-  /// [createPost]. The real BE has no such route yet (405), so the UI hides it
-  /// through `BackendModules.postEdit`.
+  /// [createPost].
   Future<PostDto> updatePost(String id, UpdatePostRequestDto request);
 
   /// Author only; removes the post with its comments.
@@ -79,32 +79,26 @@ abstract interface class CommunityApiService {
 /// all absorbed here so the screens stay the same:
 /// - Comments page by `page` / `pageSize`; a cursor there is the next page.
 /// - Like is a toggle (POST).
-/// - No save, my-posts, my-comments or edit routes: saves stay on this device
-///   ([SavedPostsStore]), my posts come from the feed plus the ids this device
-///   knows ([MyPostIdsStore]), and the UI hides the rest through the
-///   `BackendModules` capabilities.
+/// - Saves stay on this device ([SavedPostsStore]), although the BE now has
+///   `/posts/{id}/save`: moving would lose the list a member already has.
 class RemoteCommunityApiService implements CommunityApiService {
   RemoteCommunityApiService(
     this._dio, {
     String? Function()? currentUserId,
     SavedPostsStore? saved,
-    MyPostIdsStore? myPostIds,
   })  : _currentUserId = currentUserId ?? _noUser,
         _saved =
-            saved ?? SavedPostsStore(currentUserId: currentUserId ?? _noUser),
-        _myPostIds = myPostIds ??
-            MyPostIdsStore(currentUserId: currentUserId ?? _noUser);
+            saved ?? SavedPostsStore(currentUserId: currentUserId ?? _noUser);
 
   static String? _noUser() => null;
 
-  /// How far "Bài của tôi" scans the feed: 5 × 50 = the 250 newest posts.
+  /// How far "Bài của tôi" reads: 5 × 50 = the member's 250 newest posts.
   static const myPostsPageSize = backendMaxPageSize;
   static const myPostsMaxPages = 5;
 
   final Dio _dio;
   final String? Function() _currentUserId;
   final SavedPostsStore _saved;
-  final MyPostIdsStore _myPostIds;
 
   /// The last [getMyPosts] stopped before the end of the feed.
   bool get myPostsTruncated => _myPostsTruncated;
@@ -116,21 +110,6 @@ class RemoteCommunityApiService implements CommunityApiService {
   List<PostDto> _posts(Object? items) => items is List<Object?>
       ? items.whereType<Map<String, dynamic>>().map(_post).toList()
       : const [];
-
-  /// The BE has no edit route, yet a reply that got a reply of its own (from
-  /// another client) has an `updatedAt` (B17): it must not read "(đã sửa)".
-  Map<String, dynamic> _commentJson(Map<String, dynamic> json) {
-    final replies = json['replies'];
-    return {
-      ...json,
-      if (!BackendModules.commentEdit) 'updatedAt': null,
-      if (replies is List<Object?>)
-        'replies': replies
-            .whereType<Map<String, dynamic>>()
-            .map(_commentJson)
-            .toList(),
-    };
-  }
 
   static int _pageOf(String? cursor) => int.tryParse(cursor ?? '') ?? 1;
 
@@ -155,7 +134,12 @@ class RemoteCommunityApiService implements CommunityApiService {
         );
         final body = res.data!;
         return FeedPageDto(
-          items: _posts(body['items']),
+          // Published only, by contract: a status this app doesn't know stays
+          // off the feed too.
+          items: _posts(body['items'])
+              .where(
+                  (p) => PostStatus.fromApi(p.status) == PostStatus.published)
+              .toList(),
           nextCursor: body['nextCursor']?.toString(),
         );
       });
@@ -198,7 +182,7 @@ class RemoteCommunityApiService implements CommunityApiService {
         final items = raw is List<Object?>
             ? raw
                 .whereType<Map<String, dynamic>>()
-                .map((c) => CommentDto.fromJson(_commentJson(c)))
+                .map(CommentDto.fromJson)
                 .toList()
             : const <CommentDto>[];
         return CommentPageDto(
@@ -214,11 +198,8 @@ class RemoteCommunityApiService implements CommunityApiService {
       guardApi(() async {
         final res = await _dio
             .get<List<dynamic>>(ApiEndpoints.commentReplies(postId, commentId));
-        return CommentPageDto.fromJson([
-          for (final reply
-              in (res.data ?? const []).whereType<Map<String, dynamic>>())
-            _commentJson(reply),
-        ]);
+        return CommentPageDto.fromJson(
+            (res.data ?? const []).whereType<Map<String, dynamic>>().toList());
       });
 
   @override
@@ -229,7 +210,7 @@ class RemoteCommunityApiService implements CommunityApiService {
           ApiEndpoints.postComments(postId),
           data: {'content': text, if (parentId != null) 'parentId': parentId},
         );
-        return CommentDto.fromJson(_commentJson(res.data!));
+        return CommentDto.fromJson(res.data!);
       });
 
   @override
@@ -237,9 +218,7 @@ class RemoteCommunityApiService implements CommunityApiService {
       guardApi(() async {
         final res = await _dio.post<Map<String, dynamic>>(ApiEndpoints.posts,
             data: request.toJson());
-        final post = _post(res.data!);
-        await _myPostIds.add(post.id);
-        return post;
+        return _post(res.data!);
       });
 
   @override
@@ -259,7 +238,6 @@ class RemoteCommunityApiService implements CommunityApiService {
   Future<void> deletePost(String id) => guardApi(() async {
         await _dio.delete<void>(ApiEndpoints.post(id));
         await _saved.setSaved(id, saved: false);
-        await _myPostIds.remove(id);
       });
 
   /// The BE keeps only `reason` (at most 500 characters), so a note goes in it.
@@ -282,51 +260,30 @@ class RemoteCommunityApiService implements CommunityApiService {
 
   static const _maxReportReason = 500;
 
-  /// The member's posts among the newest [myPostsMaxPages] pages of the feed
-  /// (the BE has no `/users/me/posts`), plus the ones this device knows that
-  /// the feed doesn't list: waiting for review, rejected, or older.
+  /// Every status, newest first, from any device. Stops after
+  /// [myPostsMaxPages] pages and says so ([myPostsTruncated]).
   @override
   Future<List<PostDto>> getMyPosts() => guardApi(() async {
-        final me = _currentUserId();
         _myPostsTruncated = false;
-        if (me == null) return const [];
+        if (_currentUserId() == null) return const [];
         final mine = <PostDto>[];
         String? cursor;
         for (var page = 1; page <= myPostsMaxPages; page++) {
           final res = await _dio.get<Map<String, dynamic>>(
-            ApiEndpoints.feed,
+            ApiEndpoints.myPosts,
             queryParameters: {
               if (cursor != null) 'cursor': cursor,
               'limit': myPostsPageSize,
             },
           );
           final body = res.data!;
-          mine.addAll(_posts(body['items']).where((p) => p.author.id == me));
+          mine.addAll(_posts(body['items']));
           cursor = body['nextCursor']?.toString();
           if (cursor == null) break;
           if (page == myPostsMaxPages) _myPostsTruncated = true;
         }
-        // Remembered now: an admin may hide one of them later.
-        await _myPostIds.addKnown(mine.map((p) => p.id));
-        final listed = mine.map((p) => p.id).toSet();
-        final others = await Future.wait(
-            _myPostIds.ids.where((id) => !listed.contains(id)).map(_ownPost));
-        if (others.every((p) => p == null)) return mine;
-        return [...mine, ...others.whereType<PostDto>()]
-          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        return mine;
       });
-
-  /// A post that is gone is forgotten.
-  Future<PostDto?> _ownPost(String id) async {
-    try {
-      final res = await _dio.get<Map<String, dynamic>>(ApiEndpoints.post(id));
-      return _post(res.data!);
-    } on DioException catch (e) {
-      if (e.response?.statusCode != 404) rethrow;
-      await _myPostIds.remove(id);
-      return null;
-    }
-  }
 
   /// Newest saved first. A post that is gone (deleted, or hidden by reports)
   /// is skipped, not forgotten: a hidden one may come back.
@@ -362,18 +319,14 @@ class RemoteCommunityApiService implements CommunityApiService {
         await _dio.delete<void>(ApiEndpoints.commentDelete(commentId));
       });
 
-  /// No route on the BE yet; the "Bình luận" tab says so instead of asking.
   @override
-  Future<List<MyCommentDto>> getMyComments() {
-    if (!BackendModules.myComments) return Future.value(const []);
-    return guardApi(() async {
-      final res = await _dio.get<List<dynamic>>(ApiEndpoints.myComments);
-      return (res.data ?? const [])
-          .whereType<Map<String, dynamic>>()
-          .map(MyCommentDto.fromJson)
-          .toList();
-    });
-  }
+  Future<List<MyCommentDto>> getMyComments() => guardApi(() async {
+        final res = await _dio.get<List<dynamic>>(ApiEndpoints.myComments);
+        return (res.data ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(MyCommentDto.fromJson)
+            .toList();
+      });
 }
 
 final communityApiProvider = Provider<CommunityApiService>((ref) {
@@ -389,6 +342,5 @@ final communityApiProvider = Provider<CommunityApiService>((ref) {
     ref.watch(dioProvider),
     currentUserId: () => ref.read(sessionControllerProvider).userId,
     saved: ref.watch(savedPostsStoreProvider),
-    myPostIds: ref.watch(myPostIdsStoreProvider),
   );
 });

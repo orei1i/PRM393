@@ -189,6 +189,9 @@ class UpdateHealthProfileRequestDto {
   final ActivityLevel? activityLevel;
   final List<MealSlot>? mealPattern;
 
+  /// The real BE keeps a saved gender, birth year, activity level and meal
+  /// pattern when they are left out. A first profile must have a gender and a
+  /// birth year (400 otherwise; the form asks for them).
   Map<String, dynamic> toJson() => {
         'heightCm': heightCm,
         'weightKg': weightKg,
@@ -200,19 +203,6 @@ class UpdateHealthProfileRequestDto {
         'allergies': HealthProfileDto.allergiesToJson(allergies),
         'dietaryRestrictions': dietaryRestrictions,
       };
-
-  /// What the real BE needs. It keeps a saved gender, birth year and meal
-  /// pattern when they are left out, but a PUT without an activity level resets
-  /// it to `light` (B9), so that one is taken from [saved]. A first profile
-  /// must have a gender and a birth year (400 otherwise; the form asks for
-  /// them).
-  Map<String, dynamic> toBackendJson({HealthProfileDto? saved}) {
-    final activity = activityLevel?.apiValue ?? saved?.activityLevel;
-    return {
-      ...toJson(),
-      if (activity != null) 'activityLevel': activity,
-    };
-  }
 }
 
 class HealthSyncDto {

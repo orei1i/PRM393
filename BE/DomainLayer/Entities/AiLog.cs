@@ -15,7 +15,7 @@ namespace DomainLayer.Entities
         /// </summary>
         public string TaskType { get; set; } = "Vision";
 
-        public string Model { get; set; } = "gemini-2.0-flash";
+        public string Model { get; set; } = "gemini-3.6-flash";
 
         [BsonIgnoreIfNull]
         public string? ScanId { get; set; }

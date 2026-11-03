@@ -50,13 +50,16 @@ Future<void> main() async {
       expect(await planner.getBodyMeasurements(), isEmpty);
     });
 
-    beTest('a weigh-in without a profile is refused in Vietnamese', () async {
+    beTest('a weigh-in without a profile is a Vietnamese 404, and logs nothing',
+        () async {
       await expectApiError(
         planner
             .logBodyMeasurement(const LogMeasurementRequestDto(weightKg: 60)),
         status: 404,
+        code: 'not_found',
       );
       expect(await planner.getBodyMeasurements(), isEmpty);
+      expect(await planner.getHealthProfile(), isNull);
     });
 
     beTest('B9: a first profile must say gender and birth year', () async {
@@ -91,7 +94,7 @@ Future<void> main() async {
           gender: null, birthYear: null, activity: null, pattern: null));
       expect(saved.gender, 'Female');
       expect(saved.birthYear, 1997);
-      expect(saved.activityLevel, 'active', reason: 'the app sends it back');
+      expect(saved.activityLevel, 'active', reason: 'the BE keeps it');
       expect(saved.mealPattern, ['breakfast', 'lunch', 'dinner']);
       await planner.updateHealthProfile(request());
     });
@@ -113,13 +116,28 @@ Future<void> main() async {
       }
     });
 
-    beTest('B10: anything else is a Vietnamese 400', () async {
-      for (final goal in ['lose', 'gain', 'khong-co']) {
+    beTest('B10: a goal outside the list is a Vietnamese 400', () async {
+      final res = await me.raw('PUT', '/health-profile/me',
+          data: {...request().toJson(), 'goal': 'khong-co'});
+      expect(res.status, 400);
+      expect(res.json['message'], contains('Mục tiêu'));
+    });
+
+    beTest('B10: the old short goals are stored under their full name',
+        () async {
+      for (final (goal, stored, shown) in [
+        ('lose', 'lose_weight', HealthGoal.loseWeight),
+        ('gain', 'gain_weight', HealthGoal.gainWeight),
+      ]) {
         final res = await me.raw('PUT', '/health-profile/me',
             data: {...request().toJson(), 'goal': goal});
-        expect(res.status, 400, reason: goal);
-        expect(res.json['message'], contains('Mục tiêu'));
+        expect(res.status, 200, reason: goal);
+        expect(res.dataMap['goal'], stored);
+        final read = (await planner.getHealthProfile())!;
+        expect(read.goal, stored);
+        expect(read.toEntity().goal, shown);
       }
+      await planner.updateHealthProfile(request());
     });
 
     beTest('B10: the two goals the app has no choice for read sensibly',
@@ -142,14 +160,15 @@ Future<void> main() async {
       final logged = await planner
           .logBodyMeasurement(const LogMeasurementRequestDto(weightKg: 80));
       expect(logged.measurement.weightKg, 80);
-      expect(logged.profile.weightKg, 80);
-      expect(logged.profile.targetCalories, greaterThan(before.targetCalories!),
+      expect(logged.profile!.weightKg, 80);
+      expect(
+          logged.profile!.targetCalories, greaterThan(before.targetCalories!),
           reason: 'B37');
 
       final history = await planner.getBodyMeasurements();
       expect(history.first.id, logged.measurement.id);
       expect(history.where((m) => m.weightKg == 80), hasLength(1),
-          reason: 'no second row from the PUT');
+          reason: 'one weigh-in, one row');
       expect((await planner.getHealthProfile())!.activityLevel, 'light');
     });
 
@@ -160,14 +179,16 @@ Future<void> main() async {
       expect(await planner.getBodyMeasurements(), hasLength(before + 1));
     });
 
-    beTest('B36: nothing the BE would store blindly is sent', () async {
+    beTest('B36: the BE refuses a weight out of range, in Vietnamese',
+        () async {
       final before = await planner.getBodyMeasurements();
       for (final bad in const [
         LogMeasurementRequestDto(weightKg: -5),
         LogMeasurementRequestDto(weightKg: 1000),
       ]) {
         await expectApiError(planner.logBodyMeasurement(bad),
-            status: 400, code: 'invalid_measurement');
+            status: 400,
+            message: 'Cân nặng phải nằm trong khoảng từ 20 đến 300 kg.');
       }
       expect(await planner.getBodyMeasurements(), hasLength(before.length));
       expect((await planner.getHealthProfile())!.weightKg, 80);

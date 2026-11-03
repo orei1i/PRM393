@@ -97,6 +97,7 @@ class _ScannedIngredientsSheetState
   /// show while the tray still matches it.
   String? _savedSignature;
   int _savedCount = 0;
+  final _savedPanelKey = GlobalKey();
 
   @override
   void dispose() {
@@ -215,6 +216,14 @@ class _ScannedIngredientsSheetState
       setState(() {
         _savedSignature = _signature(items);
         _savedCount = saved;
+      });
+      // The result can sit below the fold of the half-open sheet.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final panel = _savedPanelKey.currentContext;
+        if (panel != null && panel.mounted) {
+          Scrollable.ensureVisible(panel,
+              alignment: 1, duration: const Duration(milliseconds: 250));
+        }
       });
     } catch (e) {
       messenger.showSnackBar(SnackBar(
@@ -442,6 +451,7 @@ class _ScannedIngredientsSheetState
                   const SizedBox(height: 16),
                   if (saved)
                     _SavedPanel(
+                      key: _savedPanelKey,
                       count: _savedCount,
                       generating: _generatingPlan,
                       onGenerate: _generateFromPantry,
@@ -593,6 +603,7 @@ class _ScannedIngredientsSheetState
 /// After "Lưu vào tủ lạnh": what to do with the fridge next.
 class _SavedPanel extends StatelessWidget {
   const _SavedPanel({
+    super.key,
     required this.count,
     required this.generating,
     required this.onGenerate,

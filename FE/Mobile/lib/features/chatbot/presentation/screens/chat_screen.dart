@@ -113,7 +113,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           children: [
             const Text('VeganLife AI'),
             Text(
-              'Mọi câu trả lời đều có nguồn trích dẫn',
+              'Trả lời kèm nguồn trích dẫn',
               style: context.textStyles.bodySmall
                   ?.copyWith(color: context.vl.muted),
             ),
@@ -229,7 +229,7 @@ class _WelcomeView extends StatelessWidget {
             style: context.textStyles.headlineSmall),
         const SizedBox(height: 6),
         Text(
-          'Câu trả lời dựa trên tài liệu của WHO, NIH và đầu bếp đã xác minh, kèm thực đơn của bạn nếu bạn đã đăng nhập.',
+          'Câu trả lời dựa trên tài liệu dinh dưỡng đã duyệt và của đầu bếp đã xác minh, kèm thực đơn của bạn nếu bạn đã đăng nhập.',
           style: context.textStyles.bodyLarge?.copyWith(color: vl.muted),
         ),
         const SizedBox(height: 20),

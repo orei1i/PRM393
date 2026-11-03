@@ -97,7 +97,7 @@ namespace ControllerLayer.Controllers
             var success = await _pantryService.DeletePantryItemAsync(userId, id);
             if (!success)
             {
-                return NotFound(ApiResponse<object>.NotFound($"Không tìm thấy nguyên liệu với id: {id}"));
+                return NotFound(ApiResponse<object>.NotFound("Không tìm thấy nguyên liệu."));
             }
             return Ok(ApiResponse<object?>.Ok(null, "Đã xóa nguyên liệu khỏi tủ lạnh."));
         }

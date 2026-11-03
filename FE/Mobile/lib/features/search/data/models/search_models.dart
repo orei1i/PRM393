@@ -23,6 +23,12 @@ List<T> _list<T>(Object? value, T Function(Map<String, dynamic>) parse) =>
         ? value.whereType<Map<String, dynamic>>().map(parse).toList()
         : <T>[];
 
+/// Turns a BE post body into what [PostDto.fromJson] reads (`adaptBackendPost`).
+typedef PostJsonAdapter = Map<String, dynamic> Function(Map<String, dynamic>);
+
+List<PostDto> _posts(Object? value, PostJsonAdapter? adapt) => _list(
+    value, (json) => PostDto.fromJson(adapt == null ? json : adapt(json)));
+
 List<Post> _publishedPosts(List<PostDto> posts) => [
       for (final p in posts)
         if (PostStatus.fromApi(p.status) == PostStatus.published) p.toEntity(),
@@ -70,10 +76,11 @@ class SearchSuggestionDto {
     this.restaurants = const [],
   });
 
-  factory SearchSuggestionDto.fromJson(Map<String, dynamic> json) =>
+  factory SearchSuggestionDto.fromJson(Map<String, dynamic> json,
+          {PostJsonAdapter? adaptPost}) =>
       SearchSuggestionDto(
         recipe: RecipeSummaryDto.fromJson(readMap(json['recipe'])),
-        relatedPosts: _list(json['relatedPosts'], PostDto.fromJson),
+        relatedPosts: _posts(json['relatedPosts'], adaptPost),
         restaurants: _list(json['restaurants'], RestaurantDto.fromJson),
       );
 
@@ -101,18 +108,19 @@ class SearchResultDto {
     this.postsTruncated = false,
   });
 
-  factory SearchResultDto.fromJson(Map<String, dynamic> json) {
+  factory SearchResultDto.fromJson(Map<String, dynamic> json,
+      {PostJsonAdapter? adaptPost}) {
     final suggestion = json['suggestion'];
     return SearchResultDto(
       query: json['query'] as String? ?? '',
-      posts: _list(json['posts'], PostDto.fromJson),
-      videos: _list(json['videos'], PostDto.fromJson),
+      posts: _posts(json['posts'], adaptPost),
+      videos: _posts(json['videos'], adaptPost),
       recipes: _list(json['recipes'], RecipeSummaryDto.fromJson),
       ingredients: _list(json['ingredients'], IngredientSummaryDto.fromJson),
       restaurants: _list(json['restaurants'], RestaurantDto.fromJson),
       suggestion: suggestion is Map<String, dynamic> &&
               suggestion['recipe'] is Map<String, dynamic>
-          ? SearchSuggestionDto.fromJson(suggestion)
+          ? SearchSuggestionDto.fromJson(suggestion, adaptPost: adaptPost)
           : null,
     );
   }

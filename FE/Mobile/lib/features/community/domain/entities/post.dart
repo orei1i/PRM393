@@ -25,22 +25,31 @@ enum PostType {
 
 /// `posts.status`. New and edited posts wait for an admin decision; the app
 /// honours whatever the server answers (today the real BE publishes at once).
+/// An admin can take a published post off the feed ([hidden]), and only an admin
+/// can bring it back.
 enum PostStatus {
   pending('Pending', 'Chờ duyệt'),
   published('Published', 'Đã đăng'),
-  rejected('Rejected', 'Bị từ chối');
+  rejected('Rejected', 'Bị từ chối'),
+  hidden('Hidden', 'Đã ẩn'),
+
+  /// Not a value of the BE: a status this app doesn't know.
+  unknown('Unknown', 'Chưa rõ trạng thái');
 
   const PostStatus(this.apiValue, this.label);
   final String apiValue;
   final String label;
 
-  /// Case-insensitive; a missing or unknown value is a legacy, live post.
+  /// Case-insensitive. A missing or new value says nothing about the post being
+  /// live, so it reads as [unknown]: off the feed, no likes or comments, and
+  /// the author is told. Reading it as published would show "Đã đăng" on a post
+  /// nobody can see.
   static PostStatus fromApi(Object? value) {
     final raw = value?.toString().trim().toLowerCase();
     for (final s in values) {
       if (s.apiValue.toLowerCase() == raw) return s;
     }
-    return published;
+    return unknown;
   }
 }
 
@@ -213,6 +222,11 @@ class Post {
   bool get isPublished => status == PostStatus.published;
   bool get isPending => status == PostStatus.pending;
   bool get isRejected => status == PostStatus.rejected;
+  bool get isHidden => status == PostStatus.hidden;
+
+  /// "Sửa bài": saving sends a post back to review, which must not undo an
+  /// admin's "Ẩn", nor touch a post in a state this app doesn't know.
+  bool get canEdit => !isHidden && status != PostStatus.unknown;
 
   Post toggledLike() => copyWith(
         likedByMe: !likedByMe,

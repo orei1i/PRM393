@@ -167,14 +167,14 @@ void main() {
       expect(find.textContaining('chưa xem được'), findsNothing);
     });
 
-    testWidgets('real: "Sửa" is gone, "Xoá" stays, nothing reads as edited',
+    testWidgets('real: "Sửa" and "Xoá"; nothing reads as edited yet',
         (t) async {
       BackendModules.debugOverride(_realModules);
       await open(t);
       expect(find.text('(đã sửa)'), findsNothing);
       await t.tap(find.byTooltip('Tuỳ chọn bình luận').first);
       await t.pumpAndSettle();
-      expect(find.text('Sửa'), findsNothing);
+      expect(find.text('Sửa'), findsOneWidget);
       expect(find.text('Xoá'), findsOneWidget);
     });
 
@@ -199,12 +199,12 @@ void main() {
       coverSeed: 'p1',
     );
 
-    testWidgets('real: only "Xoá bài"', (t) async {
+    testWidgets('real: "Sửa bài" and "Xoá bài"', (t) async {
       BackendModules.debugOverride(_realModules);
       await _pump(t, PostAuthorRow(post: post));
       await t.tap(find.byTooltip('Tuỳ chọn'));
       await t.pumpAndSettle();
-      expect(find.text('Sửa bài'), findsNothing);
+      expect(find.text('Sửa bài'), findsOneWidget);
       expect(find.text('Xoá bài'), findsOneWidget);
     });
 

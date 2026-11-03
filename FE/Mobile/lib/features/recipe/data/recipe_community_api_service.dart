@@ -11,6 +11,7 @@ import '../../../core/config/backend_modules.dart';
 import '../../../core/network/api_endpoints.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/utils/backend_ids.dart';
 import '../../meal_planner/data/meal_planner_api_service.dart';
 import 'mock_recipe_community_repository.dart';
 import 'models/recipe_detail_model.dart';
@@ -129,12 +130,59 @@ class RemoteRecipeCommunityApiService implements RecipeCommunityApiService {
       });
 }
 
-/// Rebuilt when the account changes (the mock is keyed on the user). The BE has
-/// none of this yet: it stays mock, and only mock recipes show it.
+/// The id decides who answers: a BE recipe goes to the BE, a sample recipe (a
+/// mock id, say one opened from the "Vừa xem" of an older build) stays with the
+/// mock, which is the only one that knows it.
+class RoutedRecipeCommunityApiService implements RecipeCommunityApiService {
+  RoutedRecipeCommunityApiService({required this.remote, required this.mock});
+
+  final RecipeCommunityApiService remote;
+  final RecipeCommunityApiService mock;
+
+  RecipeCommunityApiService _for(String recipeId) =>
+      isBackendId(recipeId) ? remote : mock;
+
+  @override
+  Future<RecipeDetailDto> createVariant(
+          String recipeId, CreateVariantRequestDto request) =>
+      _for(recipeId).createVariant(recipeId, request);
+
+  @override
+  Future<RecipeReviewsPageDto> getReviews(String recipeId,
+          {String? cursor, int limit = recipeReviewsPageSize}) =>
+      _for(recipeId).getReviews(recipeId, cursor: cursor, limit: limit);
+
+  @override
+  Future<ReviewWriteResultDto> upsertMyReview(
+          String recipeId, UpsertReviewRequestDto request) =>
+      _for(recipeId).upsertMyReview(recipeId, request);
+
+  @override
+  Future<RatingTotalsDto> deleteMyReview(String recipeId) =>
+      _for(recipeId).deleteMyReview(recipeId);
+
+  @override
+  Future<RecipeNoteDto?> getMyNote(String recipeId) =>
+      _for(recipeId).getMyNote(recipeId);
+
+  @override
+  Future<RecipeNoteDto?> saveMyNote(String recipeId, String content) =>
+      _for(recipeId).saveMyNote(recipeId, content);
+
+  @override
+  Future<void> deleteMyNote(String recipeId) =>
+      _for(recipeId).deleteMyNote(recipeId);
+}
+
+/// Rebuilt when the account changes: the mock is keyed on the user, and the
+/// BE's page carries the caller's own review.
 final recipeCommunityApiProvider = Provider<RecipeCommunityApiService>((ref) {
-  final userId = ref.watch(plannerPersonaIdProvider);
-  if (BackendModules.isMock(BackendModule.recipeSocial)) {
-    return MockRecipeCommunityRepository(userId: userId);
-  }
-  return RemoteRecipeCommunityApiService(ref.watch(dioProvider));
+  ref.watch(plannerUserIdProvider);
+  final mock = MockRecipeCommunityRepository(
+      userId: ref.watch(plannerPersonaIdProvider));
+  if (BackendModules.isMock(BackendModule.recipeSocial)) return mock;
+  return RoutedRecipeCommunityApiService(
+    remote: RemoteRecipeCommunityApiService(ref.watch(dioProvider)),
+    mock: mock,
+  );
 });

@@ -15,9 +15,11 @@ namespace ControllerLayer.Controllers
     public class AdminPostsController : ControllerBase
     {
         private readonly IPostService _postService;
+        private readonly IVideoService _videos;
 
-        public AdminPostsController(IPostService postService)
+        public AdminPostsController(IPostService postService, IVideoService videos)
         {
+            _videos = videos;
             _postService = postService;
         }
 
@@ -27,9 +29,10 @@ namespace ControllerLayer.Controllers
         public async Task<ActionResult<ApiResponse<FeedPageResponse>>> GetAdminPosts(
             [FromQuery] string? status,
             [FromQuery] int page = 1,
-            [FromQuery] int pageSize = 10)
+            [FromQuery] int pageSize = 10,
+            [FromQuery] string? search = null)
         {
-            var result = await _postService.GetAdminPostsAsync(status, page, pageSize);
+            var result = await _postService.GetAdminPostsAsync(status, page, pageSize, search);
             return Ok(ApiResponse<FeedPageResponse>.Ok(result));
         }
 
@@ -40,6 +43,7 @@ namespace ControllerLayer.Controllers
         public async Task<ActionResult<ApiResponse<PostResponse>>> ReviewPost(string id, [FromBody] AdminReviewPostRequest request)
         {
             var result = await _postService.ModeratePostAsync(id, request.Decision, request.Reason);
+            await _videos.QueueNewPostAsync(result.Id);
             return Ok(ApiResponse<PostResponse>.Ok(result, "Kiểm duyệt bài viết thành công."));
         }
 

@@ -1,7 +1,7 @@
 // src/lib/hooks/use-admin.ts
 "use client";
 
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import type {
@@ -22,6 +22,7 @@ import type {
   UserQuery,
   UserStatusChange,
 } from "@/types/admin";
+import { contentInView } from "@/types/admin";
 
 import { catalogApi, chefApplicationsApi, commentsApi, contentApi, overviewApi, usersApi } from "../admin_api";
 import { describeError } from "../api_error";
@@ -157,15 +158,22 @@ export function useContent(query: ContentQuery) {
   });
 }
 
+const viewOf = (key: readonly unknown[]) => (key[1] as ContentQuery | undefined)?.view ?? "all";
+
+/** Put the server's copy of a post in every cached list. It leaves a tab it no longer fits; the refetch adds it to the new one. */
+function cachePost(qc: QueryClient, id: string, updated: ContentItem | null) {
+  for (const [key, data] of qc.getQueriesData<ContentItem[]>({ queryKey: ["content"] })) {
+    if (!data) continue;
+    const fits = updated !== null && contentInView(updated, viewOf(key));
+    qc.setQueryData(key, fits ? data.map((c) => (c.id === id ? updated : c)) : data.filter((c) => c.id !== id));
+  }
+}
+
 export function useContentAction() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, action }: { id: string; action: ContentAction }) => contentApi.act(id, action),
-    onSuccess: (updated, { id }) => {
-      qc.setQueriesData<ContentItem[]>({ queryKey: ["content"] }, (old) =>
-        updated ? old?.map((c) => (c.id === id ? updated : c)) : old?.filter((c) => c.id !== id),
-      );
-    },
+    onSuccess: (updated, { id }) => cachePost(qc, id, updated),
     onSettled: (_data, _error, { action }) => {
       qc.invalidateQueries({ queryKey: ["content"] });
       qc.invalidateQueries({ queryKey: adminKeys.overview });
@@ -174,11 +182,9 @@ export function useContentAction() {
   });
 }
 
-const viewOf = (key: readonly unknown[]) => (key[1] as ContentQuery | undefined)?.view;
-
 /**
- * Approve / reject a post held by the AI pre-screen. The item leaves every
- * "Chờ duyệt" list right away and comes back if the request fails.
+ * Approve / reject a post, or restore a rejected one (Approve). A pending item leaves
+ * every "Chờ duyệt" list right away and comes back if the request fails.
  */
 export function useReviewPost() {
   const qc = useQueryClient();
@@ -195,11 +201,7 @@ export function useReviewPost() {
     onError: (_e, _input, context) => {
       context?.snapshots.forEach(([key, data]) => qc.setQueryData(key, data));
     },
-    onSuccess: (updated) => {
-      for (const [key, data] of qc.getQueriesData<ContentItem[]>({ queryKey: ["content"] })) {
-        if (data && viewOf(key) !== "pending") qc.setQueryData(key, data.map((c) => (c.id === updated.id ? updated : c)));
-      }
-    },
+    onSuccess: (updated) => cachePost(qc, updated.id, updated),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["content"] });
       qc.invalidateQueries({ queryKey: adminKeys.overview });

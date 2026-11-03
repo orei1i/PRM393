@@ -20,5 +20,9 @@ namespace DomainLayer.Entities
         public double? BodyFatPct { get; set; }
 
         public DateTime LoggedAt { get; set; } = DateTime.UtcNow;
+
+        /// <summary>"profile" | "check_in". Dòng cũ không có trường này.</summary>
+        [BsonIgnoreIfNull]
+        public string? Source { get; set; }
     }
 }

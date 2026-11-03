@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/config/backend_modules.dart';
 import '../../../../core/navigation/app_routes.dart';
+import '../../../../core/network/api_exception.dart';
 import '../../../../core/session/session_controller.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/labels.dart';
@@ -15,6 +16,7 @@ import '../../../video/data/video_api_service.dart';
 import '../../../video/domain/entities/video_recipe.dart';
 import '../../../video/presentation/widgets/video_player_view.dart';
 import '../../../video/presentation/widgets/video_recipe_sheet.dart';
+import '../../data/community_api_service.dart';
 import '../../domain/entities/post.dart';
 import '../controllers/feed_controller.dart';
 import '../post_actions.dart';
@@ -99,6 +101,12 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen>
   Timer? _poll;
   bool _retrying = false;
 
+  /// The server no longer shows this post to this member (404): hidden by an
+  /// admin, or deleted.
+  bool _gone = false;
+
+  bool get _open => _post.isPublished && !_gone;
+
   @override
   void initState() {
     super.initState();
@@ -107,6 +115,8 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen>
     _scroll.addListener(_onScroll);
     if (widget.post.isPublished) comments.loadMore();
     if (widget.post.videoId != null) _loadVideo();
+    // The list this came from may be old.
+    _recheck();
 
     final entry = widget.entry;
     final highlight = widget.highlightCommentId;
@@ -119,7 +129,9 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen>
             !ref.read(sessionControllerProvider).isGuest) {
           composerKey.currentState?.focusInput();
         }
-        if (highlight != null) _reveal(highlight, widget.highlightParentId);
+        if (highlight != null && widget.post.isPublished) {
+          _reveal(highlight, widget.highlightParentId);
+        }
       });
     }
   }
@@ -139,9 +151,7 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen>
   bool get _nearEnd => _scroll.hasClients && _scroll.position.extentAfter < 400;
 
   void _maybeLoadMore() {
-    if (!_post.isPublished || comments.loading || comments.error != null) {
-      return;
-    }
+    if (!_open || comments.loading || comments.error != null) return;
     if (comments.hasMore && _nearEnd) comments.loadMore();
   }
 
@@ -206,6 +216,7 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen>
     } else {
       _scrollToComments(animate: true);
     }
+    _recheck();
   }
 
   @override
@@ -222,11 +233,52 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen>
 
   // --------------------------------------------------------------- post --
 
+  /// An admin can hide the post while it is open, and the BE still takes likes
+  /// and comments on it, so the status is read again on opening and after each
+  /// of them. Only the real BE changes behind the app's back. A failed read
+  /// changes nothing: what is on screen stays.
+  Future<void> _recheck() async {
+    if (!BackendModules.isReal(BackendModule.community)) return;
+    final feed = ref.read(feedControllerProvider.notifier);
+    try {
+      final fresh =
+          (await ref.read(communityApiProvider).getPost(_post.id)).toEntity();
+      if (!mounted || fresh.status == _post.status) return;
+      setState(() {
+        _gone = false;
+        _post = fresh.copyWith(videoStatus: _post.videoStatus);
+      });
+      feed.postUpdated(fresh);
+      if (fresh.isPublished && !comments.started) comments.loadMore();
+    } on ApiException catch (e) {
+      if (e.statusCode != 404 || !mounted || _gone) return;
+      setState(() => _gone = true);
+      feed.postGone(_post.id);
+      snack(_goneMessage);
+    } catch (_) {
+      // A body of the wrong shape: same as a failed read.
+    }
+  }
+
+  static const _goneMessage = 'Bài viết này không còn hiển thị.';
+
+  /// Why a post that isn't open takes no comments.
+  String get _closedMessage {
+    if (_gone) return _goneMessage;
+    return switch (_post.status) {
+      PostStatus.hidden => 'Bài đang bị ẩn nên không nhận bình luận.',
+      PostStatus.unknown =>
+        'Chưa rõ trạng thái của bài nên chưa nhận bình luận.',
+      _ => 'Bài chưa hiển thị trên bảng tin nên chưa nhận bình luận.',
+    };
+  }
+
   Future<void> _like() async {
     final before = _post;
     setState(() => _post = before.toggledLike());
     final result = await PostActions.toggleLike(context, ref, before);
     if (result == null && mounted) setState(() => _post = before);
+    if (mounted) await _recheck();
   }
 
   Future<void> _save() async {
@@ -304,9 +356,10 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen>
       feedControllerProvider
           .select((s) => s.hasValue ? s.requireValue.byId(_post.id) : null),
     );
-    final post = fromFeed == null
+    final post = fromFeed == null || _gone
         ? _post
         : fromFeed.copyWith(videoStatus: _post.videoStatus);
+    final open = post.isPublished && !_gone;
     final me = ref.watch(
         sessionControllerProvider.select((s) => s.isGuest ? null : s.userId));
     final own = me != null && me == post.author.id;
@@ -316,7 +369,7 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen>
       appBar: AppBar(
         title: Text(post.type.label),
         actions: [
-          if (!own)
+          if (!own && !_gone)
             IconButton(
               tooltip: 'Báo cáo',
               onPressed: () => PostActions.report(context, ref, post),
@@ -331,7 +384,7 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen>
               controller: _scroll,
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               slivers: [
-                SliverToBoxAdapter(child: _postBody(context, post, own)),
+                SliverToBoxAdapter(child: _postBody(context, post, own, open)),
                 SliverToBoxAdapter(
                   child: ListenableBuilder(
                     listenable: comments,
@@ -339,7 +392,7 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen>
                       key: _commentsHeader,
                       padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
                       child: Text(
-                        'Bình luận (${post.isPublished ? comments.total : 0})',
+                        'Bình luận (${open ? comments.total : 0})',
                         style: context.textStyles.titleMedium,
                       ),
                     ),
@@ -347,9 +400,9 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen>
                 ),
                 SliverPadding(
                   padding: EdgeInsets.fromLTRB(
-                      16, 0, 8, 24 + (post.isPublished ? 0 : bottomInset)),
+                      16, 0, 8, 24 + (open ? 0 : bottomInset)),
                   sliver: SliverToBoxAdapter(
-                    child: post.isPublished
+                    child: open
                         ? CommentThreadList(
                             controller: comments,
                             currentUserId: me,
@@ -361,7 +414,7 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen>
                             onMoreReplies: loadReplies,
                           )
                         : Text(
-                            'Bài chưa hiển thị trên bảng tin nên chưa nhận bình luận.',
+                            _closedMessage,
                             style: context.textStyles.bodyMedium
                                 ?.copyWith(color: context.vl.muted),
                           ),
@@ -370,7 +423,7 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen>
               ],
             ),
           ),
-          if (post.isPublished) ...[
+          if (open) ...[
             const Divider(height: 1),
             SafeArea(
               top: false,
@@ -378,6 +431,7 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen>
                 key: composerKey,
                 controller: comments,
                 onPosted: _posted,
+                onFailed: _recheck,
               ),
             ),
           ],
@@ -386,7 +440,7 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen>
     );
   }
 
-  Widget _postBody(BuildContext context, Post post, bool own) {
+  Widget _postBody(BuildContext context, Post post, bool own, bool open) {
     final restaurant = post.restaurant;
     final image = post.imageSrc;
     return Column(
@@ -476,7 +530,7 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen>
           onComment: _writeComment,
           onOpenComments: () => _scrollToComments(animate: true),
           onSave: _save,
-          enabled: post.isPublished,
+          enabled: open,
         ),
         const Divider(height: 1),
       ],

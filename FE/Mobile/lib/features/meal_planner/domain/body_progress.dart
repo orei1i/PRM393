@@ -337,11 +337,6 @@ abstract final class BodyProgress {
   static double? parse(String? text) =>
       double.tryParse((text ?? '').trim().replaceAll(',', '.'));
 
-  /// The rule of the check-in sheet for a weight that is already a number; its
-  /// message, or `null`.
-  static String? validateMeasurement(double weightKg) =>
-      validateWeight('$weightKg');
-
   /// Same rules as the "Hồ sơ sức khoẻ" editor.
   static String? validateWeight(String? value) {
     final text = value?.trim() ?? '';

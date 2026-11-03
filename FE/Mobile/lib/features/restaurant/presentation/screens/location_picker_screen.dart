@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
+import '../../../../core/widgets/demo_data_banner.dart';
 import '../../data/geocoding_service.dart';
 import '../../data/location_service.dart';
 import '../../domain/geo.dart';
@@ -209,6 +211,9 @@ class _LocationPickerScreenState extends ConsumerState<LocationPickerScreen> {
             ),
           ),
         ),
+        // Module `geocoding` stays mock: this BE has no geocoder configured.
+        if (DemoDataBanner.visibleFor(BackendModule.geocoding))
+          const DemoDataBanner(module: BackendModule.geocoding),
         Expanded(
           child: _results == null
               ? ListView(

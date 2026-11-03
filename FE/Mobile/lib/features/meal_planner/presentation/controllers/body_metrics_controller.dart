@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../../core/network/api_exception.dart';
 import '../../../../core/session/session_controller.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../profile/presentation/controllers/profile_controller.dart';
@@ -73,18 +74,25 @@ class BodyMetricsController extends AsyncNotifier<List<BodyMeasurement>> {
     final result = await api
         .logBodyMeasurement(LogMeasurementRequestDto(weightKg: weightKg));
     final measurement = result.measurement.toEntity();
-    final profile = result.profile.toEntity();
+    final fresh = result.profile?.toEntity();
     if (history != null) {
       state = AsyncData([measurement, ...history]);
     } else {
       ref.invalidateSelf();
     }
-    if (ref.exists(mealPlanControllerProvider)) {
+    if (fresh != null && ref.exists(mealPlanControllerProvider)) {
       unawaited(ref
           .read(mealPlanControllerProvider.notifier)
-          .applySavedProfile(profile));
+          .applySavedProfile(fresh));
     }
     ref.invalidate(profileHealthProvider);
+    // The row is saved even if the new profile couldn't be read: the review
+    // then shows no change of target.
+    final profile = fresh ?? before;
+    if (profile == null) {
+      throw const ApiException(
+          message: 'Đã lưu cân nặng, nhưng chưa tải lại được hồ sơ sức khoẻ.');
+    }
     return CheckInResult(
       measurement: measurement,
       previous: history?.firstOrNull,

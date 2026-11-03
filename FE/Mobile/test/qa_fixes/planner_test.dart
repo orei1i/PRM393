@@ -409,15 +409,23 @@ void main() {
       await disposeScreen(tester);
     });
 
-    testWidgets('real recipes: no field, and the form says why',
-        (tester) async {
+    testWidgets('real recipes: the field too, and it is sent', (tester) async {
       BackendModules.debugOverride({BackendModule.recipes});
       await pumpScreen(tester, const UserRecipeFormScreen());
       await tester.pump();
-      expect(find.widgetWithText(TextFormField, 'Số phần ăn'), findsNothing);
-      expect(
-          find.textContaining('Máy chủ chưa lưu số phần ăn'), findsOneWidget);
+      expect(find.widgetWithText(TextFormField, 'Số phần ăn'), findsOneWidget);
+      expect(find.textContaining('Máy chủ chưa lưu số phần ăn'), findsNothing);
       await disposeScreen(tester);
+      const request = CreateRecipeRequestDto(
+        name: 'Canh',
+        calories: 100,
+        servings: 3,
+        ingredients: [
+          RecipeIngredientInput(name: 'Rau', quantity: 0, unit: '')
+        ],
+        steps: ['Nấu'],
+      );
+      expect(request.toBackendJson()['servings'], 3);
     });
   });
 }

@@ -20,6 +20,27 @@ class MockVideoStore {
 
   VideoRecipeDto? get(String id) => _videos[id]?.current();
 
+  /// The sample recipe for a video that only exists on the real BE. The sheet
+  /// labels it: nothing here was read from that video.
+  VideoRecipeDto sampleFor(String id) {
+    final sample = _videos['vid_cha_lua']!.base;
+    return VideoRecipeDto(
+      id: id,
+      title: sample.title,
+      author: sample.author,
+      coverSeed: id,
+      durationSeconds: sample.durationSeconds,
+      aiStatus: 'ready',
+      summary: sample.summary,
+      servings: sample.servings,
+      totalMinutes: sample.totalMinutes,
+      kcalPerServing: sample.kcalPerServing,
+      ingredients: sample.ingredients,
+      steps: sample.steps,
+      transcript: sample.transcript,
+    );
+  }
+
   /// Registers a video submitted by link (or an uploaded file's URL) and
   /// returns its id.
   String createFromLink(

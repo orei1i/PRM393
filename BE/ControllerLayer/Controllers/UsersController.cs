@@ -24,21 +24,41 @@ namespace ControllerLayer.Controllers
         /// <summary>Lấy danh sách tất cả users. (Chỉ Admin)</summary>
         [HttpGet]
         [Authorize(Roles = AppRoles.Admin)]
-        public async Task<ActionResult<IEnumerable<UserResponse>>> GetUsers(
+        public async Task<ActionResult<ApiResponse<IEnumerable<AdminUserResponse>>>> GetUsers(
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 50,
-            [FromQuery] string? search = null)
+            [FromQuery] string? search = null,
+            [FromQuery] string? role = null,
+            [FromQuery] string? status = null)
         {
             page = Math.Max(1, page);
             pageSize = Math.Clamp(pageSize, 1, 100);
 
-            var (users, totalCount) = await _userService.GetPagedUsersAsync(page, pageSize, search);
+            var (users, totalCount) = await _userService.GetPagedUsersAsync(page, pageSize, search, role, status);
 
             Response.Headers.Append("X-Total-Count", totalCount.ToString());
             Response.Headers.Append("X-Page", page.ToString());
             Response.Headers.Append("X-Page-Size", pageSize.ToString());
 
-            return Ok(users);
+            return Ok(ApiResponse<IEnumerable<AdminUserResponse>>.Ok(users));
+        }
+
+        /// <summary>Đổi vai trò Admin hoặc User. (Chỉ Admin, không tự đổi của mình)</summary>
+        [HttpPatch("{id}/role")]
+        [Authorize(Roles = AppRoles.Admin)]
+        public async Task<ActionResult<ApiResponse<AdminUserResponse>>> ChangeRole(string id, [FromBody] ChangeUserRoleRequest request)
+        {
+            var updated = await _userService.ChangeRoleAsync(id, request.Role, GetCurrentUserId());
+            return Ok(ApiResponse<AdminUserResponse>.Ok(updated, "Đã đổi vai trò."));
+        }
+
+        /// <summary>Khoá hoặc mở khoá tài khoản. (Chỉ Admin, không tự khoá mình)</summary>
+        [HttpPatch("{id}/status")]
+        [Authorize(Roles = AppRoles.Admin)]
+        public async Task<ActionResult<ApiResponse<AdminUserResponse>>> ChangeStatus(string id, [FromBody] ChangeUserStatusRequest request)
+        {
+            var updated = await _userService.ChangeStatusAsync(id, request.Status, request.Reason, GetCurrentUserId());
+            return Ok(ApiResponse<AdminUserResponse>.Ok(updated, "Đã cập nhật trạng thái."));
         }
 
         /// <summary>Lấy thông tin hồ sơ của chính người dùng đang đăng nhập.</summary>
@@ -73,7 +93,7 @@ namespace ControllerLayer.Controllers
 
             var user = await _userService.GetUserByIdAsync(id);
             if (user == null)
-                return NotFound(ApiResponse<UserResponse>.NotFound($"Không tìm thấy user với id: {id}"));
+                return NotFound(ApiResponse<UserResponse>.NotFound("Không tìm thấy người dùng."));
 
             return Ok(ApiResponse<UserResponse>.Ok(user));
         }
@@ -102,7 +122,7 @@ namespace ControllerLayer.Controllers
             var currentUserId = GetCurrentUserId();
             var result = await _userService.DeleteUserAsync(id, currentUserId);
             if (!result)
-                return NotFound(ApiResponse<object>.NotFound($"Không tìm thấy user với id: {id}"));
+                return NotFound(ApiResponse<object>.NotFound("Không tìm thấy người dùng."));
 
             return Ok(ApiResponse<object?>.Ok(null, "Xóa user thành công."));
         }

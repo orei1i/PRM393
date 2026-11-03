@@ -17,15 +17,14 @@ import 'package:veganlife_mobile/features/profile/domain/entities/user_profile.d
 import 'package:veganlife_mobile/features/profile/presentation/controllers/profile_controller.dart';
 import 'package:veganlife_mobile/features/profile/presentation/screens/chef_application_screen.dart';
 import 'package:veganlife_mobile/features/profile/presentation/screens/edit_profile_screen.dart';
+import 'package:veganlife_mobile/features/community/presentation/controllers/my_comments_provider.dart';
 import 'package:veganlife_mobile/features/profile/presentation/screens/my_posts_screen.dart';
 import 'package:veganlife_mobile/features/profile/presentation/screens/profile_screen.dart';
 
 const _me = '6ae5962396695f5c139fa9b0';
 const _realModules = {BackendModule.community, BackendModule.profile};
 const _savedNote = 'Bài đã lưu chỉ nằm trên máy này.';
-const _truncatedNote = 'Đang hiện bài của bạn trong 250 bài mới nhất.';
-const _localNote =
-    'Hồ sơ đã lưu trên máy này. Máy chủ chưa nhận hồ sơ chuyên gia nên chưa có người duyệt.';
+const _truncatedNote = 'Đang hiện 250 bài mới nhất của bạn.';
 
 final _post = Post(
   id: 'p1',
@@ -140,15 +139,23 @@ void main() {
       expect(find.text(_truncatedNote), findsNothing);
     });
 
-    testWidgets('real: the comments tab explains itself', (t) async {
+    testWidgets('real: the comments tab lists them', (t) async {
       BackendModules.debugOverride(_realModules);
-      await _pump(t, const MyPostsScreen(), overrides: _lists());
+      await _pump(t, const MyPostsScreen(), overrides: [
+        ..._lists(),
+        myCommentsProvider.overrideWith((ref) async => [
+              MyComment(
+                id: 'c1',
+                postId: 'p1',
+                postTitle: 'Bài có bình luận',
+                text: 'Ngon quá',
+                createdAt: DateTime(2026, 10, 31),
+              ),
+            ]),
+      ]);
       await tab(t, 'Bình luận');
-      expect(find.text('Chưa xem được bình luận của bạn'), findsOneWidget);
-      expect(
-          find.text(
-              'Máy chủ chưa hỗ trợ danh sách này. Bình luận của bạn vẫn hiện trong từng bài viết.'),
-          findsOneWidget);
+      expect(find.textContaining('Ngon quá'), findsOneWidget);
+      expect(find.text('Chưa xem được bình luận của bạn'), findsNothing);
     });
 
     testWidgets('mock: none of the notes', (t) async {
@@ -203,12 +210,12 @@ void main() {
           ],
         );
 
-    testWidgets('real: pending says it is only on this device', (t) async {
+    testWidgets('real: the admins answer too', (t) async {
       BackendModules.debugOverride(_realModules);
       await openProfile(t, 'pending');
       expect(find.text('Hồ sơ chuyên gia đang chờ duyệt'), findsOneWidget);
-      expect(find.text(_localNote), findsOneWidget);
-      expect(find.textContaining('Ban quản trị sẽ phản hồi'), findsNothing);
+      expect(find.text('Ban quản trị sẽ phản hồi trong 1–3 ngày làm việc.'),
+          findsOneWidget);
       await t.pumpWidget(const SizedBox());
       await t.pump(const Duration(seconds: 2));
     });
@@ -218,7 +225,6 @@ void main() {
       await openProfile(t, 'pending');
       expect(find.text('Ban quản trị sẽ phản hồi trong 1–3 ngày làm việc.'),
           findsOneWidget);
-      expect(find.text(_localNote), findsNothing);
       await t.pumpWidget(const SizedBox());
       await t.pump(const Duration(seconds: 2));
     });

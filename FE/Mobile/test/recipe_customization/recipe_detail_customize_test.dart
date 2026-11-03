@@ -24,6 +24,7 @@ import 'package:veganlife_mobile/features/meal_planner/data/mock_meal_planner_re
 import 'package:veganlife_mobile/features/meal_planner/data/models/health_profile_model.dart';
 import 'package:veganlife_mobile/features/meal_planner/domain/entities/meal_plan.dart';
 import 'package:veganlife_mobile/features/meal_planner/presentation/controllers/meal_plan_controller.dart';
+import 'package:veganlife_mobile/features/meal_planner/presentation/controllers/pantry_controller.dart';
 import 'package:veganlife_mobile/features/recipe/data/mock_recipe_community_repository.dart';
 import 'package:veganlife_mobile/features/recipe/presentation/controllers/recipe_customization_controller.dart';
 import 'package:veganlife_mobile/features/recipe/presentation/screens/recipe_detail_screen.dart';
@@ -110,7 +111,13 @@ Future<void> _swapRieuToMushroom(WidgetTester tester,
   await _tap(tester, find.widgetWithText(FilledButton, 'Đổi riêu'));
   expect(find.text('Đổi riêu — giữ đúng món'), findsOneWidget);
   expect(find.text('Giữ nguyên: Đậu hũ · $amount'), findsOneWidget);
-  expect(find.text('−66 kcal/phần'), findsOneWidget);
+  // The fridge below may hold a food with the same change.
+  expect(
+      find.descendant(
+          of: find.widgetWithText(
+              RadioListTile<String>, 'Nấm rơm băm nhuyễn · $amount'),
+          matching: find.text('−66 kcal/phần')),
+      findsOneWidget);
   expect(find.text('+16 kcal/phần'), findsOneWidget);
   await _tap(tester, find.text('Nấm rơm băm nhuyễn · $amount'), 300);
   await _tap(tester, find.widgetWithText(FilledButton, 'Áp dụng'));
@@ -211,7 +218,7 @@ void main() {
         '- Củ cải trắng: 1,5 củ\n'
         '- Bắp ngô: 3 bắp\n'
         '- Mắm ruốc chay: 1,5 muỗng canh\n'
-        '- Hành tím: 4,5 củ');
+        '- Hành tím: 4 củ');
     expect(find.text('Đã sao chép danh sách đi chợ'), findsOneWidget);
 
     // "Thêm vào Thực đơn" asks to sign in; "Để sau" changes nothing.
@@ -405,5 +412,65 @@ void main() {
     await _tap(tester, find.text('Đặt lại'), 300);
     expect(find.text('580 kcal / phần'), findsOneWidget);
     await _dispose(tester);
+  });
+
+  group('swapping beyond what the recipe lists', () {
+    Finder swapOf(String name) => find.descendant(
+        of: find.ancestor(
+            of: find.text(name), matching: find.byType(RecipeIngredientRow)),
+        matching: find.text(RecipeIngredientRow.swapLabel));
+
+    testWidgets('a guest types an ingredient; animal foods are refused',
+        (tester) async {
+      await _pumpApp(tester);
+      await _openRecipe(tester);
+      await _tap(tester, swapOf('Bún tươi'));
+      expect(find.text('Đăng nhập để chọn từ tủ lạnh.'), findsOneWidget);
+      await _tap(tester, find.text('Tự nhập nguyên liệu'), 300);
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Tên nguyên liệu'), 'Thịt bò');
+      await _tap(tester, find.widgetWithText(FilledButton, 'Áp dụng'), 300);
+      expect(find.textContaining('Hãy chọn nguyên liệu thuần chay.'),
+          findsOneWidget);
+      expect(find.text('Áp dụng'), findsOneWidget, reason: 'the sheet stays');
+
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Tên nguyên liệu'), 'Miến dong');
+      await _tap(tester, find.widgetWithText(FilledButton, 'Áp dụng'));
+      expect(find.text('Miến dong'), findsOneWidget);
+      expect(find.text('Thay cho Bún tươi'), findsOneWidget);
+      expect(
+          find.text('Chưa có số liệu dinh dưỡng của «Miến dong» — năng lượng '
+              'là ước tính.'),
+          findsOneWidget);
+
+      await _tap(tester, find.text('Hoàn tác'), 300);
+      expect(find.text('Bún tươi'), findsOneWidget);
+      await _dispose(tester);
+    });
+
+    testWidgets('a member picks what is in the fridge, but not the row itself',
+        (tester) async {
+      final container = await _pumpApp(tester);
+      await _signIn(tester);
+      // The mock's delays only pass while frames are pumped.
+      final pantry = container.read(pantryControllerProvider.notifier);
+      for (final name in ['Miến dong', 'Bún tươi']) {
+        final added = pantry.addManual(name);
+        await _wait(tester, 2500);
+        await added;
+      }
+      await _openRecipe(tester);
+      await _tap(tester, swapOf('Bún tươi'));
+      expect(find.text('Từ tủ lạnh của bạn'), findsOneWidget);
+      expect(find.text('Bún tươi · 400 g'), findsNothing);
+      await tester.ensureVisible(find.text('Miến dong · 400 g'));
+      await _wait(tester, 300);
+      await _tap(tester, find.text('Miến dong · 400 g'), 300);
+      await _tap(tester, find.widgetWithText(FilledButton, 'Áp dụng'));
+      expect(find.text('Thay cho Bún tươi'), findsOneWidget);
+      expect(find.text('Miến dong'), findsOneWidget);
+      await _dispose(tester);
+    });
   });
 }

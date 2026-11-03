@@ -24,11 +24,14 @@ import '../controllers/commerce_controllers.dart';
 import '../widgets/commerce_ui.dart';
 import '../widgets/mock_qr_view.dart';
 
-/// PaymentOS QR for one booking order (the agreed contract price), or the
-/// member's wallet when its balance covers the price. Polls the payment every
-/// 3 s while it is pending (the real confirmation is the PaymentOS webhook on
-/// the BE) and counts down to its expiry. Once paid, the money is held in
+/// The QR of the gateway for one booking order (the agreed contract price), or
+/// the member's wallet when its balance covers the price. Polls the payment
+/// every 3 s while it is pending (the real confirmation comes from the gateway,
+/// on the BE) and counts down to its expiry. Once paid, the money is held in
 /// escrow until [BookingRules.holdDays] days after the contract is completed.
+///
+/// A gateway that is missing or down (503) is said here, with the wallet still
+/// on offer. Only the server's answer ever shows a payment as done.
 class PaymentScreen extends ConsumerStatefulWidget {
   const PaymentScreen({
     super.key,
@@ -47,7 +50,7 @@ class PaymentScreen extends ConsumerStatefulWidget {
   bool get showMockControls =>
       _showMockControls ?? BackendModules.isMock(BackendModule.commerce);
 
-  /// "Thanh toán tiếp": an expired or failed QR is replaced right away.
+  /// Opened to pay: a QR is asked for right away unless one is open.
   final bool autoRenew;
 
   static Route<void> route(String orderId, {bool autoRenew = false}) =>
@@ -64,6 +67,10 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
 
   OrderDto? _order;
   Object? _error;
+
+  /// Why the last request for a QR failed. The order is fine, so the screen
+  /// stays, with what can still be done.
+  ApiException? _qrError;
   bool _busy = false;
   bool _polling = false;
   Timer? _poll;
@@ -98,7 +105,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       if (_autoRenew &&
           order.status == OrderStatus.pending &&
           status != PaymentStatus.pending) {
-        await _api.renewPayment(order.id);
+        await _askForQr();
         order = await _api.getOrder(order.id);
         _changed();
       }
@@ -107,6 +114,16 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     } catch (e) {
       _autoRenew = false;
       if (mounted) setState(() => _error = e);
+    }
+  }
+
+  /// A failure is kept in [_qrError], not thrown: the order itself is fine.
+  Future<void> _askForQr() async {
+    try {
+      await _api.renewPayment(widget.orderId);
+      _qrError = null;
+    } on ApiException catch (e) {
+      _qrError = e;
     }
   }
 
@@ -185,7 +202,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       });
 
   void _renew() => _run(() async {
-        await _api.renewPayment(widget.orderId);
+        await _askForQr();
         await _reloadOrder();
       });
 
@@ -308,19 +325,20 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
           ],
         );
       case OrderStatus.pending:
+        final wallet = BackendModules.payFromWallet
+            ? _WalletOption(
+                amount: order.amount,
+                busy: _busy,
+                onPay: (balance) => _payWithWallet(order, balance),
+              )
+            : null;
         if (payment != null && payment.status == PaymentStatus.pending) {
           return _PendingView(
             order: order,
             payment: payment,
             busy: _busy,
             showMockControls: widget.showMockControls,
-            wallet: BackendModules.payFromWallet
-                ? _WalletOption(
-                    amount: order.amount,
-                    busy: _busy,
-                    onPay: (balance) => _payWithWallet(order, balance),
-                  )
-                : null,
+            wallet: wallet,
             onCopy: () {
               Clipboard.setData(ClipboardData(text: payment.transactionRef));
               ScaffoldMessenger.of(context).showSnackBar(
@@ -330,27 +348,103 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
             onMockFailed: () => _mockPay(success: false),
           );
         }
-        final failed = payment?.status == PaymentStatus.failed;
-        return _Outcome(
-          icon: failed ? Icons.error_outline_rounded : Icons.timer_off_outlined,
-          title: failed ? 'Thanh toán không thành công' : 'Mã QR đã hết hạn',
-          message: failed
-              ? 'Giao dịch chưa được xác nhận nên bạn chưa bị trừ tiền. Thử lại với mã mới nhé.'
-              : 'Mỗi mã chỉ dùng được 15 phút. Tạo mã mới để tiếp tục thanh toán.',
-          actions: [
-            FilledButton(
-              onPressed: _busy ? null : _renew,
-              child: Text(_busy
-                  ? 'Đang tạo mã…'
-                  : failed
-                      ? 'Thử lại'
-                      : 'Tạo mã mới'),
-            ),
-            OutlinedButton(
-                onPressed: _busy ? null : _back, child: const Text('Để sau')),
-          ],
+        return _NoQrView(
+          order: order,
+          payment: payment,
+          error: _qrError,
+          busy: _busy,
+          wallet: wallet,
+          onRetry: _renew,
+          onLater: _back,
         );
     }
+  }
+}
+
+/// A pending order with no open QR: never made, expired, failed, or the gateway
+/// can't make one. Nothing is charged, and the wallet still works.
+class _NoQrView extends StatelessWidget {
+  const _NoQrView({
+    required this.order,
+    required this.payment,
+    required this.error,
+    required this.busy,
+    required this.wallet,
+    required this.onRetry,
+    required this.onLater,
+  });
+
+  final OrderDto order;
+  final PaymentDto? payment;
+  final ApiException? error;
+  final bool busy;
+  final Widget? wallet;
+  final VoidCallback onRetry;
+  final VoidCallback onLater;
+
+  bool get _noGateway => error?.statusCode == 503;
+
+  ({IconData icon, String title, String message, String action}) get _state {
+    final failure = error;
+    if (_noGateway) {
+      return (
+        icon: Icons.cloud_off_rounded,
+        title: 'Chưa thanh toán qua cổng được',
+        message: 'Cổng thanh toán đang chưa sẵn sàng nên chưa tạo được mã QR. '
+            'Bạn chưa bị trừ tiền.',
+        action: 'Thử lại',
+      );
+    }
+    if (failure != null) {
+      return (
+        icon: Icons.error_outline_rounded,
+        title: 'Chưa tạo được mã QR',
+        message: '${describeError(failure)} Bạn chưa bị trừ tiền.',
+        action: 'Thử lại',
+      );
+    }
+    return switch (payment?.status) {
+      PaymentStatus.failed => (
+          icon: Icons.error_outline_rounded,
+          title: 'Thanh toán không thành công',
+          message:
+              'Giao dịch chưa được xác nhận nên bạn chưa bị trừ tiền. Thử lại với mã mới nhé.',
+          action: 'Thử lại',
+        ),
+      null => (
+          icon: Icons.qr_code_2_rounded,
+          title: 'Chưa có mã QR',
+          message: 'Tạo mã để thanh toán đơn này.',
+          action: 'Tạo mã QR',
+        ),
+      _ => (
+          icon: Icons.timer_off_outlined,
+          title: 'Mã QR đã hết hạn',
+          message:
+              'Mỗi mã chỉ dùng được 15 phút. Tạo mã mới để tiếp tục thanh toán.',
+          action: 'Tạo mã mới',
+        ),
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = _state;
+    return _Outcome(
+      icon: state.icon,
+      title: state.title,
+      message: state.message,
+      header: _OrderHeader(order: order),
+      details: [if (wallet != null) wallet!],
+      actions: [
+        FilledButton(
+          onPressed: busy ? null : onRetry,
+          child: Text(busy ? 'Đang tạo mã…' : state.action),
+        ),
+        OutlinedButton(
+            onPressed: busy ? null : onLater, child: const Text('Để sau')),
+      ],
+    );
   }
 }
 
@@ -475,6 +569,7 @@ class _PendingView extends StatelessWidget {
   Widget build(BuildContext context) {
     final vl = context.vl;
     final qrUrl = payment.qrCodeUrl;
+    final sandbox = payment.provider == 'Sandbox';
     final booking = order.booking;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -494,8 +589,17 @@ class _PendingView extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: context.textStyles.bodyMedium),
               const SizedBox(height: 16),
-              if (showMockControls || qrUrl == null)
+              if (showMockControls || sandbox)
                 MockQrView(data: payment.transactionRef)
+              else if (qrUrl == null)
+                SizedBox.square(
+                  dimension: 200,
+                  child: Center(
+                    child: Text('Máy chủ chưa gửi mã QR.',
+                        textAlign: TextAlign.center,
+                        style: context.textStyles.bodySmall),
+                  ),
+                )
               else
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
@@ -517,7 +621,10 @@ class _PendingView extends StatelessWidget {
               Text(
                 showMockControls
                     ? 'Mã QR mô phỏng'
-                    : 'Quét bằng ứng dụng ngân hàng để thanh toán qua PaymentOS',
+                    : sandbox
+                        ? 'Cổng thử nghiệm, không có tiền thật: mã này không '
+                            'quét được, dùng nút bên dưới để thử.'
+                        : 'Quét bằng ứng dụng ngân hàng để thanh toán qua ${payment.provider}',
                 textAlign: TextAlign.center,
                 style: context.textStyles.bodySmall?.copyWith(color: vl.muted),
               ),
@@ -570,7 +677,7 @@ class _PendingView extends StatelessWidget {
             ],
           ),
         ),
-        if (showMockControls) ...[
+        if (showMockControls || sandbox) ...[
           const SizedBox(height: 12),
           VLCard(
             color: vl.aiContainer,
@@ -583,7 +690,9 @@ class _PendingView extends StatelessWidget {
                         ?.copyWith(color: vl.onAiContainer)),
                 const SizedBox(height: 2),
                 Text(
-                  'Bản thật được PaymentOS xác nhận tự động sau khi bạn chuyển khoản.',
+                  sandbox
+                      ? 'Bản demo không có tiền thật. Khi có cổng thanh toán, giao dịch sẽ được xác nhận tự động.'
+                      : 'Bản thật được PaymentOS xác nhận tự động sau khi bạn chuyển khoản.',
                   style: context.textStyles.bodySmall
                       ?.copyWith(color: vl.onAiContainer),
                 ),
@@ -661,11 +770,15 @@ class _Outcome extends StatelessWidget {
     required this.message,
     required this.actions,
     this.iconColor,
+    this.header,
     this.details = const [],
   });
 
   final IconData icon;
   final Color? iconColor;
+
+  /// What the screen is about, above the [icon].
+  final Widget? header;
   final String title;
   final String message;
   final List<Widget> details;
@@ -678,6 +791,10 @@ class _Outcome extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (header != null) ...[
+            header!,
+            const SizedBox(height: 20),
+          ],
           Icon(icon, size: 64, color: iconColor ?? context.colors.primary),
           const SizedBox(height: 12),
           Text(title,

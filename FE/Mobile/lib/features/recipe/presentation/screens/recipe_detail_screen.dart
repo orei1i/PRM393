@@ -9,6 +9,7 @@ import '../../../../core/network/api_exception.dart';
 import '../../../../core/session/session_controller.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/theme/vl_colors.dart';
+import '../../../../core/utils/backend_ids.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/labels.dart';
 import '../../../../core/widgets/demo_data_banner.dart';
@@ -57,12 +58,13 @@ import '../widgets/substitute_sheet.dart';
 /// Opened from a meal card ([contextDate] / [contextSlot]), the swap sheet,
 /// a scanner suggestion, an ingredient and search results.
 ///
-/// A recipe from the real BE ([RecipeDetail.isFromBackend]) has no rating or
-/// note. Its rows come from `backend_recipe_items.dart`, so it scales and swaps
-/// like a mock one and saves with POST /recipes; one with nothing to scale or
-/// swap by ([RecipeDetail.isReadOnly]: a member's own, an unknown name) only
-/// reads. A mock recipe in a hybrid build keeps everything, under the "Dữ liệu
-/// mẫu" banner.
+/// A recipe from the real BE ([RecipeDetail.isFromBackend]) has its ratings and
+/// notes on the BE ([_hasSocial]). Its rows come from
+/// `backend_recipe_items.dart`, so it scales and swaps like a mock one and saves
+/// with POST /recipes; one with nothing to scale or swap by
+/// ([RecipeDetail.isReadOnly]: a member's own, an unknown name) only reads. A
+/// mock recipe in a hybrid build keeps everything, under the "Dữ liệu mẫu"
+/// banner.
 ///
 /// The app bar has the "Tủ lạnh" and "Nhờ chuyên gia" shortcuts. The member's
 /// own recipe also has "Sửa công thức" ([UserRecipeFormScreen]).
@@ -75,13 +77,19 @@ class RecipeDetailScreen extends ConsumerWidget {
 
   /// Above the rows of a recipe that can be changed.
   static const customizeHint =
-      'Đổi số người ở trên, hoặc bấm "Đổi nguyên liệu" ở từng dòng. Nguyên liệu '
-      'có dấu sao chỉ đổi được sang loại cùng vai trò.';
+      'Đổi số người ở trên, hoặc bấm "Đổi nguyên liệu" ở từng dòng để chọn gợi '
+      'ý, lấy từ tủ lạnh hoặc tự nhập. Nguyên liệu có dấu sao nên đổi sang loại '
+      'cùng vai trò để giữ đúng món.';
 
-  /// Beside "Lưu" on a BE recipe: the BE can't overwrite one.
+  /// Under "cho N phần" when cooking for another number of people.
+  static const portionHint =
+      'Sợi, cơm, đạm tính theo từng người. Rau nấu chung và gia vị tăng ít hơn '
+      'số người.';
+
+  /// Beside "Lưu" on a BE recipe: a change here never overwrites it.
   static const savesAsCopyNote =
-      'Máy chủ chưa cho sửa công thức nên thay đổi được lưu thành một công '
-      'thức mới; bản cũ vẫn còn và chưa xoá được.';
+      'Thay đổi được lưu thành một công thức mới trong "Công thức của tôi"; '
+      'bản này giữ nguyên.';
 
   /// Instead of the ingredients when only the meal plan knows the dish.
   static const snapshotNote = 'Món này chưa có chi tiết công thức.';
@@ -160,9 +168,16 @@ class RecipeDetailScreen extends ConsumerWidget {
   }
 }
 
-Widget _withDemoBanner(RecipeDetail recipe, Widget body) => recipe.isFromBackend
-    ? body
-    : DemoDataBanner.wrap(BackendModule.recipeSocial, child: body);
+Widget _withDemoBanner(RecipeDetail recipe, Widget body) =>
+    recipe.isFromBackend ? body : DemoDataBanner.wrapSample(child: body);
+
+/// Ratings and notes: a mock recipe has them in the mock store, a BE one on the
+/// BE, and a dish only known through a plan has no recipe to attach them to.
+bool _hasSocial(RecipeDetail recipe) =>
+    !recipe.isFromBackend ||
+    (BackendModules.isReal(BackendModule.recipeSocial) &&
+        !recipe.isSnapshot &&
+        isBackendId(recipe.id));
 
 class _RecipeBody extends ConsumerWidget {
   const _RecipeBody({required this.recipe, this.contextDate, this.contextSlot});
@@ -223,7 +238,7 @@ class _RecipeBody extends ConsumerWidget {
         Text('Biến thể của «$origin»',
             style: context.textStyles.bodyMedium?.copyWith(color: vl.muted)),
       ],
-      if (recipe.isPublic && !recipe.isFromBackend) _RatingLine(recipe: recipe),
+      if (recipe.isPublic && _hasSocial(recipe)) _RatingLine(recipe: recipe),
       const SizedBox(height: 10),
       Wrap(
         spacing: 6,
@@ -339,7 +354,7 @@ class _RecipeBody extends ConsumerWidget {
 
     // Reviews only on public catalogue recipes; member / chef recipes and
     // variants are private.
-    final reviews = recipe.isPublic && !recipe.isFromBackend;
+    final reviews = recipe.isPublic && _hasSocial(recipe);
     return DefaultTabController(
       length: reviews ? 3 : 2,
       child: NestedScrollView(
@@ -524,13 +539,16 @@ class _IngredientsTabState extends ConsumerState<_IngredientsTab> {
       recipeName: _recipe.name,
       row: row.original,
       currentKey: row.substitute?.key,
+      currentCustom: custom.choices.customSwaps[row.key],
       factor: custom.factor,
       baseServings: custom.baseServings,
       userAllergies: _allergies(),
     );
     if (choice == null) return;
     final key = choice.substituteKey;
-    if (key == null) {
+    if (choice.custom case final typed?) {
+      _controller.swapCustom(row.original, typed);
+    } else if (key == null) {
       _controller.undoSwap(row.key);
     } else {
       _controller.swap(row.original, key);
@@ -707,6 +725,9 @@ class _IngredientsTabState extends ConsumerState<_IngredientsTab> {
           const SizedBox(height: 8),
           Text('cho ${custom.servings} phần',
               style: context.textStyles.bodyMedium?.copyWith(color: vl.muted)),
+          if (custom.servings != custom.baseServings)
+            Text(RecipeDetailScreen.portionHint,
+                style: context.textStyles.bodySmall?.copyWith(color: vl.muted)),
           if (recipe.isCustomizable) ...[
             const SizedBox(height: 4),
             Text(RecipeDetailScreen.customizeHint,
@@ -811,7 +832,9 @@ class _IngredientsTabState extends ConsumerState<_IngredientsTab> {
           // Back to that ingredient if it is open under this page.
           : () => AppNav.open(Navigator.of(context),
               IngredientDetailScreen.route(id: match.id, name: row.name)),
-      onSwap: () => _swap(row),
+      onSwap: _recipe.isCustomizable && !_recipe.isReadOnly
+          ? () => _swap(row)
+          : null,
       onUndoSwap: () => _controller.undoSwap(row.key),
       onRemove: () => _controller.remove(original),
       onRestore: () => _controller.restore(row.key),
@@ -835,7 +858,7 @@ class _StepsTab extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(
           16, 14, 16, 24 + MediaQuery.paddingOf(context).bottom),
       children: [
-        if (!recipe.isFromBackend) ...[
+        if (_hasSocial(recipe)) ...[
           RecipeNoteCard(recipeId: recipe.id),
           const SizedBox(height: 16),
         ],

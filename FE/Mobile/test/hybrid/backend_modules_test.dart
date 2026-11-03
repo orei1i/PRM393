@@ -60,6 +60,25 @@ void main() {
         BackendModules.resolveRealModules(
             useMockData: useMockData, mockModules: mock, realModules: real);
 
+    test('the money modules are real or mock as a group', () {
+      const group = {
+        BackendModule.chefs,
+        BackendModule.bookings,
+        BackendModule.commerce,
+        BackendModule.chefWallet,
+      };
+      expect(resolve().intersection(group), group,
+          reason: 'passed integration_test_be/money_be_test.dart');
+      final back = resolve(mock: 'chefs,bookings,commerce,chefWallet');
+      expect(back.intersection(group), isEmpty);
+      BackendModules.debugOverride(back);
+      expect(BackendModules.payFromWallet, isTrue, reason: 'both mock');
+      BackendModules.debugOverride(resolve());
+      expect(BackendModules.payFromWallet, isTrue, reason: 'both real');
+      expect(BackendModules.walletMockControls, isFalse);
+      BackendModules.debugOverride(null);
+    });
+
     test('USE_MOCK_DATA=true: all mock, whatever the other defines say', () {
       expect(resolve(useMockData: true), isEmpty);
       expect(resolve(useMockData: true, real: 'auth,community'), isEmpty);
@@ -68,9 +87,9 @@ void main() {
     test('USE_MOCK_DATA=false: what the BE supports', () {
       expect(resolve(), BackendModules.supportedByBackend);
       expect(resolve(), contains(BackendModule.community));
-      expect(resolve(), isNot(contains(BackendModule.bookings)));
-      expect(resolve(), isNot(contains(BackendModule.recipeSocial)));
+      expect(resolve(), contains(BackendModule.recipeSocial));
       expect(resolve(), isNot(contains(BackendModule.video)));
+      expect(resolve(), isNot(contains(BackendModule.geocoding)));
     });
 
     test('BACKEND_MOCK_MODULES forces mock', () {
@@ -126,29 +145,17 @@ void main() {
       expect(BackendModules.isReal(BackendModule.community), !Env.useMockData);
     });
 
-    test('capabilities: on while mock, off once the module is real', () {
+    test('tagging a place needs a real place once the post is real', () {
       BackendModules.debugOverride(const {});
-      expect(BackendModules.postEdit, isTrue);
-      expect(BackendModules.commentEdit, isTrue);
-      expect(BackendModules.myComments, isTrue);
       expect(BackendModules.restaurantTag, isTrue);
-      expect(BackendModules.planAdjust, isTrue);
+
+      BackendModules.debugOverride({BackendModule.community});
+      expect(BackendModules.restaurantTag, isFalse,
+          reason: 'a sample id means nothing to the BE');
 
       BackendModules.debugOverride(
-          {BackendModule.community, BackendModule.planner});
-      expect(BackendModules.postEdit, isFalse);
-      expect(BackendModules.commentEdit, isFalse);
-      expect(BackendModules.myComments, isFalse);
-      expect(BackendModules.restaurantTag, isFalse);
-      expect(BackendModules.planAdjust, isFalse);
-    });
-
-    test('editing and deleting an own recipe: only where it can be stored', () {
-      BackendModules.debugOverride(const {});
-      expect(BackendModules.myRecipeEdit, isTrue);
-      BackendModules.debugOverride(BackendModules.supportedByBackend);
-      expect(BackendModules.myRecipeEdit, isFalse,
-          reason: 'the BE has no PUT or DELETE on /recipes/{id}');
+          {BackendModule.community, BackendModule.restaurants});
+      expect(BackendModules.restaurantTag, isTrue);
     });
 
     test('the wallet and the order must be on the same side to pay from it',
@@ -174,6 +181,12 @@ void main() {
         {BackendModule.community, BackendModule.planner},
       ]) {
         BackendModules.debugOverride(real);
+        expect(BackendModules.postEdit, isTrue);
+        expect(BackendModules.commentEdit, isTrue);
+        expect(BackendModules.myComments, isTrue);
+        expect(BackendModules.planAdjust, isTrue);
+        expect(BackendModules.recipeServings, isTrue);
+        expect(BackendModules.myRecipeEdit, isTrue);
         expect(BackendModules.commentReplyPaging, isTrue);
         expect(BackendModules.planClear, isTrue);
         expect(BackendModules.manualMealMacros, isTrue);

@@ -227,8 +227,8 @@ class FeedController extends AsyncNotifier<FeedState> {
     state = AsyncData(current.copyWith(posts: [...pinned, post, ...rest]));
   }
 
-  /// After the author edits a post: still published → updated in place;
-  /// held for review → leaves the feed.
+  /// After the author edits a post, or the post detail read a newer status:
+  /// still published → updated in place; anything else → leaves the feed.
   void postUpdated(Post post) {
     _changed();
     final current = _current;
@@ -238,6 +238,13 @@ class FeedController extends AsyncNotifier<FeedState> {
     } else {
       _drop(post.id);
     }
+  }
+
+  /// The post detail found the post gone or hidden: lists built from the same
+  /// data refetch, and the feed lets go of its copy.
+  void postGone(String postId) {
+    _changed();
+    _drop(postId);
   }
 
   /// Author only; throws (and keeps the post) on failure.

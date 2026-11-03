@@ -889,7 +889,7 @@ void main() {
       await tester.tap(find.descendant(
           of: find.byType(AlertDialog),
           matching: find.widgetWithText(FilledButton, 'Đồng ý')));
-      await _wait(tester, 3);
+      await _wait(tester, 4); // accept, the order, its QR, the order again
       expect(find.byType(PaymentScreen), findsOneWidget);
 
       await tester.pageBack();

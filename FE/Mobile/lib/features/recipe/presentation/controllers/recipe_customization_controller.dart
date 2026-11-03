@@ -87,13 +87,24 @@ class RecipeCustomizationController
     if (row.substitute(substituteKey) == null) return;
     _set(_choices.copyWith(
       swaps: {..._choices.swaps, row.key: substituteKey},
+      customSwaps: {..._choices.customSwaps}..remove(row.key),
       removed: {..._choices.removed}..remove(row.key),
     ));
   }
 
+  /// "Đổi" to something typed in or taken from the fridge.
+  void swapCustom(RecipeIngredient row, RecipeSubstitute custom) =>
+      _set(_choices.copyWith(
+        swaps: {..._choices.swaps}..remove(row.key),
+        customSwaps: {..._choices.customSwaps, row.key: custom},
+        removed: {..._choices.removed}..remove(row.key),
+      ));
+
   /// "Hoàn tác" / "Giữ nguyên".
-  void undoSwap(String rowKey) =>
-      _set(_choices.copyWith(swaps: {..._choices.swaps}..remove(rowKey)));
+  void undoSwap(String rowKey) => _set(_choices.copyWith(
+        swaps: {..._choices.swaps}..remove(rowKey),
+        customSwaps: {..._choices.customSwaps}..remove(rowKey),
+      ));
 
   /// "Bỏ {tên}". A "Thành phần chính" row can't be left out: returns
   /// `false` and changes nothing.
@@ -102,6 +113,7 @@ class RecipeCustomizationController
     _set(_choices.copyWith(
       removed: {..._choices.removed, row.key},
       swaps: {..._choices.swaps}..remove(row.key),
+      customSwaps: {..._choices.customSwaps}..remove(row.key),
     ));
     return true;
   }
@@ -111,8 +123,8 @@ class RecipeCustomizationController
       _set(_choices.copyWith(removed: {..._choices.removed}..remove(rowKey)));
 
   /// "Đặt lại": back to the recipe's ingredients (servings kept).
-  void resetIngredients() =>
-      _set(_choices.copyWith(swaps: const {}, removed: const {}));
+  void resetIngredients() => _set(_choices
+      .copyWith(swaps: const {}, customSwaps: const {}, removed: const {}));
 
   void selectCompareSlot(MealSlot slot) =>
       state = state.copyWith(compareSlot: slot);

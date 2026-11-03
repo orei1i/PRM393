@@ -1,7 +1,8 @@
 // src/lib/commerce_api.ts
 // Booking payment orders (PaymentOS) for /orders. Remote responses are normalised: INT ids →
 // strings, enum values matched case-insensitively, single `payment` → `payments`, booking either
-// nested or flat (`bookingId` + `chefName`…), no `provider` → PaymentOS.
+// nested or flat (`bookingId` + `chefName`…), no `provider` → PaymentOS (`Sandbox` stays itself:
+// it must never read as a real gateway).
 //
 // | Method | Path                              | Body / notes                                              |
 // |--------|-----------------------------------|-----------------------------------------------------------|

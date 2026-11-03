@@ -16,9 +16,11 @@ namespace ControllerLayer.Controllers
     {
         private readonly IPostService _postService;
         private readonly ICommentService _commentService;
+        private readonly IVideoService _videos;
 
-        public PostsController(IPostService postService, ICommentService commentService)
+        public PostsController(IPostService postService, ICommentService commentService, IVideoService videos)
         {
+            _videos = videos;
             _postService = postService;
             _commentService = commentService;
         }
@@ -63,7 +65,21 @@ namespace ControllerLayer.Controllers
         {
             var currentUserId = User.GetUserId();
             var result = await _postService.CreatePostAsync(request, currentUserId);
-            return StatusCode(StatusCodes.Status201Created, ApiResponse<PostResponse>.Created(result, "Đăng bài viết thành công."));
+            await _videos.QueueNewPostAsync(result.Id);
+            var message = result.Status == "Published" ? "Đăng bài viết thành công." : "Đã gửi bài viết, bài đang chờ duyệt.";
+            return StatusCode(StatusCodes.Status201Created, ApiResponse<PostResponse>.Created(result, message));
+        }
+
+        /// <summary>Sửa bài của chính mình.</summary>
+        [HttpPut("{id}")]
+        [Authorize]
+        [ProducesResponseType(typeof(ApiResponse<PostResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<ApiResponse<PostResponse>>> UpdatePost(string id, [FromBody] CreatePostRequest request)
+        {
+            var result = await _postService.UpdatePostAsync(id, request, User.GetUserId());
+            return Ok(ApiResponse<PostResponse>.Ok(result, "Đã cập nhật bài viết."));
         }
 
         /// <summary>Xóa bài viết (Chỉ chủ bài viết hoặc Quản trị viên).</summary>
@@ -80,7 +96,7 @@ namespace ControllerLayer.Controllers
             var success = await _postService.DeletePostAsync(id, currentUserId, role);
             if (!success)
             {
-                return NotFound(ApiResponse<object>.NotFound($"Không tìm thấy bài viết với id: {id}"));
+                return NotFound(ApiResponse<object>.NotFound("Không tìm thấy bài viết."));
             }
 
             return Ok(ApiResponse<object?>.Ok(null, "Xóa bài viết thành công."));
@@ -95,8 +111,19 @@ namespace ControllerLayer.Controllers
         public async Task<ActionResult<ApiResponse<LikeResponse>>> ToggleLike(string id)
         {
             var currentUserId = User.GetUserId();
-            var result = await _postService.ToggleLikeAsync(id, currentUserId);
+            var result = await _postService.ToggleLikeAsync(id, currentUserId, User.GetRole());
             return Ok(ApiResponse<LikeResponse>.Ok(result, result.Liked ? "Đã thích bài viết." : "Đã bỏ thích bài viết."));
+        }
+
+        /// <summary>Lưu hoặc bỏ lưu bài viết.</summary>
+        [HttpPost("{id}/save")]
+        [Authorize]
+        [ProducesResponseType(typeof(ApiResponse<SaveResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<ApiResponse<SaveResponse>>> ToggleSave(string id)
+        {
+            var result = await _postService.ToggleSaveAsync(id, User.GetUserId(), User.GetRole());
+            return Ok(ApiResponse<SaveResponse>.Ok(result, result.Saved ? "Đã lưu bài viết." : "Đã bỏ lưu bài viết."));
         }
 
         /// <summary>Báo cáo bài viết vi phạm (Đủ 3 báo cáo bài viết tự động ẩn khỏi feed).</summary>
@@ -108,7 +135,7 @@ namespace ControllerLayer.Controllers
         public async Task<ActionResult<ApiResponse<object>>> ReportPost(string id, [FromBody] ReportPostRequest request)
         {
             var currentUserId = User.GetUserId();
-            await _postService.ReportPostAsync(id, currentUserId, request);
+            await _postService.ReportPostAsync(id, currentUserId, request, User.GetRole());
             return Ok(ApiResponse<object?>.Ok(null, "Báo cáo bài viết thành công. Cảm ơn bạn đã hỗ trợ cộng đồng."));
         }
 
@@ -121,7 +148,7 @@ namespace ControllerLayer.Controllers
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 10)
         {
-            var result = await _commentService.GetPostCommentsAsync(id, page, pageSize);
+            var result = await _commentService.GetPostCommentsAsync(id, page, pageSize, User.GetUserIdOrDefault(), User.GetRole());
             return Ok(ApiResponse<IEnumerable<CommentResponse>>.Ok(result));
         }
 
@@ -135,7 +162,7 @@ namespace ControllerLayer.Controllers
         public async Task<ActionResult<ApiResponse<CommentResponse>>> CreateComment(string id, [FromBody] CreateCommentRequest request)
         {
             var currentUserId = User.GetUserId();
-            var result = await _commentService.CreateCommentAsync(id, request, currentUserId);
+            var result = await _commentService.CreateCommentAsync(id, request, currentUserId, User.GetRole());
             return StatusCode(StatusCodes.Status201Created, ApiResponse<CommentResponse>.Created(result, "Gửi bình luận thành công."));
         }
 
@@ -145,8 +172,20 @@ namespace ControllerLayer.Controllers
         [ProducesResponseType(typeof(ApiResponse<IEnumerable<CommentResponse>>), StatusCodes.Status200OK)]
         public async Task<ActionResult<ApiResponse<IEnumerable<CommentResponse>>>> GetCommentReplies(string id, string commentId)
         {
-            var result = await _commentService.GetCommentRepliesAsync(commentId, id);
+            var result = await _commentService.GetCommentRepliesAsync(commentId, id, User.GetUserIdOrDefault(), User.GetRole());
             return Ok(ApiResponse<IEnumerable<CommentResponse>>.Ok(result));
+        }
+
+        /// <summary>Sửa bình luận của chính mình.</summary>
+        [HttpPut("{id}/comments/{commentId}")]
+        [Authorize]
+        [ProducesResponseType(typeof(ApiResponse<CommentResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<ApiResponse<CommentResponse>>> UpdateComment(string id, string commentId, [FromBody] UpdateCommentRequest request)
+        {
+            var result = await _commentService.UpdateCommentAsync(id, commentId, request, User.GetUserId(), User.GetRole());
+            return Ok(ApiResponse<CommentResponse>.Ok(result, "Đã cập nhật bình luận."));
         }
     }
 }

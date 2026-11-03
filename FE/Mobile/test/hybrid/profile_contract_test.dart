@@ -61,30 +61,32 @@ void main() {
     });
   });
 
-  group('chef application stays on this device (D8)', () {
-    test('submitting asks nothing, and the profile then reads pending',
+  group('chef application goes to the server', () {
+    test('POST /chef-applications with the form; the profile says the rest',
         () async {
-      final backend = FakeBackend()..on('GET /users/me', 200, _me());
+      final backend = FakeBackend()
+        ..on('POST /chef-applications', 201, envelope({'status': 'pending'}))
+        ..on('GET /users/me', 200, _me(status: 'pending'));
       final c = await backendContainer(backend);
 
       await api(c).submitChefApplication(_request);
-      expect(backend.seen, isEmpty);
-      expect(
-          c
-              .read(sharedPreferencesProvider)
-              .getString('vl.chef_application.$testUserId'),
-          'pending');
-
-      final me = (await api(c).getMe()).toEntity();
-      expect(me.chefApplication, ChefApplicationStatus.pending);
+      final sent = backend.requests('POST /chef-applications').single.data
+          as Map<String, dynamic>;
+      expect(sent['specialties'], _request.specialties);
+      expect(sent['city'], 'TP.HCM');
+      expect((await api(c).getMe()).toEntity().chefApplication,
+          ChefApplicationStatus.pending);
     });
 
     test('through the controller', () async {
-      final backend = FakeBackend()..on('GET /users/me', 200, _me());
+      final backend = FakeBackend()
+        ..on('GET /users/me', 200, _me())
+        ..on('POST /chef-applications', 201, envelope({'status': 'pending'}));
       final c = await backendContainer(backend);
       addTearDown(c.listen(profileControllerProvider, (_, __) {}).close);
       await c.read(profileControllerProvider.future);
 
+      backend.on('GET /users/me', 200, _me(status: 'pending'));
       await c
           .read(profileControllerProvider.notifier)
           .submitChefApplication(_request);
@@ -92,28 +94,36 @@ void main() {
           ChefApplicationStatus.pending);
     });
 
-    test('whatever the BE says other than none wins', () async {
+    test('a refusal reaches the member, with its code', () async {
       final backend = FakeBackend()
-        ..on('GET /users/me', 200, _me(status: 'approved'));
+        ..on('POST /chef-applications', 409, {
+          'success': false,
+          'message': 'Bạn đã có hồ sơ đang chờ duyệt.',
+          'code': 'already_pending',
+        });
       final c = await backendContainer(backend);
-      await api(c).submitChefApplication(_request);
-      expect((await api(c).getMe()).toEntity().chefApplication,
-          ChefApplicationStatus.approved);
+      await expectLater(
+          api(c).submitChefApplication(_request),
+          throwsA(isA<ApiException>()
+              .having((e) => e.statusCode, 'status', 409)
+              .having((e) => e.code, 'code', 'already_pending')
+              .having((e) => e.message, 'message',
+                  'Bạn đã có hồ sơ đang chờ duyệt.')));
     });
 
-    test('another account on this device is not affected', () async {
+    test('nothing is kept on the device any more', () async {
       final backend = FakeBackend()
-        ..on('GET /users/me', 200, _me(id: 'someone_else'));
+        ..on('POST /chef-applications', 201, envelope({'status': 'pending'}))
+        ..on('GET /users/me', 200, _me());
       final c = await backendContainer(backend);
       await api(c).submitChefApplication(_request);
+      expect(
+          c
+              .read(sharedPreferencesProvider)
+              .getString('vl.chef_application.$testUserId'),
+          isNull);
       expect((await api(c).getMe()).toEntity().chefApplication,
           ChefApplicationStatus.none);
-    });
-
-    test('a guest cannot', () async {
-      final c = await backendContainer(FakeBackend(), signedIn: false);
-      await expectLater(api(c).submitChefApplication(_request),
-          throwsA(isA<ApiException>().having((e) => e.statusCode, '', 401)));
     });
   });
 
@@ -139,13 +149,33 @@ void main() {
       expect(c.read(profileControllerProvider).requireValue.fullName, 'FE M1');
     });
 
-    test('a garbled 404 (B35) reads in Vietnamese', () async {
+    test('a garbled 404 reads in Vietnamese', () async {
       final backend = FakeBackend()
         ..on('PUT /users/$testUserId', 404, {
           'success': false,
           'message': 'KhÃ´ng tÃ¬m tháº¥y user vá»›i id: x',
         });
       final c = await backendContainer(backend);
+      await expectLater(
+        api(c).updateMe(testUserId, const UpdateUserRequestDto(fullName: 'x')),
+        throwsA(isA<ApiException>()
+            .having((e) => e.message, 'message', 'Không tìm thấy dữ liệu.')),
+      );
+    });
+
+    test('a 404 reads as the BE words it, or by its status (B35)', () async {
+      final backend = FakeBackend()
+        ..on('PUT /users/$testUserId', 404, {
+          'success': false,
+          'message': 'Không tìm thấy tài khoản.',
+        });
+      final c = await backendContainer(backend);
+      await expectLater(
+        api(c).updateMe(testUserId, const UpdateUserRequestDto(fullName: 'x')),
+        throwsA(isA<ApiException>()
+            .having((e) => e.message, 'message', 'Không tìm thấy tài khoản.')),
+      );
+      backend.on('PUT /users/$testUserId', 404, {'success': false});
       await expectLater(
         api(c).updateMe(testUserId, const UpdateUserRequestDto(fullName: 'x')),
         throwsA(isA<ApiException>()

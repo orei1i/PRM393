@@ -156,6 +156,14 @@ class _MyPostsTabState extends ConsumerState<_MyPostsTab> {
       'Không có bài bị từ chối',
       'Mọi bài của bạn đều đạt tiêu chuẩn cộng đồng.'
     ),
+    PostStatus.hidden: (
+      'Không có bài bị ẩn',
+      'Bài bị Ban quản trị ẩn sẽ hiện ở đây, chỉ bạn thấy.'
+    ),
+    PostStatus.unknown: (
+      'Không có bài nào chưa rõ trạng thái',
+      'Kéo xuống để tải lại danh sách.'
+    ),
   };
 
   @override
@@ -200,8 +208,7 @@ class _MyPostsTabState extends ConsumerState<_MyPostsTab> {
             onSelected: (s) => setState(() => _filter = s),
           ),
           const SizedBox(height: 12),
-          if (truncated)
-            const _ListNote('Đang hiện bài của bạn trong 250 bài mới nhất.'),
+          if (truncated) const _ListNote('Đang hiện 250 bài mới nhất của bạn.'),
           if (visible.isEmpty)
             EmptyStateView(
                 icon: Icons.article_outlined,
@@ -221,7 +228,7 @@ class _MyPostsTabState extends ConsumerState<_MyPostsTab> {
                         padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                         child: PostStatusBanner(
                           post: post,
-                          onResubmit: BackendModules.postEdit
+                          onResubmit: BackendModules.postEdit && post.canEdit
                               ? () => PostActions.edit(context, ref, post)
                               : null,
                         ),
@@ -237,8 +244,9 @@ class _MyPostsTabState extends ConsumerState<_MyPostsTab> {
   }
 }
 
-/// Tất cả · Đã đăng · Chờ duyệt · Bị từ chối, with counts. Scrolls sideways
-/// when the labels don't fit (large text).
+/// Tất cả · Đã đăng · Chờ duyệt · Bị từ chối · Đã ẩn, with counts ("Chưa rõ trạng
+/// thái" only when a post is in it). Scrolls sideways when the labels don't fit
+/// (large text).
 class _StatusFilterChips extends StatelessWidget {
   const _StatusFilterChips(
       {required this.selected, required this.counts, required this.onSelected});
@@ -252,6 +260,8 @@ class _StatusFilterChips extends StatelessWidget {
     (PostStatus.published, 'Đã đăng'),
     (PostStatus.pending, 'Chờ duyệt'),
     (PostStatus.rejected, 'Bị từ chối'),
+    (PostStatus.hidden, 'Đã ẩn'),
+    (PostStatus.unknown, 'Chưa rõ trạng thái'),
   ];
 
   @override
@@ -261,14 +271,17 @@ class _StatusFilterChips extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
-          for (final (i, (status, label)) in _options.indexed) ...[
-            if (i > 0) const SizedBox(width: 8),
-            ChoiceChip(
-              label: Text('$label (${counts[status] ?? 0})'),
-              selected: selected == status,
-              onSelected: (_) => onSelected(status),
-            ),
-          ],
+          for (final (i, (status, label)) in _options.indexed)
+            if (status != PostStatus.unknown ||
+                selected == status ||
+                (counts[status] ?? 0) > 0) ...[
+              if (i > 0) const SizedBox(width: 8),
+              ChoiceChip(
+                label: Text('$label (${counts[status] ?? 0})'),
+                selected: selected == status,
+                onSelected: (_) => onSelected(status),
+              ),
+            ],
         ],
       ),
     );
@@ -332,6 +345,17 @@ class _SavedTab extends ConsumerWidget {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           const PostListGap(),
+                          // Only an own post can be off the feed and still here.
+                          if (!posts[i].isPublished)
+                            ColoredBox(
+                              color: context.colors.surface,
+                              child: Padding(
+                                padding:
+                                    const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                                child: PostStatusBanner(
+                                    post: posts[i], showDemoActions: false),
+                              ),
+                            ),
                           _postCard(context, ref, posts[i]),
                         ],
                       );

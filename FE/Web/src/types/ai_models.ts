@@ -16,6 +16,8 @@ export interface AiModel {
   fallback: string;
   updatedAt: ISODateString;
   updatedBy: string | null;
+  /** false: the server stores these settings but nothing reads them when it runs (moderation has no AI pipeline). */
+  runtimeEnforced: boolean;
 }
 
 /** PATCH /admin/ai/models/{id} — `note` is the mandatory audit note (≥ 10 chars). */

@@ -281,10 +281,113 @@ Future<void> main() async {
           ]));
       final ids = (await api.getMyRecipes()).map((r) => r.id);
       expect(ids, containsAll([first.id, copy.id]));
-      // Nothing to overwrite or remove with yet (BackendModules.myRecipeEdit).
+    });
+
+    beTest('"Sửa" and "Xoá" an own recipe, with its servings', () async {
+      final api = RemoteMealPlannerApiService(me.dio, userId: me.id);
+      final first = await api.createMyRecipe(const CreateRecipeRequestDto(
+          name: 'Món sửa được FE IT',
+          calories: 400,
+          prepMinutes: 15,
+          servings: 3,
+          ingredients: [
+            RecipeIngredientInput(name: 'Đậu hũ', quantity: 200, unit: 'g'),
+          ],
+          steps: [
+            'Nấu'
+          ]));
+      final raw = await me.raw('GET', '/recipes/${first.id}');
+      expect(raw.dataMap['servings'], 3);
+
+      final edited = await api.updateMyRecipe(
+          first.id,
+          const CreateRecipeRequestDto(
+              name: 'Món đã sửa FE IT',
+              calories: 350,
+              servings: 2,
+              ingredients: [
+                RecipeIngredientInput(
+                    name: 'Nấm rơm', quantity: 100, unit: 'g'),
+              ],
+              steps: [
+                'Xào',
+                'Nêm'
+              ]));
+      expect(edited.id, first.id);
+      expect(edited.name, 'Món đã sửa FE IT');
+      expect(edited.nutrition.calories, 350);
+      final mine = await api.getMyRecipes();
       expect(
-          (await me.raw('PUT', '/recipes/${first.id}', data: {})).status, 405);
-      expect((await me.raw('DELETE', '/recipes/${first.id}')).status, 405);
+          mine.where((r) => r.id == first.id).single.name, 'Món đã sửa FE IT');
+      final read = await me.raw('GET', '/recipes/${first.id}');
+      expect(read.dataMap['servings'], 2);
+      expect(read.dataMap['allergens'], isEmpty,
+          reason: 'the tofu went, and its soy');
+
+      final other = await be.newUser(name: 'FE IT Catalog Other');
+      final asOther = RemoteMealPlannerApiService(other.dio, userId: other.id);
+      await expectApiError(
+          asOther.updateMyRecipe(
+              first.id,
+              const CreateRecipeRequestDto(
+                  name: 'Của người khác',
+                  calories: 1,
+                  ingredients: [
+                    RecipeIngredientInput(name: 'Rau', quantity: 0, unit: ''),
+                  ],
+                  steps: [
+                    'Nấu'
+                  ])),
+          status: 404);
+      await expectApiError(asOther.deleteMyRecipe(first.id), status: 404);
+
+      await expectApiError(
+          api.updateMyRecipe(
+              first.id,
+              const CreateRecipeRequestDto(
+                  name: 'Thịt bò xào',
+                  calories: 100,
+                  ingredients: [
+                    RecipeIngredientInput(name: 'Rau', quantity: 0, unit: ''),
+                  ],
+                  steps: [
+                    'Nấu'
+                  ])),
+          status: 400,
+          code: 'not_vegan');
+
+      await api.deleteMyRecipe(first.id);
+      expect((await api.getMyRecipes()).map((r) => r.id),
+          isNot(contains(first.id)));
+      expect((await me.raw('GET', '/recipes/${first.id}')).status, 404);
+      await expectApiError(api.deleteMyRecipe(first.id), status: 404);
+    });
+
+    beTest('GET /recipes pages by cursor and leaves own recipes out', () async {
+      final api = RemoteMealPlannerApiService(me.dio, userId: me.id);
+      final own = await api.createMyRecipe(const CreateRecipeRequestDto(
+          name: 'Món riêng không trong danh mục FE IT',
+          calories: 100,
+          ingredients: [
+            RecipeIngredientInput(name: 'Rau', quantity: 0, unit: ''),
+          ],
+          steps: [
+            'Nấu'
+          ]));
+      final ids = <String>{};
+      String? cursor;
+      do {
+        final page = await me.raw('GET', '/recipes',
+            query: {'limit': 10, if (cursor != null) 'cursor': cursor});
+        expect(page.status, 200);
+        for (final row in page.dataMap['items'] as List<dynamic>) {
+          expect(ids.add((row as Map)['id'] as String), isTrue);
+        }
+        cursor = page.dataMap['nextCursor'] as String?;
+      } while (cursor != null);
+      expect(ids.length, greaterThanOrEqualTo(29));
+      expect(ids, isNot(contains(own.id)));
+      expect((await api.getMyRecipes()).map((r) => r.id), contains(own.id));
     });
 
     beTest('page routing: 24-hex, unknown, and a mock id', () async {
@@ -313,7 +416,7 @@ Future<void> main() async {
       expect((await pages.getRecipe('l5')).name, isNotEmpty);
     });
 
-    beTest('a guest reaches mock recipes; a real id reads as an error',
+    beTest('a guest reads a seed recipe; an unknown or private one is a 404',
         () async {
       final c = await guestContainer();
       addTearDown(c.dispose);
@@ -321,8 +424,24 @@ Future<void> main() async {
       expect((await pages.getRecipe('l5')).name, isNotEmpty);
       await expectApiError(
         pages.getRecipe('000000000000000000000000'),
-        status: 401,
+        status: 404,
+        code: 'not_found',
       );
+      final seed = (await RecipeCatalog(me.dio, userId: me.id).load())
+          .firstWhere((r) => r.createdBy != me.id);
+      expect((await pages.getRecipe(seed.id)).name, seed.name);
+      final private = await RemoteMealPlannerApiService(me.dio).createMyRecipe(
+          const CreateRecipeRequestDto(
+              name: 'Món khách không thấy FE IT',
+              calories: 100,
+              ingredients: [
+            RecipeIngredientInput(name: 'Rau', quantity: 0, unit: ''),
+          ],
+              steps: [
+            'Nấu'
+          ]));
+      await expectApiError(pages.getRecipe(private.id),
+          status: 404, code: 'not_found');
     });
   });
 }

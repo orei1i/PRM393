@@ -545,3 +545,109 @@ Mọi phản hồi từ Backend (thành công hoặc thất bại) đều đư�
 ---
 *Tài liệu được cập nhật tự động theo phiên bản Backend mới nhất của dự án VeganLife.*
 
+---
+
+## Chatbot RAG và kho tri thức
+
+**Cấu hình** (không có giá trị mặc định cho DB RAG, thiếu thì API trả 503):
+
+| Khoá | Ý nghĩa |
+|---|---|
+| `RagDatabaseName` | DB riêng cho `knowledge_docs`, `knowledge_chunks`, `ingestion_jobs`. Phải khác `DatabaseName` |
+| `Gemini:ApiKey` | Đặt bằng user-secrets hoặc biến môi trường `Gemini__ApiKey`. Thiếu thì chat và tạo chỉ mục trả 503 `ai_unavailable`, không trả câu mock |
+| `Gemini:Model`, `Gemini:EmbeddingModel`, `Gemini:EmbeddingDimensions` | Mặc định `gemini-2.0-flash`, `gemini-embedding-001`, 768 |
+| `Rag:MinScore`, `Rag:TopK`, `Rag:RateLimitPerMinute` | Mặc định 0.55, 5, 20. MinScore chưa được hiệu chỉnh với mô hình thật |
+
+**Chat** (`[AllowAnonymous]`; thành viên dùng JWT, khách dùng header `X-Guest-Token`. JWT hỏng trả 401, không bị coi là khách):
+
+| Route | Mô tả |
+|---|---|
+| `GET /api/v1/chat/guest-trial` | `{ limit, used, remaining }` |
+| `POST /api/v1/chat/sessions/{sessionId}/messages` | Body `{ message, resumeFrom?, context?: { includeMealPlan, includeHealthProfile } }`. Trả SSE |
+| `GET /api/v1/chat/sessions/{sessionId}/messages` | Lịch sử. Chỉ chủ phiên, người khác nhận 404 |
+
+`sessionId` do app sinh (`^[A-Za-z0-9_-]{8,64}$`). Khoá phiên là (chủ phiên, sessionId) nên hai người trùng id vẫn là hai phiên riêng.
+
+Sự kiện SSE: `citation` `{ index, title, publisher, sourceType, passage, url, publishedAt, verified }`, phát ngay trước token đầu tiên nhắc `[index]`; `token` `{ text }`; `done` `{ messageId, trialRemaining? }`; `error` `{ code, message }`. Chỉ `done` nghĩa là xong.
+
+Lỗi trước sự kiện đầu tiên là mã HTTP thường: 400 `invalid_session`, `invalid_guest_token`; 401; 402 `trial_exhausted` (câu thứ 4 của khách); 409 `cannot_resume`; 429 `too_many_requests`; 503 `ai_unavailable`, `rag_not_configured`.
+
+Thử lại: `resumeFrom` lớn hơn 0 tiếp tục câu trả lời dở, không tính lượt. Gửi lại đúng câu vừa hỏi khi câu trả lời trước chưa xong cũng không tính lượt, không ghi trùng.
+
+**Tài liệu:**
+
+| Route | Quyền | Mô tả |
+|---|---|---|
+| `GET /api/v1/admin/knowledge-docs?status=&source=&search=` | Admin | Danh sách |
+| `GET /api/v1/admin/knowledge-docs/counts` | Admin | `{ Pending, Approved, Rejected }` |
+| `POST /api/v1/admin/knowledge-docs` | Admin | `{ title, content, fileUrl?, publisher?, publishedAt? }`. Nguồn WHO. `Approved` khi tạo chỉ mục xong, lỗi thì `Pending` với `ingestStatus: Failed`, duyệt lại sẽ thử lại |
+| `POST /api/v1/admin/knowledge-docs/{id}/review` | Admin | `{ decision: Approve\|Reject, note? }`. Từ chối cần ghi chú từ 10 ký tự. 409 `already_decided` |
+| `PUT /api/v1/admin/knowledge-docs/{id}/content` | Admin | `{ content }`. Tài liệu đã duyệt được tạo lại chỉ mục, AI lỗi thì bản cũ giữ nguyên |
+| `DELETE /api/v1/admin/knowledge-docs/{id}` | Admin | Xoá mềm tài liệu, xoá các đoạn. Câu trả lời cũ vẫn giữ ảnh chụp trích dẫn |
+| `GET /api/v1/admin/knowledge-docs/{id}/chunks?limit=` | Admin | Xem trước các đoạn |
+| `GET`, `POST /api/v1/chefs/me/knowledge-docs` | Chef | Của chính mình. Tài liệu ở `Pending`, chỉ tạo embedding khi admin duyệt, nên chưa duyệt thì không thể được truy xuất |
+
+`content` là văn bản. Server không tự tải URL client đưa (tránh SSRF); `fileUrl` chỉ là liên kết nguồn hiển thị ở trích dẫn. 400 `empty_document`, 409 `duplicate_document`. PDF chưa hỗ trợ (cần thư viện đọc PDF).
+
+## Bài viết, công thức, người dùng: các route mới
+
+Đường dẫn dưới `/api/v1`. Mọi route đọc được kiểm tra bởi `Sprint10_NewRoutesTests`.
+
+**Trạng thái bài viết.** `Posts:RequireApproval` (`appsettings.json` đặt `true`; bài của thành viên phải được admin duyệt mới lên bảng tin):
+- `true`: bài mới và bài sửa về `Pending`.
+- `false`: bài mới `Published`, sửa bài đã đăng vẫn giữ `Published`.
+- Bật hay tắt, sửa bài `Rejected` đều về `Pending` và xoá lý do. Sửa bài `Hidden` trả 409 `post_hidden`.
+
+Bài chưa đăng với người ngoài là 404, trên mọi route: đọc, thích, lưu, báo cáo, bình luận, phản hồi. Tác giả và admin vẫn dùng được.
+
+| Route | Quyền | Ghi chú |
+|---|---|---|
+| `PUT /posts/{id}` | Chủ bài | Body như `POST /posts`. 403 khi bài đã đăng của người khác, 404 khi chưa đăng |
+| `POST /posts/{id}/save` | Thành viên | Công tắc, `{ saved }`. Bài đã lưu mà bị ẩn vẫn bỏ lưu được |
+| `GET /users/me/posts?status=&cursor=&limit=` | Thành viên | `{ items, nextCursor, … }`, mọi trạng thái |
+| `GET /users/me/saved-posts` | Thành viên | Mảng `PostResponse`, tối đa 200, mới lưu trước |
+| `GET /users/me/comments` | Thành viên | Mảng, tối đa 200. Bài bị ẩn không lộ tiêu đề |
+| `PUT /posts/{id}/comments/{commentId}` | Tác giả bình luận | `{ content }`. Admin cũng 403 |
+| `GET /admin/comments?view=&search=&authorId=&postId=` | Admin | Mảng, tối đa 200 dòng mới nhất |
+| `POST /admin/comments/{id}/actions` | Admin | `{ action: hide\|unhide }`. Bình luận ẩn không tính vào `commentCount` |
+| `DELETE /admin/comments/{id}` | Admin | `{ reason? }`, lưu lý do, xoá cả phản hồi |
+| `PATCH /admin/posts/{id}/status` | Admin | Thêm `Pending`: từ `Published`, `Rejected`. Từ `Hidden` là 409 |
+| `GET /admin/posts?…&search=` | Admin | Tìm theo tiêu đề và nội dung |
+
+**Công thức.** Công thức của hệ thống ai cũng đọc được. Công thức do thành viên tạo là riêng tư: người khác và khách nhận 404, kể cả admin.
+
+| Route | Quyền | Ghi chú |
+|---|---|---|
+| `GET /recipes?q=&veganOnly=&limit=&cursor=` | Công khai | `{ items, nextCursor }`. **Đã đổi:** trước đây trả công thức của tôi; route đó là `GET /users/me/recipes` |
+| `GET /recipes/{id}` | Công khai, trừ bản riêng tư | Thêm `servings`, `basedOnRecipeId`, `basedOnName`, `customizations`, `nutritionEstimated`, `averageRating`, `ratingCount`, `createdBy`. `ingredientItems` chỉ có khi đã có dữ liệu |
+| `POST /recipes`, `PUT /recipes/{id}` | Thành viên, chủ | Nhận thêm `servings`, `basedOnRecipeId`, `ingredientItems`. 400 `invalid_calories`, `invalid_prep_minutes`, `invalid_macro`, `invalid_servings`, `not_vegan`, `invalid_based_on`, `invalid_image` |
+| `DELETE /recipes/{id}` | Chủ | Xoá mềm |
+| `POST /recipes/{id}/variants` | Thành viên | 400 `invalid_name`, `no_changes`, `signature_required`, `invalid_substitute`. Công thức chưa có `ingredientItems` thì không đổi được gì |
+| `GET /recipes/{id}/reviews?cursor=&limit=` | Công khai | Bản riêng tư 404 `private_recipe` |
+| `PUT`, `DELETE /recipes/{id}/reviews/me` | Thành viên | `{ rating, content? }`, nội dung 10–500 ký tự. 403 `own_recipe` |
+| `GET`, `PUT`, `DELETE /recipes/{id}/notes/me` | Thành viên | PUT rỗng là xoá, `data: null` |
+| `GET /recipes/{id}/related-posts` | Công khai | Bài `recipe` đã đăng có nhắc tên món, tối đa 10 |
+
+**Thực đơn.**
+
+| Route | Ghi chú |
+|---|---|
+| `POST /meal-plans/current/adjust` | `{ message, scope, date }`. Đọc theo quy tắc, không gọi AI: ít tinh bột, nhiều đạm, ít hoặc nhiều calo, nấu nhanh, không ăn X. Chưa đổi gì trong thực đơn |
+| `POST /meal-plans/current/adjust/{proposalId}/apply` | `{ changeIds }`. 409 `already_applied`, `plan_changed` |
+| `GET /meal-plans/chef-suggestions` | Món từ các ngày chuyên gia đã gửi |
+
+Các route ghi của thực đơn kiểm tra `slot` (400 `invalid_slot`), `source` (400 `invalid_source`), `portion`, và chặn món không thuần chay (400 `not_vegan`). `POST /health-profile/me/metrics` nhận và trả `source`: `profile` hoặc `check_in`.
+
+**Người dùng (Admin).**
+
+| Route | Ghi chú |
+|---|---|
+| `GET /users?search=&role=&status=&page=&pageSize=` | **Đã đổi:** nay có envelope, `data` là mảng, mặc định 50 dòng. Tổng ở header `X-Total-Count`. Thêm `isVerifiedChef`, `postCount`, `reportCount`, `lastActiveAt`, `statusReason` |
+| `PATCH /users/{id}/role` | `{ role: Admin\|User }`. 409 `self_action`, `chef_role_locked`. Người bị đổi phải đăng nhập lại |
+| `PATCH /users/{id}/status` | `{ status: Active\|Locked\|Banned, reason? }`. 409 `self_action`. Khoá là token và refresh token hết tác dụng ngay |
+
+`status`, `authType` của người dùng nay là tên dạng chuỗi (`"Active"`), không còn là số.
+
+**Đăng nhập.** Mỗi thiết bị một refresh token, tối đa 10. Đăng xuất chỉ thu hồi thiết bị đó. Đặt lại mật khẩu, khoá, đổi vai trò, xoá tài khoản thì thu hồi hết.
+
+**Mã đặt lại mật khẩu.** Chưa có email thật, nên ngoài môi trường phát triển người dùng không nhận được mã. Khi phát triển: chạy `Development`, đặt `Auth:DevResetCodes=true`, rồi `GET /dev/auth/reset-code?email=`. Môi trường khác luôn trả 404. Mã không còn được ghi ra log.

@@ -10,11 +10,15 @@ import '../theme/vl_colors.dart';
 /// Prefer [visibleFor] or [wrap] over an unconditional widget, so a build
 /// without the banner keeps its widget tree unchanged.
 class DemoDataBanner extends StatelessWidget {
-  const DemoDataBanner({super.key, required this.module});
+  const DemoDataBanner({super.key, required BackendModule this.module});
+
+  /// For one sample item in a module that is otherwise real (a mock recipe's
+  /// page): shown in any hybrid build.
+  const DemoDataBanner.sample({super.key}) : module = null;
 
   static const label = 'Dữ liệu mẫu · Máy chủ chưa hỗ trợ tính năng này';
 
-  final BackendModule module;
+  final BackendModule? module;
 
   static bool visibleFor(BackendModule module) =>
       BackendModules.isHybrid && BackendModules.isMock(module);
@@ -32,9 +36,24 @@ class DemoDataBanner extends StatelessWidget {
     );
   }
 
+  /// [wrap] for [DemoDataBanner.sample].
+  static Widget wrapSample({required Widget child}) {
+    if (!BackendModules.isHybrid) return child;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const DemoDataBanner.sample(),
+        Expanded(child: child),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (!visibleFor(module)) return const SizedBox.shrink();
+    final module = this.module;
+    if (module == null ? !BackendModules.isHybrid : !visibleFor(module)) {
+      return const SizedBox.shrink();
+    }
     final vl = context.vl;
     return Container(
       width: double.infinity,

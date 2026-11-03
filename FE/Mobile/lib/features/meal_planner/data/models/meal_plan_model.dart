@@ -667,8 +667,8 @@ class CreateRecipeRequestDto {
         if (servings != null) 'servings': servings,
       };
 
-  /// What POST /recipes takes on the real BE: plain text rows and steps, no
-  /// structured quantities and no servings.
+  /// What POST and PUT /recipes take on the real BE: plain text rows and steps,
+  /// no structured quantities.
   Map<String, dynamic> toBackendJson() => {
         'name': name,
         'calories': calories,
@@ -677,6 +677,7 @@ class CreateRecipeRequestDto {
         if (fatG != null) 'fatG': fatG,
         if (fiberG != null) 'fiberG': fiberG,
         if (prepMinutes != null) 'prepMinutes': prepMinutes,
+        if (servings != null) 'servings': servings,
         // The BE stores what it is given and works nothing out from the rows.
         'allergens': allergens ??
             detectDishAllergens(name, ingredients.map((i) => i.name)).toList(),

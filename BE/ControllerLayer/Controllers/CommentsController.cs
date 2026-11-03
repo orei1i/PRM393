@@ -33,7 +33,7 @@ namespace ControllerLayer.Controllers
             var success = await _commentService.DeleteCommentAsync(id, currentUserId, role);
             if (!success)
             {
-                return NotFound(ApiResponse<object>.NotFound($"Không tìm thấy bình luận với id: {id}"));
+                return NotFound(ApiResponse<object>.NotFound("Không tìm thấy bình luận."));
             }
 
             return Ok(ApiResponse<object?>.Ok(null, "Xóa bình luận thành công."));
@@ -45,7 +45,7 @@ namespace ControllerLayer.Controllers
         [ProducesResponseType(typeof(ApiResponse<System.Collections.Generic.IEnumerable<ApplicationLayer.DTOs.Posts.CommentResponse>>), StatusCodes.Status200OK)]
         public async Task<ActionResult<ApiResponse<System.Collections.Generic.IEnumerable<ApplicationLayer.DTOs.Posts.CommentResponse>>>> GetReplies(string id)
         {
-            var result = await _commentService.GetCommentRepliesAsync(id);
+            var result = await _commentService.GetCommentRepliesAsync(id, null, User.GetUserIdOrDefault(), User.GetRole());
             return Ok(ApiResponse<System.Collections.Generic.IEnumerable<ApplicationLayer.DTOs.Posts.CommentResponse>>.Ok(result));
         }
     }

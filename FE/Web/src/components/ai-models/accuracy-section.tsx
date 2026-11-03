@@ -22,6 +22,8 @@ type MetricsQuery = UseQueryResult<AiAccuracyMetrics>;
 /** 1 · Moderation precision: how often admins upheld the AI's flags. */
 export function ModerationAccuracy({ metrics }: { metrics: MetricsQuery }) {
   const m = metrics.data?.moderation;
+  /** No decision yet: a 0 % precision would read as a bad model, not as no data. */
+  const hasDecisions = Boolean(m && m.decided > 0);
 
   if (metrics.isError && !m) {
     return (
@@ -45,29 +47,29 @@ export function ModerationAccuracy({ metrics }: { metrics: MetricsQuery }) {
           label="Độ chính xác cờ AI"
           icon={Target}
           loading={metrics.isLoading}
-          value={m ? formatPercent(m.precision) : "–"}
-          hint={m ? `${formatNumber(m.confirmed)}/${formatNumber(m.decided)} cờ được giữ nguyên` : undefined}
+          value={hasDecisions && m ? formatPercent(m.precision) : "–"}
+          hint={!m ? undefined : hasDecisions ? `${formatNumber(m.confirmed)}/${formatNumber(m.decided)} cờ được giữ nguyên` : "Chưa có cờ nào được quyết định"}
         />
         <MetricCard
           label="Tỉ lệ admin đảo quyết định"
           icon={Undo2}
           loading={metrics.isLoading}
-          value={m ? formatPercent(m.overrideRate) : "–"}
-          hint={m ? `${formatNumber(m.overridden)} cờ được duyệt lại cho đăng` : undefined}
+          value={hasDecisions && m ? formatPercent(m.overrideRate) : "–"}
+          hint={!m ? undefined : hasDecisions ? `${formatNumber(m.overridden)} cờ được duyệt lại cho đăng` : "Chưa có cờ nào được quyết định"}
         />
         <MetricCard
           label="Cờ đang chờ"
           icon={Hourglass}
           loading={metrics.isLoading}
           value={m ? formatNumber(m.pending) : "–"}
-          hint="hàng Kiểm duyệt AI + bài chờ duyệt"
+          hint="hàng Kiểm duyệt AI"
         />
         <MetricCard
           label="Thời gian xử lý trung vị"
           icon={Timer}
           loading={metrics.isLoading}
-          value={m ? formatNumber(m.medianDecisionMinutes) : "–"}
-          unit="phút"
+          value={hasDecisions && m ? formatNumber(m.medianDecisionMinutes) : "–"}
+          unit={hasDecisions ? "phút" : undefined}
           hint="từ lúc gắn cờ tới khi có quyết định"
         />
       </div>
@@ -94,7 +96,15 @@ export function ModerationAccuracy({ metrics }: { metrics: MetricsQuery }) {
                     </TableCell>
                   </TableRow>
                 ))
-              : m.byCategory.map((row) => (
+              : !hasDecisions
+                ? (
+                    <TableRow>
+                      <TableCell colSpan={3} className="px-5 py-6 text-center text-sm text-muted-foreground">
+                        Chưa có cờ nào được quyết định trong khoảng này.
+                      </TableCell>
+                    </TableRow>
+                  )
+                : m.byCategory.map((row) => (
                   <TableRow key={row.category}>
                     <TableCell className="pl-5 font-semibold">{FLAG_CATEGORY_LABEL[row.category]}</TableCell>
                     <TableCell className="text-right font-mono tabular">{formatNumber(row.decided)}</TableCell>
@@ -110,7 +120,7 @@ export function ModerationAccuracy({ metrics }: { metrics: MetricsQuery }) {
                     </TableCell>
                   </TableRow>
                 ))}
-            {m && (
+            {m && hasDecisions && (
               <TableRow className="bg-muted/50 font-semibold hover:bg-muted/50">
                 <TableCell className="pl-5">Tổng</TableCell>
                 <TableCell className="text-right font-mono tabular">{formatNumber(m.decided)}</TableCell>
@@ -161,7 +171,19 @@ export function LabeledAccuracy({ metrics }: { metrics: MetricsQuery }) {
                       </TableCell>
                     </TableRow>
                   ))
-                : rows.map((row) => (
+                : rows.length === 0
+                  ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="px-5 py-6 text-center text-sm text-muted-foreground">
+                          Chưa có nhãn nào trong khoảng này. Gắn nhãn từng lượt gọi ở trang{" "}
+                          <Link className="underline" href="/telemetry">
+                            Giám sát AI
+                          </Link>
+                          .
+                        </TableCell>
+                      </TableRow>
+                    )
+                  : rows.map((row) => (
                     <TableRow key={row.task}>
                       <TableCell className="pl-5 font-semibold">{AI_TASK_TITLE[row.task]}</TableCell>
                       <TableCell className="text-right font-mono tabular">{formatNumber(row.labeled)}</TableCell>

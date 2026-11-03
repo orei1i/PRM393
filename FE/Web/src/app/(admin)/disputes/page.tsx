@@ -117,7 +117,7 @@ function DisputesScreen() {
       <p className="flex gap-2.5 rounded-lg border bg-card px-4 py-3 text-sm text-muted-foreground">
         <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
         <span>
-          Thành viên thanh toán qua PaymentOS hoặc bằng ví, tiền vào VeganLife. Chuyên gia chỉ xác nhận hoàn thành được khi đã giao đủ mọi ngày và đã tới ngày
+          Thành viên thanh toán qua cổng thanh toán hoặc bằng ví, tiền vào VeganLife. Chuyên gia chỉ xác nhận hoàn thành được khi đã giao đủ mọi ngày và đã tới ngày
           kết thúc kế hoạch; không xác nhận thì hệ thống tự hoàn tất {AUTO_COMPLETE_DAYS} ngày sau ngày kết thúc nếu đã giao đủ và không có khiếu nại. Từ lúc
           hoàn thành, tiền được giữ thêm <b className="text-foreground">{ESCROW_HOLD_DAYS} ngày</b>. Không có khiếu nại thì tiền tự vào ví chuyên gia (trừ phí{" "}
           {formatPercent(PLATFORM_FEE_RATE)}). Có khiếu nại (kèm bằng chứng) thì tiền bị tạm giữ đến khi Ban quản trị quyết định; tiền hoàn vào ví của thành viên.

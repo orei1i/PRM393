@@ -28,8 +28,11 @@ export interface KnowledgeDoc {
   fileUrl: string;
   createdAt: ISODateString;
   status: KnowledgeDocStatus;
-  /** Computed by BE (count of knowledge_chunks). 0 until approved. */
+  /** Computed by BE (count of knowledge_chunks). */
   chunkCount: number;
+  /** `Failed`: the AI service couldn't index it, so the chatbot can't use it yet. Approving retries. */
+  ingestStatus: "Pending" | "Done" | "Failed";
+  ingestError: string | null;
   /** Computed by BE: chatbot answers citing this doc. */
   citationCount: number;
   reviewNote: string | null;
@@ -60,5 +63,9 @@ export interface KnowledgeChunk {
 /** POST /admin/knowledge-docs — WHO uploads start Approved. */
 export interface WhoDocInput {
   title: string;
+  /** Public source link. In real mode optional: the server indexes `content`. */
   fileUrl: string;
+  content?: string;
+  /** A PDF, .txt or .md: the server reads the text. Takes the place of `content`. */
+  file?: File;
 }

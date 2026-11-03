@@ -17,3 +17,8 @@ String? mockPersonaId(AuthSession session) {
   if (session.isGuest) return null;
   return session.isChef ? tamChefAccount.userId : minhAnhAccount.userId;
 }
+
+/// Who the signed-in user is to [module]: their real id once that module talks
+/// to the BE, the persona ([mockPersonaId]) while it is mock.
+String? moduleUserId(BackendModule module, AuthSession session) =>
+    BackendModules.isReal(module) ? session.userId : mockPersonaId(session);

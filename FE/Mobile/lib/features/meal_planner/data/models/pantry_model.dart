@@ -23,9 +23,10 @@
 //   "allergyWarning": null }
 // Its POST returns only the rows it touched, so the service GETs the list. It
 // stores a food it finds non-vegan too, with "isVegan": false. A second add of a
-// name changes that row: the quantity becomes the one sent, or 1 when none is
-// sent (B38), so the service sends the row's own.
-// "allergyWarning": "Cảnh báo dị ứng: peanut, soy" (allergen ids or custom names).
+// name changes that row: the quantity and unit become the ones sent, and stay as
+// they were when no quantity is sent.
+// "allergyWarning": "Cảnh báo dị ứng: Đậu phộng, Mè" (short Vietnamese names, or
+// custom names as the member typed them).
 // PUT /users/me/ingredients/{id}
 // { "quantity": 300, "unit": "g", "expiryDate": "2026-11-05" }
 import '../../../../core/utils/formatters.dart';

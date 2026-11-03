@@ -139,11 +139,15 @@ Future<void> main() async {
       await expectApiError(guest.addComment(id, 'Khách'), status: 401);
     });
 
-    beTest('"Bài của tôi" scans the feed for the member', () async {
+    beTest('"Bài của tôi" reads the member\'s own route', () async {
       final mine = await asA.getMyPosts();
       expect(mine, isNotEmpty);
       expect(mine.map((p) => p.author.id).toSet(), {a.id});
-      expect(await asB.getMyPosts(), isEmpty);
+      final created = await be.newUser(name: 'FE IT Community Empty');
+      expect(
+          await RemoteCommunityApiService(created.dio,
+              currentUserId: () => created.id).getMyPosts(),
+          isEmpty);
     });
 
     beTest('like then unlike survive a re-read', () async {
@@ -174,22 +178,24 @@ Future<void> main() async {
       expect((await asA.getPost(id)).likeCount, 2);
     });
 
-    beTest('a post moved to Pending: only its author finds it', () async {
-      final store = MyPostIdsStore(currentUserId: () => a.id);
-      final asAuthor = RemoteCommunityApiService(a.dio,
-          currentUserId: () => a.id, myPostIds: store);
+    beTest('a post an admin hid: only its author finds it, marked as hidden',
+        () async {
+      final asAuthor = asA;
       final dto = await asAuthor.createPost(const CreatePostRequestDto(
           type: PostType.discussion,
-          title: 'FE IT bài bị đưa về chờ duyệt',
+          title: 'FE IT bài bị ẩn',
           body: 'Nội dung đủ dài để máy chủ nhận bài viết này.'));
       created.add(dto.id);
       expect(dto.status, 'Published');
 
       final admin = await be.adminToken();
-      final hidden = await rawRequest('POST', '/admin/posts/${dto.id}/actions',
-          token: admin, data: {'action': 'hide'});
+      Future<RawResponse> act(String action) =>
+          rawRequest('POST', '/admin/posts/${dto.id}/actions',
+              token: admin, data: {'action': action});
+
+      final hidden = await act('hide');
       expect(hidden.status, 200);
-      expect(hidden.dataMap['status'], 'Pending');
+      expect(hidden.dataMap['status'], 'Hidden');
 
       // Off the feed for everyone, the author included.
       final feed = await asAuthor.getFeed(limit: 50);
@@ -199,47 +205,115 @@ Future<void> main() async {
           status: 404);
       await expectApiError(asB.getPost(dto.id), status: 404);
 
-      // The owner still reads it, and "Bài của tôi" finds it by its id.
+      // The owner still reads it, and "Bài của tôi" lists it.
       final own = (await asAuthor.getPost(dto.id)).toEntity();
-      expect(own.isPending, isTrue);
+      expect(own.status, PostStatus.hidden);
+      expect(own.isPublished, isFalse);
+      expect(own.canEdit, isFalse);
       final mine = await asAuthor.getMyPosts();
-      expect(mine.singleWhere((p) => p.id == dto.id).status, 'Pending');
+      expect(mine.singleWhere((p) => p.id == dto.id).status, 'Hidden');
 
-      // A device that doesn't know the id can't see it: the limit we report.
-      final elsewhere = RemoteCommunityApiService(a.dio,
-          currentUserId: () => a.id,
-          myPostIds: MyPostIdsStore(currentUserId: () => a.id));
-      expect((await elsewhere.getMyPosts()).map((p) => p.id),
-          isNot(contains(dto.id)));
+      // Someone who saved it: skipped, not forgotten, it may come back.
+      final saved = SavedPostsStore(currentUserId: () => b.id);
+      await saved.setSaved(dto.id, saved: true);
+      final asSaver = RemoteCommunityApiService(b.dio,
+          currentUserId: () => b.id, saved: saved);
+      expect(await asSaver.getSavedPosts(), isEmpty);
+      expect(saved.contains(dto.id), isTrue);
 
-      // Rejected: still the author's, and back on the feed once approved.
+      // The review routes can't move it: only "unhide" does, the web knows.
+      for (final decision in ['Approve', 'Reject']) {
+        final refused = await rawRequest(
+            'POST', '/admin/posts/${dto.id}/review',
+            token: admin, data: {'decision': decision, 'reason': 'x'});
+        expect(refused.status, 409, reason: decision);
+      }
+
+      expect((await act('unhide')).dataMap['status'], 'Published');
+      expect((await asAuthor.getFeed(limit: 50)).items.map((p) => p.id),
+          contains(dto.id));
+      expect((await asSaver.getSavedPosts()).map((p) => p.id), [dto.id]);
+
+      // Rejected: still the author's, with the reason, back once approved.
       final rejected = await rawRequest('POST', '/admin/posts/${dto.id}/review',
           token: admin, data: {'decision': 'Reject', 'reason': 'Thiếu nguồn'});
       expect(rejected.dataMap['status'], 'Rejected');
       final refused = (await asAuthor.getPost(dto.id)).toEntity();
       expect(refused.isRejected, isTrue);
-      expect(refused.rejectionReason, isNull,
-          reason: 'PostResponse has no rejectionReason yet. Once it does, the '
-              'banner shows the reason by itself: check this and drop it.');
+      expect(refused.rejectionReason, 'Thiếu nguồn');
 
       await rawRequest('POST', '/admin/posts/${dto.id}/review',
           token: admin, data: {'decision': 'Approve'});
+      final back = (await asAuthor.getPost(dto.id)).toEntity();
+      expect(back.isPublished, isTrue);
+      expect(back.rejectionReason, isNull);
       expect((await asAuthor.getFeed(limit: 50)).items.map((p) => p.id),
           contains(dto.id));
     });
 
-    beTest('PUT /posts/{id} is a 405, so nothing pretends it saved', () async {
+    beTest('"Sửa bài": saved, read back, the author only', () async {
       final dto = await post(asA);
+      const edit = UpdatePostRequestDto(
+          title: 'FE IT tiêu đề đã sửa',
+          body: 'Nội dung đã sửa của bài này.',
+          mediaType: PostMediaType.text);
+      final edited = await asA.updatePost(dto.id, edit);
+      expect(edited.title, 'FE IT tiêu đề đã sửa');
+      expect(edited.status, 'Published');
+      expect((await asB.getPost(dto.id)).body, 'Nội dung đã sửa của bài này.');
+      await expectApiError(asB.updatePost(dto.id, edit), status: 403);
       await expectApiError(
-          asA.updatePost(
-              dto.id,
-              const UpdatePostRequestDto(
-                  title: 'FE IT tiêu đề đã sửa',
-                  body: 'Nội dung đã sửa của bài này.',
-                  mediaType: PostMediaType.text)),
-          status: 405);
-      // Once this fails the BE has the route: turn on BackendModules.postEdit.
-      expect((await asA.getPost(dto.id)).title, dto.title);
+          RemoteCommunityApiService(be.guestDio()).updatePost(dto.id, edit),
+          status: 401);
+    });
+
+    beTest('"Sửa bài": a hidden post is a 409, a rejected one goes for review',
+        () async {
+      final dto = await post(asA);
+      const edit = UpdatePostRequestDto(
+          title: 'FE IT sửa sau quyết định',
+          body: 'Nội dung sửa sau quyết định của quản trị.',
+          mediaType: PostMediaType.text);
+      final admin = await be.adminToken();
+      await rawRequest('POST', '/admin/posts/${dto.id}/actions',
+          token: admin, data: {'action': 'hide'});
+      await expectApiError(asA.updatePost(dto.id, edit),
+          status: 409, code: 'post_hidden');
+      await rawRequest('POST', '/admin/posts/${dto.id}/actions',
+          token: admin, data: {'action': 'unhide'});
+      await rawRequest('POST', '/admin/posts/${dto.id}/review',
+          token: admin, data: {'decision': 'Reject', 'reason': 'Thiếu nguồn'});
+      final resubmitted = (await asA.updatePost(dto.id, edit)).toEntity();
+      expect(resubmitted.isPending, isTrue);
+      expect(resubmitted.rejectionReason, isNull);
+    });
+
+    beTest('"Sửa" a comment: the author only; "Bình luận" of the member',
+        () async {
+      final dto = await post(asA, title: 'FE IT bài có bình luận');
+      final root = await asB.addComment(dto.id, 'Bình luận gốc của B');
+      final reply =
+          await asB.addComment(dto.id, 'Phản hồi của B', parentId: root.id);
+      final edited =
+          await asB.updateComment(dto.id, root.id, 'Đã sửa bình luận');
+      expect(edited.id, root.id);
+      expect(edited.updatedAt, isNotNull);
+      await expectApiError(asA.updateComment(dto.id, root.id, 'Không phải tôi'),
+          status: 403);
+
+      final mine = await asB.getMyComments();
+      final row = mine.singleWhere((m) => m.id == root.id);
+      expect(row.text, 'Đã sửa bình luận');
+      expect(row.postId, dto.id);
+      expect(row.postTitle, 'FE IT bài có bình luận');
+      expect(row.parentId, isNull);
+      expect(row.updatedAt, isNotNull);
+      expect(mine.singleWhere((m) => m.id == reply.id).parentId, root.id);
+      expect(
+          await RemoteCommunityApiService(
+                  (await be.newUser(name: 'FE IT No Comments')).dio)
+              .getMyComments(),
+          isEmpty);
     });
 
     beTest('B27: three reports hide a post, an admin brings it back', () async {
@@ -306,7 +380,7 @@ Future<void> main() async {
       final first = (await asA.getComments(id)).items.single;
       expect(first.replyCount, 4);
       expect(first.replies, hasLength(2));
-      expect(first.updatedAt, isNull, reason: 'B17');
+      expect(first.updatedAt, isNull, reason: 'B17: read as "(đã sửa)"');
       expect(first.replies.first.updatedAt, isNull);
 
       final all = await asA.getReplies(id, root.id);

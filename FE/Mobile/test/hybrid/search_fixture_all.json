@@ -1,0 +1,190 @@
+{
+ "success": true,
+ "message": null,
+ "code": null,
+ "data": {
+  "query": "đậu hũ",
+  "posts": [
+   {
+    "id": "6ae8dd49ff7b75e036ff4b05",
+    "type": "discussion",
+    "author": {
+     "id": "6ae8dd49ff7b75e036ff4b04",
+     "fullName": "FE IT Search",
+     "isVerifiedChef": false
+    },
+    "title": "Bài tìmkiếmthửaaabd5 về đậu hũ",
+    "body": "Nội dung đủ dài để máy chủ nhận bài viết này.",
+    "tags": [],
+    "coverSeed": "6ae8dd49ff7b75e036ff4b05",
+    "likeCount": 0,
+    "commentCount": 0,
+    "reportCount": 0,
+    "rejectionReason": null,
+    "likedByMe": false,
+    "savedByMe": false,
+    "isPinned": false,
+    "createdAt": "2026-11-02T18:58:17.797Z",
+    "status": "Published",
+    "mediaType": "Text",
+    "mediaUrl": null,
+    "video": null,
+    "restaurant": null,
+    "updatedAt": null
+   },
+   {
+    "id": "6ae8d5b7d528c5de52f4ae6f",
+    "type": "discussion",
+    "author": {
+     "id": "6ae8d5b7d528c5de52f4ae6e",
+     "fullName": "FE IT Search",
+     "isVerifiedChef": false
+    },
+    "title": "Bài tìmkiếmthử000b97 về đậu hũ",
+    "body": "Nội dung đủ dài để máy chủ nhận bài viết này.",
+    "tags": [],
+    "coverSeed": "6ae8d5b7d528c5de52f4ae6f",
+    "likeCount": 0,
+    "commentCount": 0,
+    "reportCount": 0,
+    "rejectionReason": null,
+    "likedByMe": false,
+    "savedByMe": false,
+    "isPinned": false,
+    "createdAt": "2026-11-02T18:25:59.108Z",
+    "status": "Published",
+    "mediaType": "Text",
+    "mediaUrl": null,
+    "video": null,
+    "restaurant": null,
+    "updatedAt": null
+   }
+  ],
+  "videos": [],
+  "recipes": [
+   {
+    "id": "6ae6c330067e04b3024c4293",
+    "name": "Đậu hũ sốt cà chua & cơm lứt",
+    "caloriesCache": 450,
+    "isVegan": true
+   },
+   {
+    "id": "6ae6c330067e04b3024c429e",
+    "name": "Đậu hũ ky cuốn nấm hấp tương",
+    "caloriesCache": 410,
+    "isVegan": true
+   }
+  ],
+  "ingredients": [
+   {
+    "id": "6ae6c330067e04b3024c4252",
+    "name": "Đậu hũ",
+    "category": "plant_protein",
+    "caloriesPer100g": 76,
+    "proteinG": 8.1,
+    "carbsG": 1.9,
+    "fatG": 4.8,
+    "fiberG": 0.3,
+    "allergens": [
+     "soy"
+    ],
+    "isVegan": true,
+    "aliases": [
+     "đậu phụ",
+     "tàu hũ",
+     "tofu"
+    ],
+    "goodFor": [],
+    "cautionFor": []
+   },
+   {
+    "id": "6ae6c330067e04b3024c4253",
+    "name": "Đậu hũ chiên",
+    "category": "plant_protein",
+    "caloriesPer100g": 132,
+    "proteinG": 10.5,
+    "carbsG": 3.2,
+    "fatG": 8.5,
+    "fiberG": 0.4,
+    "allergens": [
+     "soy"
+    ],
+    "isVegan": true,
+    "aliases": [
+     "tàu hũ chiên"
+    ],
+    "goodFor": [],
+    "cautionFor": []
+   }
+  ],
+  "restaurants": [
+   {
+    "id": "6ae8dd27ff7b75e036ff48fc",
+    "createdBy": "6ae8dd27ff7b75e036ff48fb",
+    "createdByName": "FE IT Ads",
+    "name": "Quán quảng cáo 14a0df97",
+    "address": "14a0df97 Hai Bà Trưng, Q.3, TP.HCM",
+    "isVeganCertified": false,
+    "latitude": 10.7769,
+    "longitude": 106.7009,
+    "distanceKm": 0,
+    "averageRating": null,
+    "reviewCount": 0
+   }
+  ],
+  "suggestion": {
+   "recipe": {
+    "id": "6ae6c330067e04b3024c4293",
+    "name": "Đậu hũ sốt cà chua & cơm lứt",
+    "caloriesCache": 450,
+    "isVegan": true
+   },
+   "relatedPosts": [
+    {
+     "id": "6ae8dd49ff7b75e036ff4b05",
+     "type": "discussion",
+     "author": {
+      "id": "6ae8dd49ff7b75e036ff4b04",
+      "fullName": "FE IT Search",
+      "isVerifiedChef": false
+     },
+     "title": "Bài tìmkiếmthửaaabd5 về đậu hũ",
+     "body": "Nội dung đủ dài để máy chủ nhận bài viết này.",
+     "tags": [],
+     "coverSeed": "6ae8dd49ff7b75e036ff4b05",
+     "likeCount": 0,
+     "commentCount": 0,
+     "reportCount": 0,
+     "rejectionReason": null,
+     "likedByMe": false,
+     "savedByMe": false,
+     "isPinned": false,
+     "createdAt": "2026-11-02T18:58:17.797Z",
+     "status": "Published",
+     "mediaType": "Text",
+     "mediaUrl": null,
+     "video": null,
+     "restaurant": null,
+     "updatedAt": null
+    }
+   ],
+   "restaurants": [
+    {
+     "id": "6ae8dd27ff7b75e036ff48fc",
+     "createdBy": "6ae8dd27ff7b75e036ff48fb",
+     "createdByName": "FE IT Ads",
+     "name": "Quán quảng cáo 14a0df97",
+     "address": "14a0df97 Hai Bà Trưng, Q.3, TP.HCM",
+     "isVeganCertified": false,
+     "latitude": 10.7769,
+     "longitude": 106.7009,
+     "distanceKm": 0,
+     "averageRating": null,
+     "reviewCount": 0
+    }
+   ]
+  }
+ },
+ "statusCode": 200,
+ "errors": null
+}

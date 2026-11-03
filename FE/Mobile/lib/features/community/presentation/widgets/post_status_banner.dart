@@ -8,7 +8,8 @@ import '../../domain/entities/post.dart';
 import '../post_actions.dart';
 
 /// Shown to the author above a post that is not on the feed: waiting for the
-/// admins ("Chờ duyệt") or rejected with the admin's reason. While the community
+/// admins ("Chờ duyệt"), rejected with the admin's reason, hidden by an admin
+/// ("Đã ẩn") or in a state this app doesn't know. While the community
 /// module is mock there is no web console to decide, so a waiting post offers
 /// "Duyệt thử" / "Từ chối thử" to show the rest of the flow.
 class PostStatusBanner extends ConsumerStatefulWidget {
@@ -50,8 +51,10 @@ class _PostStatusBannerState extends ConsumerState<PostStatusBanner> {
     if (post.isPublished) return const SizedBox.shrink();
     final vl = context.vl;
     final rejected = post.isRejected;
+    // Decided by an admin: the caution look, unlike a post that still waits.
+    final caution = rejected || post.isHidden;
     final fg =
-        rejected ? vl.onCautionContainer : context.colors.onSecondaryContainer;
+        caution ? vl.onCautionContainer : context.colors.onSecondaryContainer;
     final reason = post.rejectionReason?.trim();
     final onResubmit = widget.onResubmit;
     final demo = widget.showDemoActions &&
@@ -63,9 +66,9 @@ class _PostStatusBannerState extends ConsumerState<PostStatusBanner> {
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       decoration: BoxDecoration(
         color:
-            rejected ? vl.cautionContainer : context.colors.secondaryContainer,
+            caution ? vl.cautionContainer : context.colors.secondaryContainer,
         borderRadius: BorderRadius.circular(14),
-        border: rejected ? Border.all(color: vl.cautionBorder) : null,
+        border: caution ? Border.all(color: vl.cautionBorder) : null,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -74,16 +77,28 @@ class _PostStatusBannerState extends ConsumerState<PostStatusBanner> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Icon(
-                rejected ? Icons.block_rounded : Icons.hourglass_top_rounded,
+                switch (post.status) {
+                  PostStatus.rejected => Icons.block_rounded,
+                  PostStatus.hidden => Icons.visibility_off_outlined,
+                  PostStatus.unknown => Icons.help_outline_rounded,
+                  _ => Icons.hourglass_top_rounded,
+                },
                 size: 20,
                 color: fg,
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  rejected
-                      ? 'Bị từ chối: ${reason == null || reason.isEmpty ? 'Ban quản trị chưa ghi lý do.' : reason}'
-                      : 'Chờ duyệt: bài sẽ hiển thị trên bảng tin sau khi Ban quản trị duyệt.',
+                  switch (post.status) {
+                    PostStatus.rejected =>
+                      'Bị từ chối: ${reason == null || reason.isEmpty ? 'Ban quản trị chưa ghi lý do.' : reason}',
+                    PostStatus.hidden =>
+                      'Đã ẩn: Ban quản trị đã ẩn bài này nên bài không hiển thị trên bảng tin.',
+                    PostStatus.unknown =>
+                      'Chưa rõ trạng thái: bài có thể chưa hiển thị trên bảng tin. Thử tải lại sau.',
+                    _ =>
+                      'Chờ duyệt: bài sẽ hiển thị trên bảng tin sau khi Ban quản trị duyệt.',
+                  },
                   style: context.textStyles.bodyMedium?.copyWith(color: fg),
                 ),
               ),

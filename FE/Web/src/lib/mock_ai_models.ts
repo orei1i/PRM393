@@ -24,6 +24,7 @@ const models: AiModel[] = [
     fallback: "Bài mới vào hàng Chờ duyệt thủ công",
     updatedAt: daysAgo(6),
     updatedBy: "Lê Minh Quân",
+    runtimeEnforced: true,
   },
   {
     id: "aim_chatbot",
@@ -36,6 +37,7 @@ const models: AiModel[] = [
     fallback: "Ứng dụng báo “Trợ lý đang tạm nghỉ” và gợi ý bài viết của chuyên gia",
     updatedAt: daysAgo(12),
     updatedBy: "Trần Thu Hằng",
+    runtimeEnforced: true,
   },
   {
     id: "aim_meal_plan",
@@ -48,6 +50,7 @@ const models: AiModel[] = [
     fallback: "Dùng thực đơn mẫu theo mục tiêu, không cá nhân hoá",
     updatedAt: daysAgo(12),
     updatedBy: "Trần Thu Hằng",
+    runtimeEnforced: true,
   },
   {
     id: "aim_vision",
@@ -60,6 +63,7 @@ const models: AiModel[] = [
     fallback: "Người dùng tự nhập nguyên liệu thay vì quét ảnh",
     updatedAt: daysAgo(20),
     updatedBy: null,
+    runtimeEnforced: true,
   },
 ];
 

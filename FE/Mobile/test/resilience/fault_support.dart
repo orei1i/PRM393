@@ -305,5 +305,10 @@ Object? healthyBody(String route) {
     return _fixture('community_fixture_media_video.json');
   }
   if (path == '/vision/scan') return _fixture('scanner_fixture_scan.json');
+  if (path == '/search') return _fixture('search_fixture_all.json');
+  if (path == '/search/discover') {
+    return _fixture('search_fixture_discover.json');
+  }
+  if (path == '/search/suggest') return _fixture('search_fixture_suggest.json');
   return _ok(null);
 }

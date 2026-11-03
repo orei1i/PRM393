@@ -68,4 +68,13 @@ abstract final class KnowledgeDocRules {
 
   static String? fileUrl(String value) =>
       isHttpsUrl(value) ? null : 'Nhập đường dẫn https:// tới tệp tài liệu.';
+
+  static const minContent = 50;
+
+  static String? content(String value) => value.trim().length < minContent
+      ? 'Dán nội dung tài liệu, ít nhất $minContent ký tự.'
+      : null;
+
+  static String? optionalFileUrl(String value) =>
+      value.trim().isEmpty ? null : fileUrl(value);
 }

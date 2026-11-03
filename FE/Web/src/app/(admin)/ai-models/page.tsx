@@ -50,7 +50,7 @@ export default function AiModelsPage() {
             Mô hình đang chạy
           </h2>
           <p className="text-sm text-muted-foreground">
-            Mọi thay đổi cần ghi chú kiểm toán. Tắt một mô hình sẽ chuyển ứng dụng sang cách xử lý dự phòng ghi trên thẻ.
+            Mọi thay đổi cần ghi chú kiểm toán. Tắt một mô hình sẽ chuyển ứng dụng sang cách xử lý dự phòng ghi trên thẻ, trừ thẻ có nhãn Chưa có hiệu lực.
           </p>
         </div>
         {models.isError && !models.data ? (

@@ -7,7 +7,7 @@
 // Every answer may be wrong: `request` turns transport failures and non-JSON bodies into a Vietnamese
 // ApiError, `requestList` / `requestObject` do the same for a body of the wrong shape, and the
 // normalisers (built on wire.ts) fill in whatever a row is missing. Pages can trust what they get.
-import type { AiAccuracyMetrics, AiModel, AiModelPatch } from "@/types/ai_models";
+import { MIN_LABELS_FOR_ACCURACY, type AiAccuracyMetrics, type AiModel, type AiModelPatch } from "@/types/ai_models";
 import type {
   AiFlag,
   AiLog,
@@ -15,6 +15,7 @@ import type {
   AiLogLabelInput,
   AiLogQuery,
   AiLogStatus,
+  AiLogTask,
   AiTaskType,
   CategoryScore,
   ContentType,
@@ -98,6 +99,9 @@ function fallbackMessage(status: number): string {
   return "Đã có lỗi xảy ra. Vui lòng thử lại.";
 }
 
+/** A 503 the server raised on purpose: its message says what to do, it is not an exception's text. */
+const SAID_UNAVAILABLE = ["ai_unavailable", "ai_disabled", "rag_not_configured", "geo_unavailable", "payment_unavailable"];
+
 /**
  * A failed response as a Vietnamese ApiError. The `title` of ProblemDetails is English, so it is never
  * shown; neither is the `message` of a 5xx, which can be an exception's text.
@@ -105,6 +109,9 @@ function fallbackMessage(status: number): string {
 function errorFromResponse(status: number, body: unknown): ApiError {
   const data = obj(body) ?? {};
   const code = typeof data.code === "string" ? data.code : undefined;
+  if (status === 503 && code && SAID_UNAVAILABLE.includes(code) && typeof data.message === "string" && data.message.trim()) {
+    return new ApiError(data.message, status, code);
+  }
   if (status < 500 && typeof data.message === "string" && data.message.trim()) return new ApiError(data.message, status, code);
   const errors = obj(data.errors);
   if (status < 500 && errors) return new ApiError(validationMessage(errors) ?? INVALID_INPUT, status, code);
@@ -124,7 +131,8 @@ async function send(path: string, init: RequestInit | undefined, token: string |
       ...init,
       signal: init?.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       headers: {
-        "Content-Type": "application/json",
+        // A FormData body sets its own Content-Type, with the boundary.
+        ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
         Accept: "application/json",
         "Accept-Language": "vi-VN",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -268,7 +276,7 @@ function normalizePost(raw: Raw): Post {
     author: {
       id: readId(author.id),
       displayName: text(author.displayName ?? author.fullName ?? author.name, "Người dùng"),
-      handle: text(author.handle),
+      handle: optText(author.handle) ?? text(author.displayName ?? author.fullName ?? author.name, "người dùng"),
       avatarUrl: optText(author.avatarUrl),
       priorWarnings: num(author.priorWarnings),
       joinedAt: isoOr(author.joinedAt),
@@ -331,6 +339,7 @@ export const moderationApi = {
 /* ------------------------------------------------------------- ai_logs */
 
 const AI_TASKS: readonly AiTaskType[] = ["moderation", "meal_plan", "chatbot", "vision_scan"];
+const AI_LOG_TASKS: readonly AiLogTask[] = [...AI_TASKS, "other"];
 
 const AI_LOG_STATUSES: readonly AiLogStatus[] = ["success", "warning", "error"];
 
@@ -340,7 +349,7 @@ export function normalizeAiLog(raw: Raw): AiLogDetail {
   return {
     id: readId(raw.id),
     timestamp: isoOr(raw.timestamp ?? raw.createdAt),
-    task: pick(AI_TASKS, raw.task ?? raw.taskType, "chatbot"),
+    task: pick(AI_LOG_TASKS, raw.task ?? raw.taskType, "other"),
     model: text(raw.model, "—"),
     latencyMs: num(raw.latencyMs),
     inputTokens: num(raw.inputTokens),
@@ -431,6 +440,7 @@ function normalizeAiModel(raw: Raw): AiModel {
     fallback: text(raw.fallback),
     updatedAt: isoOr(raw.updatedAt),
     updatedBy: optText(raw.updatedBy),
+    runtimeEnforced: bool(raw.runtimeEnforced),
   };
 }
 
@@ -456,7 +466,8 @@ function normalizeAiMetrics(raw: Raw, range: TelemetryRange): AiAccuracyMetrics 
       task: pick(AI_TASKS, l.task, "chatbot"),
       labeled: num(l.labeled),
       correct: num(l.correct),
-      accuracy: optNum(l.accuracy),
+      // Too few labels say nothing, though the server computes a ratio from one label too.
+      accuracy: num(l.labeled) < MIN_LABELS_FOR_ACCURACY ? null : optNum(l.accuracy),
     })),
   };
 }

@@ -6,7 +6,8 @@
 //   "prepMinutes": 25, "ingredients": ["Gạo lứt", "Đậu hũ"],
 //   "instructions": ["Sơ chế nguyên liệu sạch sẽ."], "seasonalSwap": null }
 //
-// The real BE has no recipe list. The way to read the catalogue is
+// GET /recipes now lists the catalogue, but it knows nothing of the member's
+// allergies, so this still reads
 // swap-suggestions on a plan of the member (404 for any other id): a slot no
 // recipe is tagged with, on a day outside the plan, and a large limit return
 // every recipe that is safe for the member's allergies.
@@ -85,7 +86,9 @@ class RecipeCatalog {
         try {
           final res =
               await _dio.get<Map<String, dynamic>>(ApiEndpoints.recipe(id));
-          final isMine = (await _myRecipes()).any((row) => _id(row) == id);
+          // A guest reads the seed recipes too, and has no recipes of their own.
+          final isMine = userId != null &&
+              (await _myRecipes()).any((row) => _id(row) == id);
           return isMine ? _myRecipe(res.data!) : recipeFromBackend(res.data!);
         } on DioException catch (e) {
           if (e.response?.statusCode == 404) return null;

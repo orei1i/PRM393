@@ -99,7 +99,8 @@ Future<void> main() async {
         await expectApiError(
           auth.verifyResetCode(email: me.email, code: '000000'),
           status: 400,
-          message: 'Mã xác thực không chính xác.',
+          code: 'invalid_code',
+          message: AuthErrors.invalidCode,
         );
       }
       await expectApiError(
@@ -115,11 +116,32 @@ Future<void> main() async {
     });
 
     beTest(
-      'forgot password, right code, new password works',
-      () async {},
-      skip: 'B23: the code is only in the BE stdout, so this is the device QA '
-          'step 4 of the plan.',
-    );
+        'B23, B42: forgot password, right code, new password; the old one '
+        'and the old sessions end', () async {
+      final user = await be.newUser(name: 'FE IT Reset');
+      final api = RemoteAuthApiService(be.guestDio());
+      expect(await api.requestPasswordReset(user.email), isNull);
+      final code = await devResetCode(user.email);
+      final resetToken =
+          await api.verifyResetCode(email: user.email, code: code);
+      expect(resetToken, isNotEmpty);
+      final newPassword = randomPassword();
+      await api.resetPassword(resetToken: resetToken, newPassword: newPassword);
+
+      final back = await api.login(email: user.email, password: newPassword);
+      expect(back.userId, user.id);
+      await expectApiError(
+        api.login(email: user.email, password: user.password),
+        status: 401,
+        message: AuthErrors.invalidCredentials,
+      );
+      await expectApiError(api.refresh(user.refreshToken), status: 401);
+      await expectApiError(
+        api.resetPassword(
+            resetToken: resetToken, newPassword: randomPassword()),
+        status: 400,
+      );
+    });
 
     group('B2, B5: the seed accounts', () {
       beTest('a member and a chef sign in here', () async {
@@ -225,14 +247,35 @@ Future<void> main() async {
         );
       });
 
-      beTest('one session per account: a second login kills the first refresh',
+      beTest(
+          'B55: each device keeps its session: a second login leaves the first '
+          'refresh alive, and a refresh there rotates only that one', () async {
+        final user = await be.newUser(name: 'FE IT Refresh');
+        final second =
+            await auth.login(email: user.email, password: user.password);
+        final api = RemoteAuthApiService(be.guestDio());
+        final first = await api.refresh(user.refreshToken);
+        expect(first.userId, user.id);
+        await expectApiError(api.refresh(user.refreshToken), status: 401);
+        final rotated = await api.refresh(second.refreshToken!);
+        expect(rotated.refreshToken, isNot(second.refreshToken));
+        expect(rotated.userId, user.id);
+        await api.refresh(first.refreshToken!);
+      });
+
+      beTest('B55: signing out on one device leaves the other signed in',
           () async {
         final user = await be.newUser(name: 'FE IT Refresh');
-        await auth.login(email: user.email, password: user.password);
-        await expectApiError(
-          RemoteAuthApiService(be.guestDio()).refresh(user.refreshToken),
-          status: 401,
-        );
+        final other =
+            await auth.login(email: user.email, password: user.password);
+        final c = await user.container(
+            realDio: true, refreshTokenOverride: user.refreshToken);
+        addTearDown(c.dispose);
+        await c.read(sessionControllerProvider.notifier).signOut();
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        final api = RemoteAuthApiService(be.guestDio());
+        await expectApiError(api.refresh(user.refreshToken), status: 401);
+        expect((await api.refresh(other.refreshToken!)).userId, user.id);
       });
     });
 

@@ -94,7 +94,7 @@ void main() {
       expect(result.measurement.bmi, 22.1);
       expect(result.measurement.loggedAt, _now);
 
-      final profile = result.profile.toEntity();
+      final profile = result.profile!.toEntity();
       expect(profile.weightKg, 65.4);
       expect(profile.bmi, 22.1);
       expect(profile.heightCm, 172);
@@ -103,7 +103,7 @@ void main() {
       expect(profile.mealPattern, before.mealPattern);
       expect(profile.gender, before.gender);
       expect(profile.birthYear, before.birthYear);
-      expect(result.profile.bmr, profile.bmr!.roundToDouble());
+      expect(result.profile!.bmr, profile.bmr!.roundToDouble());
 
       // The saved profile, the history and the week follow.
       expect((await repo.getHealthProfile())!.weightKg, 65.4);

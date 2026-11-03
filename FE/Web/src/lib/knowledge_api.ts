@@ -19,6 +19,8 @@ import { readId } from "./ids";
 import * as mock from "./mock_knowledge";
 import { counts, hasId, isoOr, num, optIso, optText, pick, text, type Raw } from "./wire";
 
+const INDEXING_TIMEOUT_MS = 180_000;
+
 export function normalizeKnowledgeDoc(raw: Raw): KnowledgeDoc {
   return {
     id: readId(raw.id),
@@ -30,6 +32,8 @@ export function normalizeKnowledgeDoc(raw: Raw): KnowledgeDoc {
     createdAt: isoOr(raw.createdAt),
     status: pick<KnowledgeDocStatus>(KNOWLEDGE_DOC_STATUSES, raw.status, "Pending"),
     chunkCount: num(raw.chunkCount),
+    ingestStatus: pick(["Pending", "Done", "Failed"] as const, raw.ingestStatus, "Done"),
+    ingestError: optText(raw.ingestError),
     citationCount: num(raw.citationCount),
     reviewNote: optText(raw.reviewNote),
     reviewedBy: optText(raw.reviewedBy),
@@ -57,10 +61,26 @@ export const knowledgeApi = {
     return counts(KNOWLEDGE_DOC_STATUSES, await requestObject("/admin/knowledge-docs/counts"));
   },
 
-  /** POST /admin/knowledge-docs { title, fileUrl } → source WHO, status Approved. */
+  /** POST /admin/knowledge-docs { title, fileUrl, content } → source WHO, Approved once indexed. */
   async createWho(input: WhoDocInput): Promise<KnowledgeDoc> {
     if (isMock("knowledge")) return mock.createWhoDoc(input, readSession());
-    return normalizeKnowledgeDoc(await requestObject("/admin/knowledge-docs", { method: "POST", body: JSON.stringify(input) }));
+    // Indexing a long document takes longer than the usual request timeout.
+    const signal = AbortSignal.timeout(INDEXING_TIMEOUT_MS);
+    if (input.file) {
+      const form = new FormData();
+      form.append("file", input.file);
+      form.append("title", input.title);
+      if (input.fileUrl) form.append("fileUrl", input.fileUrl);
+      return normalizeKnowledgeDoc(await requestObject("/admin/knowledge-docs/upload", { method: "POST", body: form, signal }));
+    }
+    const { title, fileUrl, content } = input;
+    return normalizeKnowledgeDoc(
+      await requestObject("/admin/knowledge-docs", {
+        method: "POST",
+        body: JSON.stringify({ title, content, ...(fileUrl ? { fileUrl } : {}) }),
+        signal,
+      }),
+    );
   },
 
   /** POST /admin/knowledge-docs/{id}/review { decision, note } */
@@ -69,6 +89,7 @@ export const knowledgeApi = {
     return normalizeKnowledgeDoc(
       await requestObject(`/admin/knowledge-docs/${input.docId}/review`, {
         method: "POST",
+        signal: AbortSignal.timeout(INDEXING_TIMEOUT_MS),
         body: JSON.stringify({ decision: input.decision, note: input.note }),
       }),
     );

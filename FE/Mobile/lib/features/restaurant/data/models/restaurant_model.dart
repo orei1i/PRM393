@@ -36,6 +36,8 @@
 // [ { "id": 301, "userId": 7, "restaurantId": 21, "rating": 5, "comment": "Bún riêu chay đậm vị…",
 //     "createdAt": "…", "updatedAt": null, "user": { "id": 7, "fullName": "Minh Anh" } } ]
 import '../../../../core/utils/json_helpers.dart';
+import '../../../../core/utils/media_url.dart';
+import '../../../community/data/backend_posts.dart';
 import '../../domain/entities/restaurant.dart';
 import '../../domain/geo.dart';
 
@@ -258,7 +260,8 @@ class RestaurantMediaDto {
     return RestaurantMediaDto(
       id: json['id']?.toString() ?? '',
       mediaType: RestaurantMediaType.fromApi(json['mediaType']),
-      mediaUrl: json['mediaUrl'] as String? ?? '',
+      // Uploads come back host-relative.
+      mediaUrl: absoluteMediaUrl(json['mediaUrl'] as String?) ?? '',
       uploadedById: person?['id']?.toString() ?? by?.toString(),
       uploadedByName:
           person?['fullName'] as String? ?? person?['name'] as String?,
@@ -301,8 +304,12 @@ class NewRestaurantMediaDto {
   final RestaurantMediaType mediaType;
   final String mediaUrl;
 
-  Map<String, dynamic> toJson() =>
-      {'mediaType': mediaType.apiValue, 'mediaUrl': mediaUrl};
+  /// The BE matches `mediaUrl` against the member's uploads, so the screen's
+  /// absolute URL goes back to what the upload answered.
+  Map<String, dynamic> toJson() => {
+        'mediaType': mediaType.apiValue,
+        'mediaUrl': backendMediaUrl(mediaUrl),
+      };
 }
 
 /// POST /restaurants. The server sets `createdBy` = me, `status` = Pending and

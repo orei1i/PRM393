@@ -46,7 +46,8 @@ export function MetricCard({
         </p>
       )}
       <div className="flex min-h-5 flex-wrap items-center gap-x-2 text-xs">
-        {delta !== undefined && !loading && (
+        {/* The server sends 0 when the previous range has no data: nothing to compare, not "no change". */}
+        {delta !== undefined && delta !== 0 && !loading && (
           <span className={cn("inline-flex items-center gap-0.5 font-bold", good ? "text-sprout-text" : "text-ochre-text")}>
             {up ? <ArrowUpRight className="size-3.5" aria-hidden /> : <ArrowDownRight className="size-3.5" aria-hidden />}
             {up ? "+" : ""}

@@ -284,7 +284,7 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
     }
   }
 
-  /// Waiting for an admin (or refused): not on the feed.
+  /// Waiting for an admin (or refused, or hidden): not on the feed.
   void _notPublished(Post post) {
     ref.read(communityRevisionProvider.notifier).bump();
     final navigator = Navigator.of(context);
@@ -293,9 +293,16 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
       ..showSnackBar(SnackBar(
         duration: const Duration(seconds: 6),
         persist: MediaQuery.accessibleNavigationOf(context),
-        content: Text(post.isRejected
-            ? 'Ban quản trị đã từ chối bài này nên bài không hiển thị trên bảng tin.'
-            : 'Bài đã gửi và đang chờ duyệt. Bài sẽ hiển thị trên bảng tin sau khi Ban quản trị duyệt.'),
+        content: Text(switch (post.status) {
+          PostStatus.rejected =>
+            'Ban quản trị đã từ chối bài này nên bài không hiển thị trên bảng tin.',
+          PostStatus.hidden =>
+            'Ban quản trị đã ẩn bài này nên bài không hiển thị trên bảng tin.',
+          PostStatus.unknown =>
+            'Đã gửi bài, nhưng chưa rõ bài có hiển thị trên bảng tin không.',
+          _ =>
+            'Bài đã gửi và đang chờ duyệt. Bài sẽ hiển thị trên bảng tin sau khi Ban quản trị duyệt.',
+        }),
         action: SnackBarAction(
           label: 'Xem',
           onPressed: () =>

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Label, Textarea } from "@/components/ui/form-controls";
 import { describeError } from "@/lib/api_error";
+import { isMock } from "@/lib/backend_modules";
 import { useModerationDecision } from "@/lib/hooks/use-moderation";
 import { ACTION_LABEL, MIN_AUDIT_NOTE_LENGTH, type AiFlag, type ModerationAction } from "@/types/moderation";
 
@@ -31,7 +32,7 @@ export function ModerationActionBar({ flag, onDecided }: { flag: AiFlag; onDecid
     if (!noteOk || busy) return;
     setPendingAction(action);
     decision.mutate(
-      { flagId: flag.id, action, note: note.trim(), notifyAuthor },
+      { flagId: flag.id, action, note: note.trim(), notifyAuthor: isMock("moderation") && notifyAuthor },
       {
         onSuccess: () => {
           toast.success(`${ACTION_LABEL[action]}: @${flag.post.author.handle}`, {
@@ -78,10 +79,13 @@ export function ModerationActionBar({ flag, onDecided }: { flag: AiFlag; onDecid
         </p>
       </div>
 
-      <Label className="font-medium">
-        <Checkbox checked={notifyAuthor} onChange={(e) => setNotifyAuthor(e.target.checked)} disabled={busy} />
-        Gửi thông báo theo mẫu {flag.policyRef} cho tác giả
-      </Label>
+      {/* The server has no notifications: it accepts the flag and sends nothing. */}
+      {isMock("moderation") && (
+        <Label className="font-medium">
+          <Checkbox checked={notifyAuthor} onChange={(e) => setNotifyAuthor(e.target.checked)} disabled={busy} />
+          Gửi thông báo theo mẫu {flag.policyRef} cho tác giả
+        </Label>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" className="flex-1" disabled={!noteOk || busy} onClick={() => submit("approve")}>

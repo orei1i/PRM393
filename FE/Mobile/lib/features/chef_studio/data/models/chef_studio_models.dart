@@ -152,10 +152,20 @@ class KnowledgeDocDto {
 }
 
 class KnowledgeDocRequestDto {
-  const KnowledgeDocRequestDto({required this.title, required this.fileUrl});
+  const KnowledgeDocRequestDto(
+      {required this.title, required this.fileUrl, this.content});
 
   final String title;
+
+  /// Public source link; empty is allowed when [content] is sent.
   final String fileUrl;
 
-  Map<String, dynamic> toJson() => {'title': title, 'fileUrl': fileUrl};
+  /// The text to index. The BE never fetches a URL a client gives it.
+  final String? content;
+
+  Map<String, dynamic> toJson() => {
+        'title': title,
+        if (fileUrl.isNotEmpty) 'fileUrl': fileUrl,
+        if (content != null) 'content': content,
+      };
 }

@@ -19,30 +19,24 @@ import { isMock } from "@/lib/backend_modules";
 import { useContent } from "@/lib/hooks/use-admin";
 import { CONTENT_FILTER_LABEL, type ContentItem, type ContentKindFilter, type ContentView } from "@/types/admin";
 
-/** Real mode: the backend has no report counts, no Hidden state and no way to pin, so those tabs would stay empty. */
 const REAL = !isMock("content");
 
 const VIEWS: { value: ContentView; label: string }[] = [
   { value: "all", label: "Tất cả" },
   { value: "pending", label: "Chờ duyệt" },
-  ...(REAL
-    ? []
-    : ([
-        { value: "reported", label: "Bị báo cáo" },
-        { value: "hidden", label: "Đã ẩn" },
-        { value: "pinned", label: "Đã ghim" },
-      ] as const)),
+  { value: "reported", label: "Bị báo cáo" },
+  { value: "hidden", label: "Đã ẩn" },
+  { value: "pinned", label: "Đã ghim" },
   { value: "rejected", label: "Bị từ chối" },
 ];
 
 const EMPTY: Partial<Record<ContentView, { title: string; description: string }>> = {
   pending: {
     title: "Không còn bài chờ duyệt",
-    description: REAL
-      ? "Máy chủ hiện vẫn đăng bài mới ngay, nên ở đây chỉ có bài nhận đủ 3 báo cáo hoặc bị quản trị viên ẩn."
-      : "Bài mới, bài đã sửa và bài bị AI giữ lại sẽ chờ duyệt ở đây.",
+    description: REAL ? "Máy chủ hiện vẫn đăng bài mới ngay, nên ở đây chỉ có bài nhận đủ 3 báo cáo." : "Bài mới, bài đã sửa và bài bị AI giữ lại sẽ chờ duyệt ở đây.",
   },
   reported: { title: "Không còn bài bị báo cáo", description: "Báo cáo mới từ ứng dụng sẽ xuất hiện ở đây." },
+  hidden: { title: "Không có bài đang ẩn", description: "Bài quản trị viên ẩn khỏi bảng tin sẽ nằm ở đây, có thể hiện lại bất cứ lúc nào." },
   rejected: {
     title: "Chưa có bài bị từ chối",
     description: REAL ? "Bài bị từ chối sẽ nằm ở đây." : "Bài bị từ chối kèm ghi chú gửi tác giả sẽ nằm ở đây.",

@@ -1,25 +1,25 @@
 // integration_test_be/be_bug_pins_test.dart
 //
-// What is still wrong on the BE, one test per open bug of the report list
-// (README, "Lỗi BE đã biết"), new ones included. A failure here is good news:
-// the bug looks fixed, and the message says what to do in the app. What the BE
-// fixed is checked as ordinary behaviour in the other files. Run them alone with
-// `--tags be-bug-pin`.
+// guardFixed: what the BE fixed and the app now relies on, its workaround being
+// gone. A failure here is a regression on the BE, and the message says what
+// breaks in the app. A bug that comes back or a new one gets a `pinBug` again:
+// a test of what is wrong, whose failure says what to do in the app once fixed.
+// Run them alone with `--tags be-bug-pin`.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:veganlife_mobile/core/utils/formatters.dart';
 
 import 'be_harness.dart';
 
-/// [revert] is what to do once the BE no longer behaves this way.
-void pinBug(String id, String behaviour, Future<void> Function() body,
-    {required String revert}) {
+/// [relies] is what the app does without a workaround because of this.
+void guardFixed(String id, String behaviour, Future<void> Function() body,
+    {required String relies}) {
   test(
-    '$id: $behaviour',
+    '$id fixed: $behaviour',
     () async {
       try {
         await body();
       } on TestFailure catch (e) {
-        fail('$id no longer reproduces, so the BE changed: $revert\n'
+        fail('$id is back on the BE, and the app relies on it: $relies\n'
             '${e.message}');
       }
     },
@@ -27,6 +27,10 @@ void pinBug(String id, String behaviour, Future<void> Function() body,
     tags: beBugPinTag,
   );
 }
+
+/// What a source file saved in the wrong encoding looks like (B35); the same
+/// check as `_garbled` in api_exception.dart.
+final _garbled = RegExp(r'Ã[\u0080-\u00BF\u2018-\u203A]|Ä|Æ|á[º»]|â€');
 
 Map<String, Object?> profileBody({
   String goal = 'maintain',
@@ -88,25 +92,19 @@ Future<void> main() async {
     });
 
     test(
-      'B42: a password reset leaves the old refresh token alive',
+      'B43 fixed: an old goal "lose" is migrated at startup',
       () {},
-      skip: 'Not pinned: the reset code is only in the BE stdout. Seen by hand '
-          'on 2026-11-01: refresh with the old token after a reset is 200.',
+      skip: 'Not pinned: an old row takes editing the DB. The BE has its own '
+          'test, B43_Old_goals_are_migrated_and_read_right_even_before_that.',
       tags: beBugPinTag,
     );
 
-    test(
-      'B43: a profile saved with goal "lose" reads as "maintain"',
-      () {},
-      skip: 'Not pinned: the API no longer takes that value, it takes editing '
-          'the DB. Seen by hand on 2026-11-01: goal maintain, target of -15 %.',
-      tags: beBugPinTag,
-    );
+    // ---------------------------------------------------------------- fixed --
 
-    pinBug('B9', 'a PUT without activityLevel still resets it to light',
+    guardFixed('B9', 'a PUT without activityLevel keeps it, and the target',
         () async {
       final user = await be.newUser(name: 'FE IT Pin B9');
-      await user.raw('PUT', '/health-profile/me',
+      final first = await user.raw('PUT', '/health-profile/me',
           data: profileBody(activity: 'active'));
       final res = await user.raw('PUT', '/health-profile/me', data: {
         'heightCm': 170,
@@ -115,64 +113,190 @@ Future<void> main() async {
         'allergies': <Object?>[],
         'dietaryRestrictions': <String>[],
       });
-      expect(res.dataMap['activityLevel'], 'light');
+      expect(res.dataMap['activityLevel'], 'active');
+      expect(res.dataMap['targetCalories'], first.dataMap['targetCalories']);
     },
-        revert: 'UpdateHealthProfileRequestDto.toBackendJson no longer needs '
-            '`saved`, nor the extra GET in updateHealthProfile.');
+        relies: 'UpdateHealthProfileRequestDto leaves a missing activity level '
+            'out, with no GET before the PUT.');
 
-    pinBug(
+    guardFixed(
         'B13',
-        'the fridge check goes by words: fish with tomato is vegan, spinach '
-            'is not', () async {
-      expect(await veganOnBe('Cá sốt cà chua'), isTrue);
-      expect(await veganOnBe('Dầu hào'), isTrue);
-      expect(await veganOnBe('Rau chân vịt'), isFalse);
-      expect(await veganOnBe('Đậu gà'), isFalse);
-      expect(await veganOnBe('Bơ'), isFalse,
-          reason: 'its own catalogue lists Bơ as vegan, and it seeds avocado '
-              'recipes');
+        'the fridge check no longer goes by words: sườn non, gelatin, dê, whey, '
+            'hải sản, tiết canh are not vegan; sữa chua dừa, phô mai hạt điều, '
+            'spinach and avocado are', () async {
+      for (final name in [
+        'Cá sốt cà chua',
+        'Trứng chiên cà chua',
+        'Dầu hào',
+        'Sườn non',
+        'Gelatin',
+        'Dê',
+        'Whey',
+        'Hải sản',
+        'Tiết canh',
+      ]) {
+        expect(await veganOnBe(name), isFalse, reason: name);
+      }
+      for (final name in [
+        'Rau chân vịt',
+        'Đậu gà',
+        'Bơ',
+        'Quả bơ',
+        'Sữa chua dừa',
+        'Phô mai hạt điều',
+      ]) {
+        expect(await veganOnBe(name), isTrue, reason: name);
+      }
     },
-        revert: 'VeganVerdict.server can state it as a fact; check that '
-            '_refuseNonVegan still adds anything.');
+        relies: 'RemotePantryApiService takes back out what the BE calls '
+            'non-vegan, so a vegan food would leave the fridge again, and '
+            'the fridge shows what the BE lets through as vegan.');
 
-    pinBug('B14', 'tamarind ("Me") warns about a sesame allergy', () async {
-      final user = await be.newUser(name: 'FE IT Pin B14');
+    guardFixed(
+        'B69',
+        'a post off the feed takes no likes or comments from others, and lists '
+            'no comments to a guest; its author and an admin still can',
+        () async {
+      final author = await be.newUser(name: 'FE IT Pin B69');
+      final other = await be.newUser(name: 'FE IT Pin B69 Other');
+      final id = await newPost(author);
+      await author.raw('POST', '/posts/$id/comments',
+          data: {'content': 'Trước khi ẩn'});
+      final admin = await be.adminToken();
+      final hidden = await rawRequest('POST', '/admin/posts/$id/actions',
+          token: admin, data: {'action': 'hide'});
+      expect(hidden.dataMap['status'], 'Hidden');
+
+      expect((await other.raw('GET', '/posts/$id')).status, 404);
+      expect((await other.raw('POST', '/posts/$id/like')).status, 404);
+      expect(
+          (await other.raw('POST', '/posts/$id/comments',
+                  data: {'content': 'Sau khi ẩn'}))
+              .status,
+          404);
+      expect((await rawRequest('GET', '/posts/$id/comments')).status, 404);
+      expect((await other.raw('GET', '/posts/$id/comments')).status, 404);
+      expect((await author.raw('GET', '/posts/$id')).status, 200);
+      expect((await author.raw('GET', '/posts/$id/comments')).status, 200);
+    },
+        relies: 'PostDetailScreen reads a 404 on a like or a comment as "the '
+            'post is gone" and takes it off the feed.');
+
+    guardFixed(
+        'B70',
+        'names that differ only by accent are two rows when short: "Mè" after '
+            '"Me" warns about sesame; long names still merge', () async {
+      final user = await be.newUser(name: 'FE IT Pin B70');
       await user.raw('PUT', '/health-profile/me',
           data: profileBody(allergies: [
             {'allergenId': 'sesame', 'name': 'Mè'},
           ]));
-      final res = await user.raw('POST', '/users/me/ingredients', data: {
+      await user.raw('POST', '/users/me/ingredients', data: {
         'items': [
           {'ingredient': 'Me'},
         ],
       });
-      expect(res.dataList.single['allergyWarning'], isNotNull);
-    }, revert: 'nothing in the FE; take this part of B14 off the README.');
+      final res = await user.raw('POST', '/users/me/ingredients', data: {
+        'items': [
+          {'ingredient': 'Mè'},
+        ],
+      });
+      expect(res.dataList.single['ingredient'], 'Mè');
+      expect(res.dataList.single['allergyWarning'], 'Cảnh báo dị ứng: Mè');
+      final list = await user.raw('GET', '/users/me/ingredients');
+      expect(list.dataList, hasLength(2));
+      final merged = await user.raw('POST', '/users/me/ingredients', data: {
+        'items': [
+          {'ingredient': 'Đậu hũ'},
+          {'ingredient': 'dau hu'},
+        ],
+      });
+      expect(merged.status, 200);
+      final after = await user.raw('GET', '/users/me/ingredients');
+      expect(after.dataList, hasLength(3), reason: 'B34: dau hu is Đậu hũ');
+    }, relies: 'nothing in the app: the fridge shows the rows as they come.');
 
-    pinBug('B17', 'a reply that got a reply has an updatedAt', () async {
+    guardFixed('B14',
+        'tamarind ("Me") warns about nothing; a warning is in Vietnamese',
+        () async {
+      final user = await be.newUser(name: 'FE IT Pin B14');
+      await user.raw('PUT', '/health-profile/me',
+          data: profileBody(allergies: [
+            {'allergenId': 'sesame', 'name': 'Mè'},
+            {'allergenId': 'peanut', 'name': 'Đậu phộng'},
+          ]));
+      final res = await user.raw('POST', '/users/me/ingredients', data: {
+        'items': [
+          {'ingredient': 'Me'},
+          {'ingredient': 'Dầu mè'},
+          {'ingredient': 'Đậu phộng'},
+        ],
+      });
+      final warnings = {
+        for (final row in res.dataList)
+          row['ingredient']: row['allergyWarning'],
+      };
+      expect(warnings['Me'], isNull);
+      expect(warnings['Dầu mè'], 'Cảnh báo dị ứng: Mè');
+      expect(warnings['Đậu phộng'], 'Cảnh báo dị ứng: Đậu phộng');
+
+      final other = await be.newUser(name: 'FE IT Pin B14 Me');
+      await other.raw('PUT', '/health-profile/me',
+          data: profileBody(allergies: [
+            {'allergenId': 'sesame', 'name': 'Mè'},
+          ]));
+      final sesame = await other.raw('POST', '/users/me/ingredients', data: {
+        'items': [
+          {'ingredient': 'Mè'},
+        ],
+      });
+      expect(sesame.dataList.single['allergyWarning'], 'Cảnh báo dị ứng: Mè',
+          reason: 'sesame itself still warns');
+    },
+        relies: 'the fridge screen shows the names after "Cảnh báo dị ứng:" as '
+            'they come.');
+
+    guardFixed('B17', 'a comment has no updatedAt until it is edited',
+        () async {
       final id = await newPost(me);
       final root =
           await me.raw('POST', '/posts/$id/comments', data: {'content': 'Gốc'});
+      final rootId = root.dataMap['id'];
       final reply = await me.raw('POST', '/posts/$id/comments',
-          data: {'content': 'Một', 'parentId': root.dataMap['id']});
-      await me.raw('POST', '/posts/$id/comments',
+          data: {'content': 'Một', 'parentId': rootId});
+      final second = await me.raw('POST', '/posts/$id/comments',
           data: {'content': 'Hai', 'parentId': reply.dataMap['id']});
-      final list = await me.raw(
-          'GET', '/posts/$id/comments/${root.dataMap['id']}/replies');
-      expect(list.dataList.single['updatedAt'], isNotNull);
-    },
-        revert: 'drop `updatedAt: null` in '
-            'RemoteCommunityApiService._commentJson.');
+      await me.raw('POST', '/posts/$id/comments',
+          data: {'content': 'Ba', 'parentId': rootId});
 
-    pinBug('B23', 'the reset route answers with a raw invalid_code', () async {
+      void noneEdited(List<Map<String, dynamic>> comments) {
+        for (final comment in comments) {
+          expect(comment['updatedAt'], isNull, reason: '${comment['content']}');
+        }
+      }
+
+      final replies =
+          await me.raw('GET', '/posts/$id/comments/$rootId/replies');
+      expect(replies.dataList, hasLength(3));
+      noneEdited(replies.dataList);
+
+      await me.raw('DELETE', '/comments/${second.dataMap['id']}');
+      final list = await me.raw('GET', '/posts/$id/comments');
+      noneEdited(list.dataList);
+      noneEdited((list.dataList.single['replies'] as List<dynamic>)
+          .cast<Map<String, dynamic>>());
+    }, relies: 'the app shows "(đã sửa)" whenever `updatedAt` is set.');
+
+    guardFixed('B23', 'the reset route answers with a code and Vietnamese',
+        () async {
       final res = await rawRequest('POST', '/auth/reset-password',
           data: {'resetToken': 'khong-co', 'newPassword': randomPassword()});
       expect(res.status, 400);
-      expect(res.json['message'], 'invalid_code');
-      expect(res.json['code'], isNull);
-    }, revert: 'AuthErrors.localize no longer needs the code in `message`.');
+      expect(res.json['code'], 'invalid_code');
+      expect(res.json['message'], isVietnamese);
+    }, relies: 'AuthErrors.localize no longer reads a code out of `message`.');
 
-    pinBug('B31', 'a large target is out of reach: a portion stops at 1.5',
+    guardFixed('B31', 'a large target is within reach: portions follow it',
         () async {
       final user = await be.newUser(name: 'FE IT Pin B31');
       final profile = await user.raw('PUT', '/health-profile/me',
@@ -186,15 +310,24 @@ Future<void> main() async {
           data: {'startDate': _thisMonday});
       final days =
           (plan.dataMap['days'] as List<dynamic>).cast<Map<String, dynamic>>();
+      expect(days, isNotEmpty);
       for (final day in days) {
-        expect(day['totalCalories'] as num, lessThan(target * 0.8));
-        for (final meal in (day['meals'] as Map).values) {
-          expect((meal as Map)['portion'] as num, lessThanOrEqualTo(1.5));
-        }
+        final total = day['totalCalories'] as num;
+        expect(total, greaterThan(target * 0.85));
+        expect(total, lessThan(target * 1.15));
+        final sum = (day['meals'] as Map).values.fold<num>(
+            0,
+            (sum, meal) =>
+                sum +
+                ((meal as Map)['calories'] as num) * (meal['portion'] as num));
+        expect(sum, closeTo(total, 2),
+            reason: '`calories` is for one portion, the total for all of them');
       }
-    }, revert: 'nothing in the FE; take B31 off the README list.');
+    },
+        relies: 'the planner multiplies `calories` by `portion`, and shows '
+            '"2,35 phần" as it comes.');
 
-    pinBug('B33', 'a dish with no prepMinutes is given 15', () async {
+    guardFixed('B33', 'a dish with no prepMinutes stays without', () async {
       final user = await be.newUser(name: 'FE IT Pin B33');
       await user.raw('PUT', '/health-profile/me', data: profileBody());
       await user.raw('POST', '/meal-plans/generate',
@@ -207,73 +340,109 @@ Future<void> main() async {
       });
       final meal = (res.dataMap['meals'] as Map<String, dynamic>)['snack_pm']
           as Map<String, dynamic>;
-      expect(meal['prepMinutes'], 15);
-    }, revert: 'nothing in the FE; take B33 off the README list.');
+      expect(meal['prepMinutes'], isNull);
+    }, relies: 'a dish typed in shows no time.');
 
-    pinBug('B35', 'the auth errors and a few others are garbled', () async {
+    guardFixed('B35', 'the errors of the BE are not garbled', () async {
       final wrong = await rawRequest('POST', '/auth/login',
           data: {'email': me.email, 'password': randomPassword()});
       expect(wrong.status, 401);
-      expect(wrong.json['message'], contains('khÃ'));
       final taken = await rawRequest('POST', '/auth/register', data: {
         'fullName': 'FE IT',
         'email': me.email,
         'password': randomPassword(),
       });
       expect(taken.status, 409);
-      expect(taken.json['message'], contains('Ä'));
+      final other = await be.newUser(name: 'FE IT Pin B35');
+      final notMine = await me.raw('PUT', '/users/${other.id}', data: {
+        'fullName': 'x',
+      });
+      expect(notMine.status, greaterThanOrEqualTo(400));
+      final noUser = await rawRequest('GET', '/posts/000000000000000000000000',
+          token: me.token);
+      expect(noUser.status, 404);
+      final badToken = await rawRequest('GET', '/users/me', token: 'khong-co');
+      expect(badToken.status, 401);
+      for (final res in [wrong, taken, notMine, noUser, badToken]) {
+        final message = res.json['message'] as String? ?? '';
+        expect(message, isVietnamese);
+        expect(_garbled.hasMatch(message), isFalse, reason: message);
+      }
     },
-        revert:
-            'drop `_garbled` in api_exception.dart; AuthErrors.localize may '
-            'keep mapping by status.');
+        relies: 'mapDioException would drop such a message for a sentence by '
+            'status, so the member loses what the BE meant to say.');
 
-    pinBug('B36', 'POST metrics takes anything and overwrites the profile',
+    guardFixed('B36', 'POST metrics checks what it takes, and needs a profile',
         () async {
       final user = await be.newUser(name: 'FE IT Pin B36');
       final noProfile = await user
           .raw('POST', '/health-profile/me/metrics', data: {'weightKg': 70});
-      expect(noProfile.status, 201);
-      expect(noProfile.dataMap['heightCm'], 170,
-          reason: 'a height nobody gave');
+      expect(noProfile.status, 404);
+      expect(noProfile.json['code'], 'not_found');
+      expect(noProfile.json['message'], isVietnamese);
+      final none = await user.raw('GET', '/health-profile/me/metrics');
+      expect(none.dataList, isEmpty, reason: 'no made-up row');
 
       await user.raw('PUT', '/health-profile/me', data: profileBody());
-      final bad = await user
-          .raw('POST', '/health-profile/me/metrics', data: {'weightKg': -5});
-      expect(bad.status, 201);
+      for (final bad in const <Map<String, Object?>>[
+        {'weightKg': -5},
+        {'weightKg': 0},
+        {'weightKg': 301},
+        {'waistCm': -3},
+        {'bodyFatPct': 500},
+        {},
+      ]) {
+        final res =
+            await user.raw('POST', '/health-profile/me/metrics', data: bad);
+        expect(res.status, 400, reason: '$bad');
+        expect(res.json['message'], isVietnamese);
+      }
       final profile = await user.raw('GET', '/health-profile/me');
-      expect(profile.dataMap['weightKg'], -5);
-      expect(profile.dataMap['bmi'], 0);
-      final empty =
-          await user.raw('POST', '/health-profile/me/metrics', data: {});
-      expect(empty.status, 201, reason: 'an empty body writes a row');
+      expect(profile.dataMap['weightKg'], 66);
+      final rows = await user.raw('GET', '/health-profile/me/metrics');
+      expect(rows.dataList, hasLength(1), reason: 'the one of the first PUT');
     },
-        revert: 'BodyProgress.validateMeasurement in logBodyMeasurement may '
-            'go; the sheet keeps its own rules.');
+        relies: 'logBodyMeasurement sends the weight as it is; the check-in '
+            'sheet keeps its own narrower range.');
 
-    pinBug(
-        'B37',
-        'POST metrics leaves the target and the week as they were, and drops '
-            '`source`', () async {
-      final user = await be.newUser(name: 'FE IT Pin B37');
-      final saved =
-          await user.raw('PUT', '/health-profile/me', data: profileBody());
-      final target = saved.dataMap['targetCalories'];
-      await user.raw('POST', '/meal-plans/generate',
-          data: {'startDate': _thisMonday});
+    guardFixed('B37',
+        'POST metrics keeps `source`; a row from a profile save says `profile`',
+        () async {
+      final user = await be.newUser(name: 'FE IT Pin B37 Source');
+      await user.raw('PUT', '/health-profile/me', data: profileBody());
       final logged = await user.raw('POST', '/health-profile/me/metrics',
           data: {'weightKg': 90, 'source': 'check_in'});
-      expect(logged.dataMap.containsKey('source'), isFalse);
+      expect(logged.status, 201);
+      expect(logged.dataMap['source'], 'check_in');
+      final rows = await user.raw('GET', '/health-profile/me/metrics');
+      expect(rows.dataList.map((r) => r['source']),
+          containsAll(['check_in', 'profile']));
+    },
+        relies: 'a row with `source: profile` reads "Từ Hồ sơ sức khoẻ" on the '
+            'weight history.');
+
+    guardFixed('B37', 'POST metrics moves the target and the week, one row',
+        () async {
+      final user = await be.newUser(name: 'FE IT Pin B37 Fixed');
+      final saved =
+          await user.raw('PUT', '/health-profile/me', data: profileBody());
+      final target = saved.dataMap['targetCalories'] as num;
+      await user.raw('POST', '/meal-plans/generate',
+          data: {'startDate': _thisMonday});
+      await user
+          .raw('POST', '/health-profile/me/metrics', data: {'weightKg': 90});
       final profile = await user.raw('GET', '/health-profile/me');
       expect(profile.dataMap['weightKg'], 90);
-      expect(profile.dataMap['targetCalories'], target);
+      final moved = profile.dataMap['targetCalories'] as num;
+      expect(moved, greaterThan(target));
+      expect(profile.dataMap['activityLevel'], 'light');
       final plan = await user.raw('GET', '/meal-plans/current');
-      expect((plan.dataMap['dailyTargets'] as Map)['calories'], target);
-    },
-        revert: 'drop the PUT in RemoteMealPlannerApiService.'
-            'logBodyMeasurement; a row with `source` can read "Từ Hồ sơ sức '
-            'khoẻ" on the real BE again.');
+      expect((plan.dataMap['dailyTargets'] as Map)['calories'], moved);
+      final rows = await user.raw('GET', '/health-profile/me/metrics');
+      expect(rows.dataList.where((r) => r['weightKg'] == 90), hasLength(1));
+    }, relies: 'logBodyMeasurement sends no PUT after the POST.');
 
-    pinBug('B38', 'a second add without a quantity resets the row to 1',
+    guardFixed('B38', 'a second add without a quantity keeps the amount',
         () async {
       final user = await be.newUser(name: 'FE IT Pin B38');
       await user.raw('POST', '/users/me/ingredients', data: {
@@ -281,22 +450,23 @@ Future<void> main() async {
           {'ingredient': 'Cà chua', 'quantity': 300, 'unit': 'g'},
         ],
       });
-      await user.raw('POST', '/users/me/ingredients', data: {
+      final again = await user.raw('POST', '/users/me/ingredients', data: {
         'items': [
-          {'ingredient': 'Cà chua'},
+          {'ingredient': 'ca chua'},
         ],
       });
+      expect(again.dataList.single['quantity'], 300);
       final list = await user.raw('GET', '/users/me/ingredients');
-      expect(list.dataList.single['quantity'], 1);
+      expect(list.dataList.single['quantity'], 300);
       expect(list.dataList.single['unit'], 'g');
     },
-        revert: 'RemotePantryApiService._keepingAmounts may go, with its extra '
-            'GET.');
+        relies:
+            'RemotePantryApiService.addItems reads nothing before the POST.');
 
-    pinBug(
+    guardFixed(
         'B39',
-        'a reply to a reply is stored there: no route lists it, deleting the '
-            'root leaves it counted', () async {
+        'a reply to a reply joins the top-level comment; deleting the root '
+            'takes all of it', () async {
       final id = await newPost(me);
       final root =
           await me.raw('POST', '/posts/$id/comments', data: {'content': 'Gốc'});
@@ -305,21 +475,19 @@ Future<void> main() async {
           data: {'content': 'Một', 'parentId': rootId});
       final nested = await me.raw('POST', '/posts/$id/comments',
           data: {'content': 'Hai', 'parentId': reply.dataMap['id']});
-      expect(nested.dataMap['parentId'], reply.dataMap['id']);
+      expect(nested.dataMap['parentId'], rootId);
       final replies =
           await me.raw('GET', '/posts/$id/comments/$rootId/replies');
-      expect(replies.dataList, hasLength(1));
+      expect(replies.dataList, hasLength(2));
 
       await me.raw('DELETE', '/comments/$rootId');
       final post = await me.raw('GET', '/posts/$id');
-      expect(post.dataMap['commentCount'], 1);
+      expect(post.dataMap['commentCount'], 0);
       final list = await me.raw('GET', '/posts/$id/comments');
       expect(list.dataList, isEmpty);
-    },
-        revert: 'nothing in the FE (it always answers the top-level comment); '
-            'take B39 off the README list.');
+    }, relies: 'the count on a post is what the BE says after a delete.');
 
-    pinBug('B40', 'the replies route takes any post id', () async {
+    guardFixed('B40', 'the replies route checks the post id', () async {
       final id = await newPost(me);
       final root =
           await me.raw('POST', '/posts/$id/comments', data: {'content': 'Gốc'});
@@ -328,34 +496,52 @@ Future<void> main() async {
       final other = await newPost(me);
       final res = await me.raw(
           'GET', '/posts/$other/comments/${root.dataMap['id']}/replies');
-      expect(res.status, 200);
-      expect(res.dataList, hasLength(1));
-    }, revert: 'nothing in the FE; take B40 off the README list.');
+      expect(res.status, 404);
+    }, relies: 'nothing in the app: it always asks with the right post.');
 
-    pinBug(
-        'B41', 'writes are not checked: a beef recipe, a slot that is not one',
-        () async {
+    guardFixed(
+        'B41',
+        'writes are checked: a recipe at -100 kcal, a slot that is not one, a '
+            'beef dish, a source that is not one', () async {
       final recipe = await me.raw('POST', '/recipes', data: {
-        'name': 'Thịt bò xào',
+        'name': 'Rau xào',
         'calories': -100,
-        'prepMinutes': -5,
-        'ingredients': ['Thịt bò'],
+        'prepMinutes': 5,
+        'ingredients': ['Rau'],
         'instructions': ['Nấu'],
       });
-      expect(recipe.status, 201);
-      expect(recipe.dataMap['calories'], -100);
+      expect(recipe.status, 400);
+      expect(recipe.json['code'], 'invalid_calories');
+      final prep = await me.raw('POST', '/recipes', data: {
+        'name': 'Rau xào',
+        'calories': 100,
+        'prepMinutes': -5,
+        'ingredients': ['Rau'],
+        'instructions': ['Nấu'],
+      });
+      expect(prep.status, 400);
+      expect(prep.json['code'], 'invalid_prep_minutes');
 
       final user = await be.newUser(name: 'FE IT Pin B41');
       await user.raw('PUT', '/health-profile/me', data: profileBody());
       final plan = await user.raw('POST', '/meal-plans/generate',
           data: {'startDate': _thisMonday});
-      final dish = await user.raw('POST', '/meal-plans/current/meals', data: {
+      final slot = await user.raw('POST', '/meal-plans/current/meals', data: {
         'date': _today,
         'slot': 'khong-co-bua-nay',
+        'name': 'Rau',
+        'calories': 100,
+      });
+      expect(slot.status, 400);
+      expect(slot.json['code'], 'invalid_slot');
+      final beef = await user.raw('POST', '/meal-plans/current/meals', data: {
+        'date': _today,
+        'slot': 'lunch',
         'name': 'Thịt bò',
         'calories': 100,
       });
-      expect(dish.status, 200);
+      expect(beef.status, 400);
+      expect(beef.json['code'], 'not_vegan');
       final suggestion = await user.raw(
           'GET', '/meal-plans/${plan.dataMap['id']}/swap-suggestions',
           query: {'date': _today, 'slot': 'lunch', 'limit': 1});
@@ -366,8 +552,43 @@ Future<void> main() async {
         'recipeId': suggestion.dataList.single['id'],
         'source': 'khong-co-nguon-nay',
       });
-      final lunch = (patched.dataMap['meals'] as Map)['lunch'] as Map;
-      expect(lunch['source'], 'khong-co-nguon-nay');
-    }, revert: 'nothing in the FE: the app checks these before sending.');
+      expect(patched.status, 400);
+      expect(patched.json['code'], 'invalid_source');
+    }, relies: 'nothing in the app: it checks these before sending.');
+
+    guardFixed(
+        'B41', 'a recipe with beef in its name or ingredients is refused',
+        () async {
+      final named = await me.raw('POST', '/recipes', data: {
+        'name': 'Thịt bò xào',
+        'calories': 200,
+        'prepMinutes': 5,
+        'ingredients': ['Rau'],
+        'instructions': ['Nấu'],
+      });
+      expect(named.status, 400);
+      expect(named.json['message'], isVietnamese);
+      final listed = await me.raw('POST', '/recipes', data: {
+        'name': 'Rau xào',
+        'calories': 200,
+        'prepMinutes': 5,
+        'ingredients': ['Rau', 'Thịt heo'],
+        'instructions': ['Nấu'],
+      });
+      expect(listed.status, 400);
+    }, relies: 'nothing in the app: it checks these before sending.');
+
+    guardFixed('B68', 'an allergy named "Đậu nành" is saved as soy', () async {
+      final user = await be.newUser(name: 'FE IT Pin B68');
+      final res = await user.raw('PUT', '/health-profile/me',
+          data: profileBody(allergies: [
+            {'name': 'Đậu nành'},
+            {'name': 'lá lốt'},
+          ]));
+      final allergies = (res.dataMap['allergies'] as List<dynamic>)
+          .cast<Map<String, dynamic>>();
+      expect(allergies.map((a) => a['allergenId']), ['soy', null]);
+      expect(allergies.last['name'], 'lá lốt');
+    }, relies: 'the health form sends the id or the name the member typed.');
   });
 }

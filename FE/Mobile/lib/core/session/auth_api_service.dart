@@ -11,8 +11,10 @@
 //             "status": "Active" } }
 // errors: 401 invalid_credentials, 403 admin_web_only, 423 account_locked,
 //         409 email_taken, 429 too_many_attempts
-// The real BE sends no `code`, and garbled text (B35) in `message` for most of
-// them, so the status decides the message ([AuthErrors.localize]).
+// The real BE sends a Vietnamese `message` and a more general `code` (401
+// unauthorized, 403 forbidden, 409 conflict, 429 too_many_requests), so its text
+// is shown as it is; an error without a `code` (a proxy) reads by its status
+// ([AuthErrors.localize]).
 //
 // POST /auth/refresh { "refreshToken": "…" } → 200 AuthResponse; the old refresh
 //                    token stops working. 401 when it is dead.
@@ -22,9 +24,9 @@
 // POST /auth/forgot-password   { "email" }                → 204 (always)
 // POST /auth/verify-reset-code { "email", "code" }        → { "resetToken" }
 // POST /auth/reset-password    { "resetToken", "newPassword" } → 204
-// errors: 400 with a Vietnamese `message` and no `code` on the verify route
-//         (5 wrong codes use the code up); `invalid_code` / `code_expired` as
-//         the `message` of the reset route.
+// errors: 400 `invalid_code` / `code_expired`. The 5th wrong code uses it up
+//         (`too_many_attempts`), and from then on the verify route answers
+//         `invalid_code` with "…hoặc đã hết hạn": both mean a new code is needed.
 //
 // Register always creates role `User`: a chef is approved later by an admin
 // (chef application). Guest data is merged through the `X-Guest-Token`
@@ -119,10 +121,15 @@ abstract final class AuthErrors {
       RegExp(r'^Mã xác thực .*hết hạn|^Bạn đã nhập sai mã');
 
   /// Maps a server error of an auth endpoint to the message above (by `code`,
-  /// or a code sent as `message`, else by status); other errors are returned
-  /// unchanged. A code found in `message` becomes the result's `code`.
+  /// else by status); other errors are returned unchanged.
   static ApiException localize(ApiException e) {
-    final key = e.code ?? e.message;
+    // The code is gone on the verify route: "Gửi lại mã" shouldn't make them
+    // wait. Its text is fine, but the BE's `code` doesn't say so.
+    if (e.code != 'code_expired' && _codeGone.hasMatch(e.message)) {
+      return ApiException(
+          message: e.message, statusCode: e.statusCode, code: 'code_expired');
+    }
+    final key = e.code;
     final byCode = switch (key) {
       'invalid_credentials' => invalidCredentials,
       'admin_web_only' => adminWebOnly,
@@ -135,12 +142,6 @@ abstract final class AuthErrors {
     };
     if (byCode != null) {
       return ApiException(message: byCode, statusCode: e.statusCode, code: key);
-    }
-    // The code is gone on the verify route: "Gửi lại mã" shouldn't make them
-    // wait. Its text is fine, but the BE sends no `code` to tell.
-    if (e.code == null && _codeGone.hasMatch(e.message)) {
-      return ApiException(
-          message: e.message, statusCode: e.statusCode, code: 'code_expired');
     }
     final byStatus = e.code != null
         ? null

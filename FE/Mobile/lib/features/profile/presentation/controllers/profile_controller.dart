@@ -72,8 +72,7 @@ final myPostsProvider = FutureProvider<List<Post>>((ref) async {
   return list.map((p) => p.toEntity()).toList();
 });
 
-/// The real BE has no "my posts", so the list comes from scanning the newest
-/// posts of the feed: `true` when there were more than it scanned.
+/// `true` when the member has more posts than "Bài của tôi" read.
 final myPostsTruncatedProvider = Provider<bool>((ref) {
   ref.watch(myPostsProvider);
   final api = ref.watch(communityApiProvider);

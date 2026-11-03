@@ -29,5 +29,12 @@ namespace InfrastructureLayer.Database
         public IMongoCollection<Recipe> Recipes => _database.GetCollection<Recipe>("Recipes");
         public IMongoCollection<MealPlan> MealPlans => _database.GetCollection<MealPlan>("MealPlans");
         public IMongoCollection<AiLog> AiLogs => _database.GetCollection<AiLog>("AiLogs");
+        public IMongoCollection<ChatSession> ChatSessions => _database.GetCollection<ChatSession>("ChatSessions");
+        public IMongoCollection<ChatMessage> ChatMessages => _database.GetCollection<ChatMessage>("ChatMessages");
+        public IMongoCollection<GuestTrial> GuestTrials => _database.GetCollection<GuestTrial>("GuestTrials");
+        public IMongoCollection<ChefBooking> Bookings => _database.GetCollection<ChefBooking>("ChefBookings");
+        public IMongoCollection<Wallet> Wallets => _database.GetCollection<Wallet>("Wallets");
+        public IMongoCollection<WalletLedgerEntry> WalletLedger => _database.GetCollection<WalletLedgerEntry>("WalletLedger");
+        public IMongoCollection<WithdrawalRequest> Withdrawals => _database.GetCollection<WithdrawalRequest>("WithdrawalRequests");
     }
 }

@@ -15,15 +15,52 @@ namespace InfrastructureLayer.Database
             var context = scope.ServiceProvider.GetRequiredService<MongoDbContext>();
             var logger = scope.ServiceProvider.GetService<ILogger<MongoDbContext>>();
 
-            try
+            // Chỉ mục duy nhất chặn ghi trùng (có cả tiền và lượt dùng thử): máy bận thì chờ thêm, đừng bỏ qua.
+            const int pingAttempts = 5;
+            for (var attempt = 1; ; attempt++)
             {
-                using var pingCts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(2));
-                await context.Database.RunCommandAsync((Command<MongoDB.Bson.BsonDocument>)"{ping:1}", cancellationToken: pingCts.Token);
+                try
+                {
+                    using var pingCts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(3));
+                    await context.Database.RunCommandAsync((Command<MongoDB.Bson.BsonDocument>)"{ping:1}", cancellationToken: pingCts.Token);
+                    break;
+                }
+                catch
+                {
+                    if (attempt < pingAttempts) continue;
+                    logger?.LogCritical("MongoDB không phản hồi sau {Attempts} lần ping. Chưa tạo được chỉ mục, các chỉ mục duy nhất chưa có hiệu lực.", pingAttempts);
+                    return;
+                }
             }
-            catch
+
+            // Chat (DB chính) và kho tri thức (DB RAG riêng)
+            await SafeCreateIndexAsync(async () =>
             {
-                logger?.LogWarning("MongoDB không phản hồi ping trong 2s. Bỏ qua khởi tạo chỉ mục.");
-                return;
+                await context.ChatSessions.Indexes.CreateOneAsync(new CreateIndexModel<ChatSession>(
+                    Builders<ChatSession>.IndexKeys.Ascending(s => s.OwnerKey).Ascending(s => s.ClientSessionId),
+                    new CreateIndexOptions { Unique = true }));
+                await context.ChatMessages.Indexes.CreateOneAsync(new CreateIndexModel<ChatMessage>(
+                    Builders<ChatMessage>.IndexKeys.Ascending(m => m.SessionId).Ascending(m => m.CreatedAt)));
+                await context.GuestTrials.Indexes.CreateOneAsync(new CreateIndexModel<GuestTrial>(
+                    Builders<GuestTrial>.IndexKeys.Ascending(g => g.GuestKey),
+                    new CreateIndexOptions { Unique = true }));
+            }, "Chat", logger);
+
+            var rag = scope.ServiceProvider.GetRequiredService<RagDbContext>();
+            if (rag.IsConfigured)
+            {
+                await SafeCreateIndexAsync(async () =>
+                {
+                    await rag.Docs.Indexes.CreateOneAsync(new CreateIndexModel<KnowledgeDoc>(
+                        Builders<KnowledgeDoc>.IndexKeys.Ascending(d => d.Status)));
+                    await rag.Docs.Indexes.CreateOneAsync(new CreateIndexModel<KnowledgeDoc>(
+                        Builders<KnowledgeDoc>.IndexKeys.Ascending(d => d.ContentHash)));
+                    await rag.Chunks.Indexes.CreateOneAsync(new CreateIndexModel<KnowledgeChunk>(
+                        Builders<KnowledgeChunk>.IndexKeys.Ascending(c => c.DocId).Ascending(c => c.ChunkIndex),
+                        new CreateIndexOptions { Unique = true }));
+                    await rag.Jobs.Indexes.CreateOneAsync(new CreateIndexModel<IngestionJob>(
+                        Builders<IngestionJob>.IndexKeys.Ascending(j => j.DocId)));
+                }, "Rag", logger);
             }
 
             // ─── BƯỚC 1: Chạy migrations trước khi tạo chỉ mục ──────────
@@ -79,6 +116,22 @@ namespace InfrastructureLayer.Database
                     new CreateIndexOptions { Unique = true });
                 await context.PostReports.Indexes.CreateOneAsync(reportIndex);
             }, "PostReports (PostId_UserId Unique)", logger);
+
+            // 5b. Bài đã lưu, đánh giá và ghi chú công thức: mỗi người một dòng; phiên đăng nhập theo thiết bị
+            await SafeCreateIndexAsync(async () =>
+            {
+                await context.Database.GetCollection<PostSave>("PostSaves").Indexes.CreateOneAsync(new CreateIndexModel<PostSave>(
+                    Builders<PostSave>.IndexKeys.Ascending(x => x.PostId).Ascending(x => x.UserId),
+                    new CreateIndexOptions { Unique = true }));
+                await context.Database.GetCollection<RecipeReview>("RecipeReviews").Indexes.CreateOneAsync(new CreateIndexModel<RecipeReview>(
+                    Builders<RecipeReview>.IndexKeys.Ascending(x => x.RecipeId).Ascending(x => x.UserId),
+                    new CreateIndexOptions { Unique = true }));
+                await context.Database.GetCollection<RecipeNote>("RecipeNotes").Indexes.CreateOneAsync(new CreateIndexModel<RecipeNote>(
+                    Builders<RecipeNote>.IndexKeys.Ascending(x => x.RecipeId).Ascending(x => x.UserId),
+                    new CreateIndexOptions { Unique = true }));
+                await context.Users.Indexes.CreateOneAsync(new CreateIndexModel<User>(
+                    Builders<User>.IndexKeys.Ascending("RefreshSessions.TokenHash")));
+            }, "PostSaves, RecipeReviews, RecipeNotes, Users.RefreshSessions", logger);
 
             // 6. Users (Partial Unique on EmailNormalized & Sparse on RefreshTokenHash)
             await SafeCreateIndexAsync(async () =>
@@ -171,6 +224,49 @@ namespace InfrastructureLayer.Database
                     new CreateIndexOptions { Sparse = true });
                 await context.AiLogs.Indexes.CreateManyAsync(new[] { aiLogTaskIndex, aiLogScanIndex });
             }, "AiLogs (TaskType_CreatedAt, ScanId)", logger);
+
+            // 14. Đặt chuyên gia, giữ tiền, ví, rút tiền
+            await SafeCreateIndexAsync(async () =>
+            {
+                var b = Builders<ChefBooking>.IndexKeys;
+                var hasOrderId = Builders<ChefBooking>.Filter.Type(x => x.Order!.Id, MongoDB.Bson.BsonType.String);
+                var hasEscrowId = Builders<ChefBooking>.Filter.Type(x => x.Escrow!.Id, MongoDB.Bson.BsonType.String);
+                await context.Bookings.Indexes.CreateManyAsync(new[]
+                {
+                    new CreateIndexModel<ChefBooking>(b.Ascending(x => x.MemberId).Descending(x => x.UpdatedAt)),
+                    new CreateIndexModel<ChefBooking>(b.Ascending(x => x.ChefId).Descending(x => x.UpdatedAt)),
+                    new CreateIndexModel<ChefBooking>(b.Ascending(x => x.Status).Ascending(x => x.Contract!.PaymentDueAt)),
+                    new CreateIndexModel<ChefBooking>(b.Ascending(x => x.Escrow!.Status).Ascending(x => x.Escrow!.AutoCompleteAt)),
+                    new CreateIndexModel<ChefBooking>(b.Ascending(x => x.Escrow!.Status).Ascending(x => x.Escrow!.ReleaseAt)),
+                    new CreateIndexModel<ChefBooking>(b.Ascending(x => x.Order!.Id), new CreateIndexOptions<ChefBooking> { Unique = true, PartialFilterExpression = hasOrderId }),
+                    new CreateIndexModel<ChefBooking>(b.Ascending(x => x.Escrow!.Id), new CreateIndexOptions<ChefBooking> { Unique = true, PartialFilterExpression = hasEscrowId }),
+                    new CreateIndexModel<ChefBooking>(b.Ascending("Order.Payments._id"))
+                });
+            }, "ChefBookings", logger);
+
+            await SafeCreateIndexAsync(async () =>
+            {
+                var l = Builders<WalletLedgerEntry>.IndexKeys;
+                await context.WalletLedger.Indexes.CreateManyAsync(new[]
+                {
+                    new CreateIndexModel<WalletLedgerEntry>(l.Ascending(x => x.IdempotencyKey), new CreateIndexOptions { Unique = true }),
+                    new CreateIndexModel<WalletLedgerEntry>(l.Ascending(x => x.UserId).Descending(x => x.OccurredAt)),
+                    new CreateIndexModel<WalletLedgerEntry>(l.Ascending(x => x.Applied).Ascending(x => x.Voided))
+                });
+            }, "WalletLedger (IdempotencyKey Unique)", logger);
+
+            await SafeCreateIndexAsync(async () =>
+            {
+                var w = Builders<WithdrawalRequest>.IndexKeys;
+                await context.Withdrawals.Indexes.CreateManyAsync(new[]
+                {
+                    new CreateIndexModel<WithdrawalRequest>(w.Ascending(x => x.UserId).Descending(x => x.CreatedAt)),
+                    new CreateIndexModel<WithdrawalRequest>(w.Ascending(x => x.Status).Ascending(x => x.CreatedAt)),
+                    new CreateIndexModel<WithdrawalRequest>(w.Ascending(x => x.DedupeKey), new CreateIndexOptions { Unique = true, Sparse = true })
+                });
+            }, "WithdrawalRequests (DedupeKey Unique)", logger);
+
+            await context.EnsureContentIndexesAsync(logger);
 
             logger?.LogInformation("Đã hoàn tất cấu hình tất cả chỉ mục MongoDB.");
         }

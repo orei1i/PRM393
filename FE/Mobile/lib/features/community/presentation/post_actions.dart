@@ -92,6 +92,9 @@ abstract final class PostActions {
           PostStatus.rejected =>
             'Đã lưu, nhưng bài vẫn đang bị Ban quản trị từ chối.',
           PostStatus.published => 'Đã lưu thay đổi',
+          PostStatus.hidden => 'Đã lưu, nhưng bài vẫn đang bị Ban quản trị ẩn.',
+          PostStatus.unknown =>
+            'Đã lưu, nhưng chưa rõ bài có hiển thị trên bảng tin không.',
         }),
       ));
     feed.postUpdated(updated);

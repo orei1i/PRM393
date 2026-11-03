@@ -2,7 +2,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../core/config/backend_modules.dart';
 import '../../../../core/navigation/app_nav.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/session/session_controller.dart';
@@ -27,7 +26,6 @@ import '../../../commerce/presentation/widgets/commerce_ui.dart';
 import '../../../meal_planner/presentation/screens/body_metrics_screen.dart';
 import '../../../meal_planner/presentation/screens/health_profile_edit_screen.dart';
 import '../../../meal_planner/presentation/widgets/health_header_card.dart';
-import '../../data/profile_api_service.dart';
 import '../../domain/entities/user_profile.dart';
 import '../controllers/profile_controller.dart';
 import 'chef_application_screen.dart';
@@ -490,9 +488,7 @@ class _ChefApplicationCard extends StatelessWidget {
           vl.cautionContainer,
           vl.onCautionContainer,
           'Hồ sơ chuyên gia đang chờ duyệt',
-          BackendModules.isReal(BackendModule.profile)
-              ? chefApplicationLocalNote
-              : 'Ban quản trị sẽ phản hồi trong 1–3 ngày làm việc.',
+          'Ban quản trị sẽ phản hồi trong 1–3 ngày làm việc.',
           null,
         ),
       ChefApplicationStatus.approved => (
