@@ -64,7 +64,7 @@ class RecipeTag extends StatelessWidget {
 
 /// One "Nguyên liệu" row as cooked: name, scaled amount, tags and the
 /// controls the row allows (lock for a "Thành phần chính", "Đổi nguyên liệu"
-/// when it has substitutes, ✕ when optional; "Hoàn tác" / "Thêm lại" once
+/// when [onSwap] is given, ✕ when optional; "Hoàn tác" / "Thêm lại" once
 /// changed). Rows found in the nutrition DB open the ingredient ([onOpen]),
 /// with the chevron at the row's end.
 class RecipeIngredientRow extends StatelessWidget {
@@ -150,7 +150,7 @@ class RecipeIngredientRow extends StatelessWidget {
         TextButton(
             style: compact, onPressed: onRestore, child: const Text('Thêm lại'))
       else ...[
-        if (original.substitutes.isNotEmpty) swap,
+        if (onSwap != null && !original.isFreeText) swap,
         if (row.isSwapped)
           TextButton(
               style: compact,

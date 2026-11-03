@@ -27,6 +27,7 @@ class RecipeCustomization {
   const RecipeCustomization({
     this.servings,
     this.swaps = const {},
+    this.customSwaps = const {},
     this.removed = const {},
   });
 
@@ -36,19 +37,28 @@ class RecipeCustomization {
   /// Row key → substitute key.
   final Map<String, String> swaps;
 
+  /// Row key → what the cook typed or took from the fridge, at the base
+  /// servings. A row is in [swaps] or here, not both.
+  final Map<String, RecipeSubstitute> customSwaps;
+
   /// Keys of the rows left out.
   final Set<String> removed;
 
   /// Some ingredient changed (servings alone don't count).
-  bool get isModified => swaps.isNotEmpty || removed.isNotEmpty;
+  bool get isModified =>
+      swaps.isNotEmpty || customSwaps.isNotEmpty || removed.isNotEmpty;
 
   /// "Đã chỉnh {k} nguyên liệu".
-  int get changeCount => swaps.length + removed.length;
+  int get changeCount => swaps.length + customSwaps.length + removed.length;
 
   /// Identifies the swaps and removals (not the servings): a variant saved
   /// for the same key can be reused.
   String get choicesKey {
-    final s = swaps.entries.map((e) => '${e.key}>${e.value}').toList()..sort();
+    final s = [
+      ...swaps.entries.map((e) => '${e.key}>${e.value}'),
+      ...customSwaps.entries.map((e) =>
+          '${e.key}>${e.value.name}|${e.value.quantity}|${e.value.unit}'),
+    ]..sort();
     final r = removed.toList()..sort();
     return 's:${s.join(',')};r:${r.join(',')}';
   }
@@ -57,11 +67,13 @@ class RecipeCustomization {
     int? servings,
     bool clearServings = false,
     Map<String, String>? swaps,
+    Map<String, RecipeSubstitute>? customSwaps,
     Set<String>? removed,
   }) =>
       RecipeCustomization(
         servings: clearServings ? null : (servings ?? this.servings),
         swaps: swaps ?? this.swaps,
+        customSwaps: customSwaps ?? this.customSwaps,
         removed: removed ?? this.removed,
       );
 }
@@ -86,6 +98,12 @@ CustomizationException? validateCustomization(
   for (final MapEntry(:key, :value) in choices.swaps.entries) {
     final row = recipe.ingredient(key);
     if (row == null || row.substitute(value) == null) {
+      return const CustomizationException(
+          'invalid_substitute', 'Lựa chọn thay thế không hợp lệ.');
+    }
+  }
+  for (final MapEntry(:key, :value) in choices.customSwaps.entries) {
+    if (recipe.ingredient(key) == null || value.name.trim().isEmpty) {
       return const CustomizationException(
           'invalid_substitute', 'Lựa chọn thay thế không hợp lệ.');
     }
@@ -139,9 +157,10 @@ class CustomizedRow {
   /// name-only row.
   String get amount {
     final s = substitute;
-    if (s != null) return scaleAmount(s.quantity, s.unit, factor).text;
+    final portion = portionFactor(factor, original.role);
+    if (s != null) return scaleAmount(s.quantity, s.unit, portion).text;
     if (original.isFreeText) return '';
-    return scaleAmount(original.quantity, original.unit, factor).text;
+    return scaleAmount(original.quantity, original.unit, portion).text;
   }
 }
 
@@ -262,10 +281,11 @@ class CustomizedRecipe {
           removed: choices.removed.contains(row.key),
           substitute: choices.removed.contains(row.key)
               ? null
-              : switch (choices.swaps[row.key]) {
-                  final key? => row.substitute(key),
-                  null => null,
-                },
+              : choices.customSwaps[row.key] ??
+                  switch (choices.swaps[row.key]) {
+                    final key? => row.substitute(key),
+                    null => null,
+                  },
         ),
     ];
   }

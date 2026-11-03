@@ -16,9 +16,9 @@ import 'models/pantry_model.dart';
 /// The member's fridge ("Nguyên liệu trong tủ"), `user_ingredients`: vegan
 /// foods only.
 ///
-/// A food that isn't vegan is refused by the app on both sides: the real BE
-/// would store it (and misses some, like "Cá sốt cà chua"). What the real BE
-/// itself calls non-vegan is taken back out ([PantryRefusedException]).
+/// A food that isn't vegan is refused by the app on both sides, before any
+/// request: the real BE only flags what it stores (`isVegan: false`). What the
+/// real BE alone calls non-vegan is taken back out ([PantryRefusedException]).
 abstract interface class PantryApiService {
   Future<List<PantryItemDto>> getPantry();
 
@@ -88,9 +88,8 @@ class RemotePantryApiService implements PantryApiService {
   Future<List<PantryItemDto>> addItems(List<AddPantryItemDto> items) =>
       guardApi(() async {
         _refuseNonVegan(items);
-        final kept = await _keepingAmounts(items);
         final added = await _dio.post<List<dynamic>>(ApiEndpoints.myIngredients,
-            data: {'items': kept.map((i) => i.toJson()).toList()});
+            data: {'items': items.map((i) => i.toJson()).toList()});
         final refused =
             _items(added.data).where((row) => row.isVegan == false).toList();
         for (final row in refused) {
@@ -107,29 +106,6 @@ class RemotePantryApiService implements PantryApiService {
               'vào tủ.',
         );
       });
-
-  /// A second add without a quantity would set the row to 1 (B38).
-  Future<List<AddPantryItemDto>> _keepingAmounts(
-      List<AddPantryItemDto> items) async {
-    if (items.every((i) => i.quantity != null)) return items;
-    final res = await _dio.get<List<dynamic>>(ApiEndpoints.myIngredients);
-    final amounts = {
-      for (final row in _items(res.data))
-        foldVietnamese(row.ingredient.trim()): row.quantity,
-    };
-    return [
-      for (final item in items)
-        item.quantity != null
-            ? item
-            : AddPantryItemDto(
-                ingredient: item.ingredient,
-                scannedAt: item.scannedAt,
-                quantity: amounts[foldVietnamese(item.ingredient.trim())],
-                unit: item.unit,
-                expiryDate: item.expiryDate,
-              ),
-    ];
-  }
 
   @override
   Future<void> removeItem(String id) => guardApi(() async {

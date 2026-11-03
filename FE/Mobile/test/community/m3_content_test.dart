@@ -30,8 +30,10 @@ void main() {
           ...extra,
         };
 
-    test('missing status reads as Published, values are case-insensitive', () {
-      expect(PostDto.fromJson(json()).toEntity().status, PostStatus.published);
+    test('values are case-insensitive; what says nothing is not "Đã đăng"', () {
+      expect(PostDto.fromJson(json()).toEntity().status, PostStatus.unknown);
+      expect(PostDto.fromJson(json({'status': 'published'})).toEntity().status,
+          PostStatus.published);
       expect(PostDto.fromJson(json({'status': 'pending'})).toEntity().status,
           PostStatus.pending);
       final rejected = PostDto.fromJson(json({
@@ -42,7 +44,7 @@ void main() {
       expect(rejected.isRejected, isTrue);
       expect(rejected.rejectionReason, 'Thiếu nguồn.');
       expect(rejected.updatedAt, isNotNull);
-      expect(PostStatus.fromApi('weird'), PostStatus.published);
+      expect(PostStatus.fromApi('weird'), PostStatus.unknown);
     });
 
     test('only Công thức and Hỏi đáp; legacy "video" is a recipe with a video',

@@ -1,6 +1,7 @@
 // integration_test_be/search_be_test.dart
-// Search on the client (`ClientSearchService`) over the real BE: there is no
-// `/search` route, so this is what a member and a guest actually get.
+// Search on the client (`ClientSearchService`) over the real BE: what a build
+// gets with `BACKEND_MOCK_MODULES=search`. The real `/search` is in
+// `content_be_test.dart`.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:veganlife_mobile/features/community/data/community_api_service.dart';
 import 'package:veganlife_mobile/features/community/data/models/post_model.dart';

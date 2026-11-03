@@ -450,7 +450,9 @@ class MockCommunityRepository implements CommunityApiService {
 
 class _MockCommunityDb {
   _MockCommunityDb() {
-    posts.addAll(buildSeedPosts().map(PostDto.fromJson));
+    // The seeds only name a status when it isn't the usual one.
+    posts.addAll(buildSeedPosts()
+        .map((seed) => PostDto.fromJson({'status': 'Published', ...seed})));
     savedBy('u_me').addAll(['p_video_meal_prep', 'p_dam_thuc_vat']);
     final now = DateTime.now();
     for (final post in posts) {

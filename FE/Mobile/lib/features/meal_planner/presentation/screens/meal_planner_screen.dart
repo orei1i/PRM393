@@ -128,12 +128,14 @@ class _Loaded extends ConsumerWidget {
                 },
                 itemBuilder: (_) => [
                   if (plan != null && BackendModules.planAdjust)
-                    const PopupMenuItem(
+                    PopupMenuItem(
                       value: _PlanAction.adjust,
                       child: ListTile(
                         contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.auto_fix_high_outlined),
-                        title: Text('Chỉnh với AI'),
+                        leading: const Icon(Icons.auto_fix_high_outlined),
+                        title: Text(BackendModules.isMock(BackendModule.planner)
+                            ? 'Chỉnh với AI'
+                            : 'Chỉnh thực đơn'),
                       ),
                     ),
                   const PopupMenuItem(
@@ -578,7 +580,7 @@ class _AdjustWithAiPill extends StatelessWidget {
               children: [
                 Icon(Icons.auto_awesome, size: 18, color: vl.onAiContainer),
                 const SizedBox(width: 6),
-                Text('Chỉnh thực đơn với AI',
+                Text(BackendModules.planAdjustTitle,
                     style: context.textStyles.labelLarge
                         ?.copyWith(color: vl.onAiContainer)),
               ],

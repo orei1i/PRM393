@@ -150,7 +150,8 @@ void main() {
   group('the page of a real seed recipe', () {
     testWidgets(
         'servings and swaps are in sight; the BE kcal stands until a swap, '
-        'then "≈"; no reviews, notes or sample banner', (tester) async {
+        'then "≈"; with recipeSocial mock no reviews, notes or sample banner',
+        (tester) async {
       BackendModules.debugOverride({BackendModule.recipes});
       await _pump(tester, const RecipeDetailScreen(recipeId: _rieuId));
 
@@ -335,7 +336,7 @@ void main() {
       expect(body['instructions'].first,
           savedVariantNote(_rieu['name']! as String, 2));
       expect(fake.calls, ['POST /recipes'],
-          reason: 'the BE has no /recipes/{id}/variants');
+          reason: '/recipes/{id}/variants needs rows a seed recipe does not have');
       expect(saved.id, savedId);
       expect(saved.createdBy, backend.testUserId);
     });

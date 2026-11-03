@@ -103,8 +103,11 @@ Future<void> main() async {
       ));
       created.add(post.id);
       expect(post.mediaUrl, upload.absoluteUrl);
-      expect(post.videoId, isNull,
+      final raw = await me.raw('GET', '/posts/${post.id}');
+      expect(raw.dataMap['video'], isNull,
           reason: 'B21: no `video` without a pipeline');
+      expect(post.videoId, post.id,
+          reason: 'module video is mock: the labelled sample recipe');
       expect(upload.durationSeconds, 0,
           reason: 'B32: the BE no longer makes up 15 s; it sends null');
 

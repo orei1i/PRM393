@@ -10,6 +10,7 @@ import 'package:veganlife_mobile/features/meal_planner/data/mock/meal_planner_mo
 import 'package:veganlife_mobile/features/meal_planner/data/models/health_profile_model.dart';
 import 'package:veganlife_mobile/features/meal_planner/domain/entities/health_profile.dart';
 import 'package:veganlife_mobile/features/meal_planner/domain/entities/meal_slot.dart';
+import 'package:veganlife_mobile/features/recipe/data/models/recipe_variant_model.dart';
 import 'package:veganlife_mobile/features/recipe/data/mock/recipe_mock_data.dart';
 import 'package:veganlife_mobile/features/recipe/data/models/recipe_detail_model.dart';
 import 'package:veganlife_mobile/features/recipe/domain/entities/recipe_detail.dart';
@@ -328,7 +329,7 @@ void main() {
           '- Củ cải trắng: 1,5 củ\n'
           '- Bắp ngô: 3 bắp\n'
           '- Mắm ruốc chay: 1,5 muỗng canh\n'
-          '- Hành tím: 4,5 củ');
+          '- Hành tím: 4 củ');
 
       const freeText = RecipeDetail(
         id: 'f',
@@ -364,6 +365,86 @@ void main() {
       expect(rieu.role, 'Riêu');
       expect(
           rieu.substitutes.map((s) => s.name), ['Đậu hũ', 'Đậu nành ngâm xay']);
+    });
+  });
+
+  group('an ingredient the recipe does not list', () {
+    const typed = RecipeSubstitute(
+        key: 'tu_nhap_rieu', name: 'Nấm hương', quantity: 100, unit: 'g');
+    final recipe = _recipe('l5');
+    CustomizedRecipe custom([RecipeSubstitute value = typed, int? servings]) =>
+        CustomizedRecipe(
+            recipe,
+            RecipeCustomization(
+                customSwaps: {'rieu': value}, servings: servings));
+
+    test('is cooked in place of the row, energy marked as an estimate', () {
+      final c = custom();
+      final row = c.rows.firstWhere((r) => r.key == 'rieu');
+      expect(row.name, 'Nấm hương');
+      expect(row.isSwapped, isTrue);
+      expect(row.amount, '100 g');
+      expect(c.isModified, isTrue);
+      expect(c.choices.changeCount, 1);
+      expect(c.energy.modified, isTrue);
+      expect(c.energy.unknown, ['Nấm hương']);
+    });
+
+    test('is saved with the row key, the recipe stays valid', () {
+      expect(validateCustomization(recipe, custom().choices), isNull);
+      final saved = custom().variantRows().firstWhere((r) => r.key == 'rieu');
+      expect(saved.name, 'Nấm hương');
+      expect(custom().changeNotes().single.label, contains('Nấm hương'));
+    });
+
+    test('an empty name or an unknown row is refused', () {
+      expect(
+          validateCustomization(
+              recipe,
+              const RecipeCustomization(customSwaps: {
+                'rieu': RecipeSubstitute(key: 'x', name: '  '),
+              }))?.code,
+          'invalid_substitute');
+      expect(
+          validateCustomization(recipe,
+                  const RecipeCustomization(customSwaps: {'khong_co': typed}))
+              ?.code,
+          'invalid_substitute');
+    });
+
+    test('another amount is another variant', () {
+      const more = RecipeSubstitute(
+          key: 'tu_nhap_rieu', name: 'Nấm hương', quantity: 150, unit: 'g');
+      expect(
+          custom().choices.choicesKey, isNot(custom(more).choices.choicesKey));
+    });
+
+    test('survives the variant request', () {
+      final dto = CreateVariantRequestDto.fromJson(
+          CreateVariantRequestDto.fromChoices('Của tôi', custom().choices)
+              .toJson());
+      final back = dto.choices.customSwaps['rieu']!;
+      expect(back.name, 'Nấm hương');
+      expect(back.quantity, 100);
+      expect(back.unit, 'g');
+    });
+
+    test('the controller keeps one kind of swap per row', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final provider = recipeCustomizationProvider('l5');
+      container.listen(provider, (_, __) {});
+      final controller = container.read(provider.notifier);
+      final row = recipe.ingredient('rieu')!;
+      controller.swap(row, row.substitutes.first.key);
+      controller.swapCustom(row, typed);
+      expect(container.read(provider).choices.swaps, isEmpty);
+      expect(container.read(provider).choices.customSwaps['rieu'], typed);
+      controller.swap(row, row.substitutes.first.key);
+      expect(container.read(provider).choices.customSwaps, isEmpty);
+      controller.swapCustom(row, typed);
+      controller.undoSwap('rieu');
+      expect(container.read(provider).choices.isModified, isFalse);
     });
   });
 }

@@ -27,8 +27,8 @@ import 'search_api_service.dart';
 typedef RecipeSource = Future<(List<RecipeSummaryDto>, RecipeSearchScope)>
     Function();
 
-/// Global search while the BE has no `/search`: the client looks through what
-/// each module's API gives, so the results open real pages.
+/// Global search with module `search` forced to mock: the client looks through
+/// what each module's API gives, so the results open real pages.
 /// - Posts: the newest [maxFeedPages] pages of `GET /posts` (Published only),
 ///   kept for [postCacheFor] so that typing doesn't walk the feed every time.
 /// - Recipes: [RecipeCatalog] for a member. A guest can't read it, and a member

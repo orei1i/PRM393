@@ -216,8 +216,8 @@ class RecipeDetail {
   /// ingredients and no steps.
   final bool isSnapshot;
 
-  /// From the real BE (or only known through its plan): no reviews or notes,
-  /// and not sample data. A saved change goes through POST /recipes.
+  /// From the real BE (or only known through its plan): not sample data. A
+  /// saved change goes through POST /recipes.
   bool get isFromBackend =>
       isSnapshot || isBackendId(id) || isBackendPlanItemId(id);
 

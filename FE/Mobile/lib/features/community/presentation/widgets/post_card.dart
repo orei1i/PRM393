@@ -21,7 +21,7 @@ const _likeRed = Color(0xFFE11D48);
 /// → title → body (4 lines, "Xem thêm") → restaurant chip → full-bleed
 /// photo or video frame → tags → stats → Thích / Bình luận / Lưu. Lists
 /// separate items with [PostListGap]. Likes, saves and comments only work on
-/// published posts.
+/// published posts (a saved post can still be taken out of "Đã lưu").
 ///
 /// [onOpen] (body, photo, video frame) opens the post detail at the top,
 /// [onComment] ("Bình luận") at the comments with the composer focused,
@@ -323,7 +323,7 @@ class PostAuthorRow extends ConsumerWidget {
               icon: Icon(Icons.more_horiz_rounded, color: context.vl.muted),
               onSelected: (action) => _onOwnAction(context, ref, action),
               itemBuilder: (context) => [
-                if (BackendModules.postEdit)
+                if (BackendModules.postEdit && post.canEdit)
                   const PopupMenuItem(
                     value: _OwnPostAction.edit,
                     child: ListTile(
@@ -386,7 +386,8 @@ class PostActionsBar extends StatelessWidget {
   final VoidCallback onSave;
   final VoidCallback? onOpenComments;
 
-  /// `false` while the post waits for review (or was rejected).
+  /// `false` while the post is off the feed: waiting for review, rejected,
+  /// hidden. Taking a saved post out of "Đã lưu" still works.
   final bool enabled;
 
   @override
@@ -455,7 +456,7 @@ class PostActionsBar extends StatelessWidget {
                   label: 'Lưu',
                   tooltip: post.savedByMe ? 'Bỏ lưu' : 'Lưu',
                   color: post.savedByMe ? context.colors.primary : null,
-                  onTap: enabled ? onSave : null,
+                  onTap: enabled || post.savedByMe ? onSave : null,
                 ),
               ),
             ],

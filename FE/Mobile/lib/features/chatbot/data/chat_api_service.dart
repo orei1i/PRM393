@@ -57,7 +57,7 @@ class RemoteChatApiService implements ChatApiService {
         ),
       );
     } on DioException catch (e) {
-      throw mapDioException(e);
+      throw await _streamRequestError(e);
     }
 
     final lines = res.data!.stream
@@ -92,6 +92,31 @@ class RemoteChatApiService implements ChatApiService {
       throw const ApiException(
           message: 'Phản hồi từ máy chủ không hợp lệ.', code: 'bad_stream');
     }
+  }
+}
+
+/// With `ResponseType.stream` an error body is a stream too, so the interceptor
+/// couldn't read `code` and `message`: read them here, or a 503 says nothing.
+Future<ApiException> _streamRequestError(DioException e) async {
+  final response = e.response;
+  final body = response?.data;
+  if (response == null || body is! ResponseBody) return mapDioException(e);
+  try {
+    final bytes = await body.stream
+        .fold<List<int>>(<int>[], (all, chunk) => all..addAll(chunk))
+        .timeout(const Duration(seconds: 5));
+    final decoded = jsonDecode(utf8.decode(bytes));
+    return mapDioException(DioException(
+      requestOptions: e.requestOptions,
+      type: e.type,
+      response: Response<dynamic>(
+        requestOptions: e.requestOptions,
+        statusCode: response.statusCode,
+        data: decoded,
+      ),
+    ));
+  } on Exception {
+    return mapDioException(e);
   }
 }
 

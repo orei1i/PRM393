@@ -75,4 +75,52 @@ void main() {
       expect(scaleAmount(0.25, 'quả', 1).text, '0,25 quả');
     });
   });
+
+  group('portions: not every row follows the number of people', () {
+    String tomato(int to) =>
+        scaleAmount(200, 'g', portionFactor(to / 2, 'Rau củ')).text;
+
+    test('what each person eats follows the people', () {
+      for (final role in [
+        'Sợi',
+        'Tinh bột',
+        'Đạm',
+        'Riêu',
+        'Trái cây',
+        'Sữa'
+      ]) {
+        expect(portionFactor(2, role), 2, reason: role);
+      }
+      expect(portionFactor(2, null), 2);
+    });
+
+    test('vegetables cooked together grow less: bún riêu for 4 is not 2 × 2',
+        () {
+      expect(tomato(2), '200 g');
+      expect(tomato(4), '360 g');
+      expect(tomato(8), '650 g');
+    });
+
+    test('seasoning and herbs grow least; case and spaces do not matter', () {
+      expect(portionFactor(4, 'Gia vị'), closeTo(2.64, 0.01));
+      expect(portionFactor(4, ' rau thơm '), closeTo(2.64, 0.01));
+      expect(portionFactor(4, 'Rau lá'), closeTo(3.25, 0.01));
+    });
+
+    test('fewer people than the recipe: seasoning shrinks less too', () {
+      expect(portionFactor(0.5, 'Gia vị'), closeTo(0.62, 0.01));
+    });
+
+    test('factor 1 changes nothing', () {
+      expect(portionFactor(1, 'Gia vị'), 1);
+      expect(portionFactor(1, 'Rau củ'), 1);
+    });
+
+    test('gramsOf reads masses only', () {
+      expect(gramsOf(0.5, 'kg'), 500);
+      expect(gramsOf(200, 'g'), 200);
+      expect(gramsOf(200, 'ml'), isNull);
+      expect(gramsOf(null, 'g'), isNull);
+    });
+  });
 }

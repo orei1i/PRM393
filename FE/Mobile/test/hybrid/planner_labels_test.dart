@@ -9,10 +9,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:veganlife_mobile/core/config/backend_modules.dart';
+import 'package:veganlife_mobile/core/network/api_exception.dart';
 import 'package:veganlife_mobile/core/session/session_controller.dart';
 import 'package:veganlife_mobile/core/widgets/demo_data_banner.dart';
 import 'package:veganlife_mobile/features/ingredient/presentation/screens/pantry_screen.dart';
 import 'package:veganlife_mobile/features/meal_planner/data/mock_meal_planner_repository.dart';
+import 'package:veganlife_mobile/features/meal_planner/data/models/body_measurement_model.dart';
+import 'package:veganlife_mobile/features/meal_planner/data/models/health_profile_model.dart';
 import 'package:veganlife_mobile/features/meal_planner/data/models/pantry_model.dart';
 import 'package:veganlife_mobile/features/meal_planner/data/pantry_api_service.dart';
 import 'package:veganlife_mobile/features/meal_planner/domain/entities/meal_plan.dart';
@@ -67,6 +70,30 @@ class _NoPhoto implements ScanImageSource {
   Future<Uint8List?> pickFromGallery() async => null;
 }
 
+/// `POST /health-profile/me/metrics` with no health profile on the BE.
+class _NoProfile implements MealPlannerApiService {
+  static const message = 'Chưa tạo hồ sơ sức khỏe. Vui lòng thiết lập hồ sơ '
+      'trước khi ghi nhận chỉ số.';
+
+  @override
+  Future<List<BodyMeasurementDto>> getBodyMeasurements(
+          {int limit = 100}) async =>
+      const [];
+
+  @override
+  Future<HealthProfileDto?> getHealthProfile() async => null;
+
+  @override
+  Future<LogMeasurementResultDto> logBodyMeasurement(
+          LogMeasurementRequestDto request) async =>
+      throw const ApiException(
+          message: message, statusCode: 404, code: 'not_found');
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
+}
+
 class _Fridge extends MockPantryRepository {
   _Fridge() : super(userId: 'u_me');
 
@@ -78,7 +105,7 @@ class _Fridge extends MockPantryRepository {
           quantity: 200,
           unit: 'g',
           expiryDate: DateTime.now().add(const Duration(days: 2)),
-          allergyWarning: 'Cảnh báo dị ứng: soy, lá lốt',
+          allergyWarning: 'Cảnh báo dị ứng: Đậu nành, lá lốt',
         ),
         const PantryItemDto(
             id: 'p2', ingredient: 'Gạo lứt', quantity: 1, unit: 'phần'),
@@ -205,6 +232,20 @@ void main() {
       await tester.pump();
       expect(find.text('Cân nặng từ 30 đến 250 kg'), findsOneWidget);
     });
+
+    testWidgets('no profile on the BE (404): its words, the input kept',
+        (tester) async {
+      BackendModules.debugOverride(BackendModules.supportedByBackend);
+      await _pump(tester, const Scaffold(body: CheckInSheet(heightCm: 172)),
+          overrides: [mealPlannerApiProvider.overrideWithValue(_NoProfile())]);
+      await tester.enterText(find.byType(TextFormField).first, '60');
+      await tester.tap(find.text('Lưu'));
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text(_NoProfile.message), findsOneWidget);
+      expect(find.text('60'), findsOneWidget);
+      expect(find.byType(CheckInSheet), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   });
 
   group('typed dish', () {
@@ -248,8 +289,8 @@ void main() {
       expect(find.text('Sắp hết hạn'), findsOneWidget);
       expect(find.text('Bạn đã khai báo dị ứng với đậu nành, lá lốt'),
           findsOneWidget,
-          reason: 'the app\'s names, not the raw ids of the BE');
-      expect(find.textContaining('soy'), findsNothing);
+          reason: 'the app\'s sentence around the names of the BE (B14)');
+      expect(find.textContaining('Cảnh báo dị ứng'), findsNothing);
       expect(find.text('Máy chủ ghi: không thuần chay'), findsOneWidget);
       expect(find.textContaining('1 phần'), findsNothing,
           reason: 'the default amount says nothing');

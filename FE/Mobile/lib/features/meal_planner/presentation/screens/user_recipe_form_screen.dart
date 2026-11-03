@@ -320,9 +320,10 @@ class _UserRecipeFormScreenState extends ConsumerState<UserRecipeFormScreen> {
               ...detectDishAllergens(name, inputs.map((i) => i.name)),
             }.toList(),
       ingredients: inputs,
-      // The BE has nowhere else to keep where a saved variant came from.
+      // Where a saved variant came from lives in its steps, on the BE: an edit
+      // in place has to keep it too.
       steps: [
-        if (_savesAsCopy && recipe!.isFromBackend && origin != null)
+        if (recipe != null && recipe.isFromBackend && origin != null)
           savedVariantNote(origin, recipe.baseServings),
         ...steps,
       ],
@@ -452,7 +453,6 @@ class _UserRecipeFormScreenState extends ConsumerState<UserRecipeFormScreen> {
                     ),
                   ),
                 ),
-                // The BE has no such field: it would be dropped silently.
                 if (BackendModules.recipeServings)
                   SizedBox(
                     width: 140,

@@ -314,9 +314,12 @@ void main() {
       expect(BodyProgress.validateWeight('65.4'), isNull);
     });
 
-    test('a weight that is already a number', () {
-      expect(BodyProgress.validateMeasurement(64.2), isNull);
-      expect(BodyProgress.validateMeasurement(-5), 'Cân nặng từ 30 đến 250 kg');
+    test('the sheet keeps its own range, narrower than the BE (20–300 kg)', () {
+      expect(BodyProgress.validateWeight('64.2'), isNull);
+      for (final outside in ['-5', '29', '251', '300']) {
+        expect(
+            BodyProgress.validateWeight(outside), 'Cân nặng từ 30 đến 250 kg');
+      }
     });
   });
 }

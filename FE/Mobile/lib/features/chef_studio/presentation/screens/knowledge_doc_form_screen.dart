@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/widgets/vl_card.dart';
@@ -37,6 +38,7 @@ class _KnowledgeDocFormScreenState
   final _form = GlobalKey<FormState>();
   final _title = TextEditingController();
   final _link = TextEditingController();
+  final _content = TextEditingController();
   _Source _source = _Source.file;
   String? _file;
   bool _attempted = false;
@@ -46,6 +48,7 @@ class _KnowledgeDocFormScreenState
   void dispose() {
     _title.dispose();
     _link.dispose();
+    _content.dispose();
     super.dispose();
   }
 
@@ -84,17 +87,23 @@ class _KnowledgeDocFormScreenState
     if (picked != null && mounted) setState(() => _file = picked);
   }
 
+  /// The mock picker has only file names; a real BE needs the text itself.
+  bool get _sendsText => BackendModules.isReal(BackendModule.chefStudio);
+
   Future<void> _submit() async {
     final valid = _form.currentState?.validate() ?? false;
-    final url = _fileUrl;
-    if (!valid || url == null || url.isEmpty) {
+    final url = _sendsText ? _link.text.trim() : _fileUrl;
+    if (!valid || url == null || (url.isEmpty && !_sendsText)) {
       setState(() => _attempted = true);
       return;
     }
     setState(() => _sending = true);
     try {
       await ref.read(chefStudioApiProvider).submitKnowledgeDoc(
-          KnowledgeDocRequestDto(title: _title.text.trim(), fileUrl: url));
+          KnowledgeDocRequestDto(
+              title: _title.text.trim(),
+              fileUrl: url,
+              content: _sendsText ? _content.text.trim() : null));
       ref.read(commerceRevisionProvider.notifier).bump();
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
@@ -133,6 +142,32 @@ class _KnowledgeDocFormScreenState
                   validator: (v) => KnowledgeDocRules.title(v ?? ''),
                 ),
                 const SizedBox(height: 8),
+                if (_sendsText) ...[
+                  TextFormField(
+                    controller: _content,
+                    minLines: 6,
+                    maxLines: 14,
+                    decoration: const InputDecoration(
+                      labelText: 'Nội dung tài liệu',
+                      hintText: 'Dán nội dung cần đưa vào kho tri thức',
+                      border: OutlineInputBorder(),
+                      alignLabelWithHint: true,
+                    ),
+                    validator: (v) => KnowledgeDocRules.content(v ?? ''),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _link,
+                    keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(
+                      labelText: 'Liên kết nguồn (không bắt buộc)',
+                      hintText: 'https://…',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (v) =>
+                        KnowledgeDocRules.optionalFileUrl(v ?? ''),
+                  ),
+                ] else ...[
                 Text('Tệp tài liệu', style: context.textStyles.titleSmall),
                 const SizedBox(height: 8),
                 SegmentedButton<_Source>(
@@ -180,6 +215,7 @@ class _KnowledgeDocFormScreenState
                     ),
                     validator: (v) => KnowledgeDocRules.fileUrl(v ?? ''),
                   ),
+                ],
                 const SizedBox(height: 12),
                 Align(
                   alignment: Alignment.centerLeft,

@@ -9,6 +9,7 @@
 // `caloriesCache` / macros / `allergens` and `nutritionEstimated`.
 // 400 `signature_required` | `invalid_substitute` | name < 2 or > 80 chars;
 // 401 guest; 404 recipe; 503.
+import '../../domain/entities/recipe_detail.dart';
 import '../../domain/recipe_customization.dart';
 
 /// Bounds of a saved recipe's name.
@@ -31,6 +32,7 @@ class CreateVariantRequestDto {
   const CreateVariantRequestDto({
     required this.name,
     this.swaps = const {},
+    this.customSwaps = const {},
     this.removed = const [],
   });
 
@@ -39,6 +41,7 @@ class CreateVariantRequestDto {
       CreateVariantRequestDto(
         name: name.trim(),
         swaps: choices.swaps,
+        customSwaps: choices.customSwaps,
         removed: choices.removed.toList(),
       );
 
@@ -50,10 +53,27 @@ class CreateVariantRequestDto {
         swaps['${s['ingredientKey']}'] = '${s['substituteKey']}';
       }
     }
+    final customSwaps = <String, RecipeSubstitute>{};
+    final rawCustom = json['customSwaps'];
+    if (rawCustom is List<Object?>) {
+      for (final s in rawCustom.whereType<Map<String, dynamic>>()) {
+        final kcal = s['calories'] as num?;
+        customSwaps['${s['ingredientKey']}'] = RecipeSubstitute(
+          key: '${s['key']}',
+          name: '${s['name']}',
+          quantity: (s['quantity'] as num?)?.toDouble(),
+          unit: s['unit']?.toString() ?? '',
+          nutrition: kcal == null
+              ? null
+              : IngredientNutrition(calories: kcal.toDouble()),
+        );
+      }
+    }
     final rawRemoved = json['removed'];
     return CreateVariantRequestDto(
       name: json['name']?.toString() ?? '',
       swaps: swaps,
+      customSwaps: customSwaps,
       removed: rawRemoved is List<Object?>
           ? rawRemoved.map((e) => '$e').toList()
           : const [],
@@ -64,10 +84,13 @@ class CreateVariantRequestDto {
 
   /// Row key → substitute key.
   final Map<String, String> swaps;
+
+  /// Row key → an ingredient the recipe doesn't list.
+  final Map<String, RecipeSubstitute> customSwaps;
   final List<String> removed;
 
-  RecipeCustomization get choices =>
-      RecipeCustomization(swaps: swaps, removed: removed.toSet());
+  RecipeCustomization get choices => RecipeCustomization(
+      swaps: swaps, customSwaps: customSwaps, removed: removed.toSet());
 
   Map<String, dynamic> toJson() => {
         'name': name,
@@ -75,6 +98,18 @@ class CreateVariantRequestDto {
           for (final MapEntry(:key, :value) in swaps.entries)
             {'ingredientKey': key, 'substituteKey': value},
         ],
+        if (customSwaps.isNotEmpty)
+          'customSwaps': [
+            for (final MapEntry(:key, :value) in customSwaps.entries)
+              {
+                'ingredientKey': key,
+                'key': value.key,
+                'name': value.name,
+                'quantity': value.quantity,
+                'unit': value.unit,
+                'calories': value.nutrition?.calories,
+              },
+          ],
         'removed': removed,
       };
 }

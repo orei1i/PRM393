@@ -13,13 +13,14 @@ import 'models/order_model.dart';
 import 'models/payment_model.dart';
 
 /// Buyer side of a booking payment: the order (created when an offer is
-/// accepted, `POST /bookings/{id}/payments` opens its QR) → PaymentOS QR →
-/// status → escrow. Course / VIP Menu purchases and consultations are gone;
+/// accepted) → the gateway's QR (`POST /orders/{id}/payments`, 503
+/// `payment_unavailable` without a gateway) or the wallet → status → escrow.
+/// Course / VIP Menu purchases and consultations are gone;
 /// an unpaid booking is cancelled from the booking itself ("Huỷ yêu cầu").
 abstract interface class CommerceApiService {
   Future<OrderDto> getOrder(String id);
 
-  /// A new QR after the last one expired or failed.
+  /// The open QR, or a new one when there is none, or the last expired or failed.
   Future<PaymentDto> renewPayment(String orderId);
 
   /// Polled every 3 s by the payment screen.
@@ -29,7 +30,8 @@ abstract interface class CommerceApiService {
   /// 409 `insufficient_balance`, 409 `not_awaiting_payment`.
   Future<OrderDto> payWithWallet(String orderId);
 
-  /// Mock/dev only; the real confirmation is the PaymentOS webhook (BE).
+  /// The demo's stand-in for the gateway: mock, or `POST
+  /// /payments/{id}/sandbox-confirm` on the sandbox gateway (no real money).
   Future<PaymentDto> mockConfirmPayment(String paymentId,
       {required bool success});
 }
@@ -69,12 +71,13 @@ class RemoteCommerceApiService implements CommerceApiService {
 
   @override
   Future<PaymentDto> mockConfirmPayment(String paymentId,
-      {required bool success}) async {
-    throw const ApiException(
-      message: 'Chỉ dùng được ở chế độ mô phỏng.',
-      code: 'not_supported',
-    );
-  }
+      {required bool success}) =>
+      guardApi(() async {
+        final res = await _dio.post<Map<String, dynamic>>(
+            ApiEndpoints.paymentSandboxConfirm(paymentId),
+            data: {'success': success});
+        return PaymentDto.fromJson(res.data!);
+      });
 }
 
 final commerceApiProvider = Provider<CommerceApiService>((ref) {

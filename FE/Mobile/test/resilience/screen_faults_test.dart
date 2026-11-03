@@ -52,13 +52,17 @@ class _Gallery implements ScanImageSource {
 }
 
 class _Screen {
-  const _Screen(this.name, this.build, {this.healthy, this.after});
+  const _Screen(this.name, this.build,
+      {this.healthy, this.after, this.modules});
 
   final String name;
   final Widget Function() build;
 
   /// What only a healthy server shows.
   final String? healthy;
+
+  /// Instead of every module the BE supports.
+  final Set<BackendModule> Function()? modules;
 
   /// Steps once the screen is up, such as picking a photo.
   final Future<void> Function(WidgetTester tester)? after;
@@ -84,8 +88,13 @@ final _screens = [
   _Screen('theo dõi cân nặng', () => const BodyMetricsScreen(),
       healthy: 'Mục tiêu'),
   _Screen('Tôi', () => const ProfileScreen(), healthy: 'FE M1'),
-  _Screen('tìm kiếm', () => const SearchScreen(initialQuery: 'dau hu'),
+  _Screen('tìm kiếm', () => const SearchScreen(initialQuery: 'đậu hũ'),
       healthy: 'Đậu hũ'),
+  _Screen('tìm kiếm trên máy (BACKEND_MOCK_MODULES=search)',
+      () => const SearchScreen(initialQuery: 'dau hu'),
+      healthy: 'Đậu hũ',
+      modules: () => {...BackendModules.supportedByBackend}
+        ..remove(BackendModule.search)),
   _Screen('hồ sơ sức khoẻ', () => const HealthProfileEditScreen(),
       healthy: 'BMI 22,3'),
   _Screen('công thức của tôi', () => const MyRecipesScreen(),
@@ -104,6 +113,8 @@ void main() {
   tearDown(() => BackendModules.debugOverride(null));
 
   Future<void> run(WidgetTester tester, _Screen screen, Fault? fault) async {
+    final modules = screen.modules;
+    if (modules != null) BackendModules.debugOverride(modules());
     tester.view
       ..physicalSize = const Size(411, 900)
       ..devicePixelRatio = 1;

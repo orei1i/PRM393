@@ -10,7 +10,6 @@ import 'package:veganlife_mobile/core/config/backend_modules.dart';
 import 'package:veganlife_mobile/core/config/env.dart';
 import 'package:veganlife_mobile/core/models/author_summary.dart';
 import 'package:veganlife_mobile/core/network/api_exception.dart';
-import 'package:veganlife_mobile/core/network/dio_client.dart';
 import 'package:veganlife_mobile/core/session/session_controller.dart';
 import 'package:veganlife_mobile/features/community/data/backend_posts.dart';
 import 'package:veganlife_mobile/features/community/data/community_api_service.dart';
@@ -165,7 +164,7 @@ void main() {
   });
 
   group('post shape', () {
-    test('an uploaded video: absolute URL, Video type, no fake AI recipe',
+    test('an uploaded video: absolute URL, Video type, labelled sample recipe',
         () async {
       final backend = FakeBackend()
         ..on('GET /posts/$_postId', 200,
@@ -182,10 +181,11 @@ void main() {
       expect(post.mediaType, PostMediaType.video);
       expect(post.hasVideo, isTrue);
       expect(post.type, PostType.recipe);
-      expect(post.videoId, isNull);
-      expect(post.videoStatus, isNull);
+      // Module `video` is mock for now; the real-module case is guarded in
+      // video_sample_recipe_test.dart, and the sheet labels the sample.
+      expect(post.videoId, post.id);
       expect(post.videoDurationSeconds, isNull);
-      expect(post.hasAiRecipe, isFalse);
+      expect(post.hasAiRecipe, isTrue);
     });
 
     test('a video from the BE is read as it comes', () async {
@@ -394,29 +394,26 @@ void main() {
       expect(page.nextCursor, isNull);
     });
 
-    test('nothing reads as edited (the BE has no edit, B17), replies included',
-        () async {
+    test(
+        '"(đã sửa)" follows `updatedAt`, which the BE leaves empty until a '
+        'real edit (B17)', () async {
       final raw =
           fixtureData<List<Object?>>('community_fixture_comments_page1.json')
               .first as Map<String, dynamic>;
-      expect(raw['updatedAt'], isNotNull);
-
-      final c = await backendContainer(commentsBackend());
+      final never = {
+        ...raw,
+        'updatedAt': null,
+        'replies': [
+          {...raw, 'id': 'r1', 'parentId': raw['id'], 'updatedAt': null},
+        ],
+      };
+      final backend = FakeBackend()
+        ..on('GET /posts/$_postId/comments', 200, envelope([never, raw]));
+      final c = await backendContainer(backend);
       final page = (await api(c).getComments(_postId)).toEntity();
-      for (final comment in page.items) {
-        expect(comment.isEdited, isFalse);
-        for (final reply in comment.replies) {
-          expect(reply.isEdited, isFalse);
-        }
-      }
-    });
-
-    test('a real edit still reads as edited once the BE can edit', () async {
-      BackendModules.debugOverride(const {});
-      final c = await backendContainer(commentsBackend());
-      final remote = RemoteCommunityApiService(c.read(dioProvider));
-      final page = (await remote.getComments(_postId)).toEntity();
-      expect(page.items.first.isEdited, isTrue);
+      expect(page.items.first.isEdited, isFalse);
+      expect(page.items.first.replies.single.isEdited, isFalse);
+      expect(page.items.last.isEdited, isTrue, reason: 'a real edit');
     });
 
     test('previews and the true reply count', () async {
@@ -457,7 +454,7 @@ void main() {
                 {
                   ...reply,
                   'id': 'reply_$i',
-                  'updatedAt': '2026-11-01T04:54:13.289Z',
+                  'updatedAt': null,
                 },
             ]));
       final c = await backendContainer(backend);
@@ -465,7 +462,7 @@ void main() {
       expect(page.items.map((r) => r.id),
           ['reply_0', 'reply_1', 'reply_2', 'reply_3']);
       expect(page.nextCursor, isNull);
-      expect(page.items.first.toEntity().isEdited, isFalse, reason: 'B17');
+      expect(page.items.first.toEntity().isEdited, isFalse);
       expect(backend.seen.single.queryParameters, isEmpty);
     });
 
@@ -532,11 +529,29 @@ void main() {
       expect(backend.calls, ['DELETE /comments/$_commentId']);
     });
 
-    test('"my comments": no request to a route that is not there', () async {
-      final backend = FakeBackend();
+    test('"my comments": read from the route, with the post they are on',
+        () async {
+      final backend = FakeBackend()
+        ..on(
+            'GET /users/me/comments',
+            200,
+            envelope([
+              {
+                'id': _commentId,
+                'postId': _postId,
+                'postTitle': 'Bài có bình luận',
+                'parentId': null,
+                'content': 'Ngon quá',
+                'createdAt': '2026-10-31T07:19:11Z',
+                'updatedAt': null,
+              },
+            ]));
       final c = await backendContainer(backend);
-      expect(await api(c).getMyComments(), isEmpty);
-      expect(backend.seen, isEmpty);
+      final mine = await api(c).getMyComments();
+      expect(mine.single.text, 'Ngon quá');
+      expect(mine.single.postId, _postId);
+      expect(mine.single.postTitle, 'Bài có bình luận');
+      expect(mine.single.updatedAt, isNull);
     });
   });
 
@@ -639,49 +654,7 @@ void main() {
     });
   });
 
-  group('my posts come from the feed', () {
-    test('keeps the member\'s posts, across pages, until the last page',
-        () async {
-      final backend = FakeBackend();
-      backend.routes['GET /posts'] =
-          _scanFeed(2, (page, i) => i == 0 ? testUserId : 'someone_else');
-      final c = await backendContainer(backend);
-
-      final mine = await api(c).getMyPosts();
-      expect(mine.map((p) => p.id), ['post_1_0', 'post_2_0']);
-      expect(backend.seen, hasLength(2));
-      expect(backend.seen.first.queryParameters, {'limit': 50});
-      expect(backend.seen.last.queryParameters, {'cursor': 'c2', 'limit': 50});
-      expect((api(c) as RemoteCommunityApiService).myPostsTruncated, isFalse);
-    });
-
-    test('stops after 5 pages and says so', () async {
-      final backend = FakeBackend();
-      backend.routes['GET /posts'] = _scanFeed(9, (_, __) => testUserId);
-      final c = await backendContainer(backend);
-
-      expect(await api(c).getMyPosts(), hasLength(10));
-      expect(backend.seen, hasLength(5));
-      expect((api(c) as RemoteCommunityApiService).myPostsTruncated, isTrue);
-    });
-
-    test('exactly 5 pages is not cut short', () async {
-      final backend = FakeBackend();
-      backend.routes['GET /posts'] = _scanFeed(5, (_, __) => testUserId);
-      final c = await backendContainer(backend);
-      await api(c).getMyPosts();
-      expect((api(c) as RemoteCommunityApiService).myPostsTruncated, isFalse);
-    });
-
-    test('a guest has none and asks nothing', () async {
-      final backend = FakeBackend();
-      final c = await backendContainer(backend, signedIn: false);
-      expect(await api(c).getMyPosts(), isEmpty);
-      expect(backend.seen, isEmpty);
-    });
-  });
-
-  group('my posts the feed does not list', () {
+  group('my posts come from GET /users/me/posts', () {
     Map<String, dynamic> post(String id, String status, String createdAt) => {
           'id': id,
           'type': 'recipe',
@@ -693,107 +666,98 @@ void main() {
           'mediaType': 'Text',
         };
 
-    FakeBackend emptyFeed() => FakeBackend()
-      ..on('GET /posts', 200, envelope({'items': [], 'nextCursor': null}));
-
-    test('a post made here is asked by id, with the status it has now',
-        () async {
-      final backend = emptyFeed()
-        ..on('POST /posts', 201,
-            envelope(post('held', 'Published', '2026-10-31T07:19:11Z')))
-        ..on('GET /posts/held', 200,
-            envelope(post('held', 'Pending', '2026-10-31T07:19:11Z')));
+    test('walks the pages by cursor, until the last one', () async {
+      final backend = FakeBackend();
+      backend.routes['GET /users/me/posts'] =
+          _scanFeed(2, (page, i) => testUserId);
       final c = await backendContainer(backend);
 
-      await api(c).createPost(const CreatePostRequestDto(
-          type: PostType.recipe, title: 'Bài mới', body: 'Nội dung'));
       final mine = await api(c).getMyPosts();
-      expect(mine.single.id, 'held');
-      expect(mine.single.toEntity().status, PostStatus.pending);
-      expect(backend.requests('GET /posts/held'), hasLength(1));
+      expect(mine.map((p) => p.id),
+          ['post_1_0', 'post_1_1', 'post_2_0', 'post_2_1']);
+      expect(backend.seen, hasLength(2));
+      expect(backend.seen.first.queryParameters, {'limit': 50});
+      expect(backend.seen.last.queryParameters, {'cursor': 'c2', 'limit': 50});
+      expect((api(c) as RemoteCommunityApiService).myPostsTruncated, isFalse);
     });
 
-    test('survives a restart: the ids are on the device, per account',
-        () async {
-      final backend = emptyFeed()
-        ..on('POST /posts', 201,
-            envelope(post('held', 'Pending', '2026-10-31T07:19:11Z')));
+    test('stops after 5 pages and says so', () async {
+      final backend = FakeBackend();
+      backend.routes['GET /users/me/posts'] =
+          _scanFeed(9, (_, __) => testUserId);
       final c = await backendContainer(backend);
-      await api(c).createPost(const CreatePostRequestDto(
-          type: PostType.recipe, title: 'Bài mới', body: 'Nội dung'));
-      expect(
-          c
-              .read(sharedPreferencesProvider)
-              .getStringList(MyPostIdsStore.keyFor(testUserId)),
-          ['held']);
+
+      expect(await api(c).getMyPosts(), hasLength(10));
+      expect(backend.seen, hasLength(5));
+      expect((api(c) as RemoteCommunityApiService).myPostsTruncated, isTrue);
     });
 
-    test('merged newest first with what the feed lists', () async {
+    test('exactly 5 pages is not cut short', () async {
+      final backend = FakeBackend();
+      backend.routes['GET /users/me/posts'] =
+          _scanFeed(5, (_, __) => testUserId);
+      final c = await backendContainer(backend);
+      await api(c).getMyPosts();
+      expect((api(c) as RemoteCommunityApiService).myPostsTruncated, isFalse);
+    });
+
+    test('a guest has none and asks nothing', () async {
+      final backend = FakeBackend();
+      final c = await backendContainer(backend, signedIn: false);
+      expect(await api(c).getMyPosts(), isEmpty);
+      expect(backend.seen, isEmpty);
+    });
+
+    test('every status is listed, each as it stands', () async {
       final backend = FakeBackend()
         ..on(
-            'GET /posts',
+            'GET /users/me/posts',
             200,
             envelope({
-              'items': [post('live', 'Published', '2026-10-30T07:00:00Z')],
-              'nextCursor': null,
-            }))
-        ..on('POST /posts', 201,
-            envelope(post('held', 'Pending', '2026-10-31T07:00:00Z')))
-        ..on('GET /posts/held', 200,
-            envelope(post('held', 'Pending', '2026-10-31T07:00:00Z')));
-      final c = await backendContainer(backend);
-      await api(c).createPost(const CreatePostRequestDto(
-          type: PostType.recipe, title: 'Bài mới', body: 'Nội dung'));
-      final mine = await api(c).getMyPosts();
-      expect(mine.map((p) => p.id), ['held', 'live']);
-    });
-
-    test('a post seen in the feed is still found after an admin hides it',
-        () async {
-      final backend = FakeBackend()
-        ..on(
-            'GET /posts',
-            200,
-            envelope({
-              'items': [post('live', 'Published', '2026-10-30T07:00:00Z')],
+              'items': [
+                post('wait', 'Pending', '2026-10-31T07:19:11Z'),
+                post('hid', 'Hidden', '2026-10-30T07:19:11Z'),
+                post('new', 'Archived', '2026-10-29T07:19:11Z'),
+                post('live', 'Published', '2026-10-28T07:19:11Z'),
+              ],
               'nextCursor': null,
             }));
       final c = await backendContainer(backend);
-      await api(c).getMyPosts();
-
-      backend
-        ..on('GET /posts', 200, envelope({'items': [], 'nextCursor': null}))
-        ..on('GET /posts/live', 200,
-            envelope(post('live', 'Pending', '2026-10-30T07:00:00Z')));
-      final mine = await api(c).getMyPosts();
-      expect(mine.single.toEntity().isPending, isTrue);
+      final mine = [for (final p in await api(c).getMyPosts()) p.toEntity()];
+      expect(mine.map((p) => p.status), [
+        PostStatus.pending,
+        PostStatus.hidden,
+        PostStatus.unknown,
+        PostStatus.published,
+      ]);
+      expect(mine[1].isPublished, isFalse);
     });
 
-    test('a post that is gone (404) is dropped and forgotten', () async {
-      final backend = emptyFeed()
-        ..on('POST /posts', 201,
-            envelope(post('gone', 'Pending', '2026-10-31T07:19:11Z')))
+    test('a feed row with a status this app does not know stays off the feed',
+        () async {
+      final backend = FakeBackend()
         ..on(
-            'GET /posts/gone', 404, fixture('community_fixture_post_404.json'));
+            'GET /posts',
+            200,
+            envelope({
+              'items': [
+                post('live', 'Published', '2026-10-31T07:19:11Z'),
+                post('new', 'Archived', '2026-10-31T07:19:11Z'),
+                post('hid', 'Hidden', '2026-10-31T07:19:11Z'),
+              ],
+              'nextCursor': null,
+            }));
       final c = await backendContainer(backend);
-      await api(c).createPost(const CreatePostRequestDto(
-          type: PostType.recipe, title: 'Bài mới', body: 'Nội dung'));
-      expect(await api(c).getMyPosts(), isEmpty);
-      await api(c).getMyPosts();
-      expect(backend.requests('GET /posts/gone'), hasLength(1));
+      final page = await api(c).getFeed();
+      expect(page.items.map((p) => p.id), ['live']);
     });
 
-    test('deleting forgets it', () async {
-      final backend = emptyFeed()
-        ..on('POST /posts', 201,
-            envelope(post('mine', 'Pending', '2026-10-31T07:19:11Z')))
-        ..on('DELETE /posts/mine', 200, envelope(null));
+    test('a failure is an error, not an empty list', () async {
+      final backend = FakeBackend()
+        ..on('GET /users/me/posts', 500,
+            {'success': false, 'message': 'Lỗi máy chủ'});
       final c = await backendContainer(backend);
-      await api(c).createPost(const CreatePostRequestDto(
-          type: PostType.recipe, title: 'Bài mới', body: 'Nội dung'));
-      await api(c).deletePost('mine');
-      expect(await api(c).getMyPosts(), isEmpty);
-      expect(backend.requests('GET /posts/mine'), isEmpty);
+      await expectLater(api(c).getMyPosts(), throwsA(isA<ApiException>()));
     });
   });
 
@@ -934,7 +898,7 @@ void main() {
   });
 
   group('reels', () {
-    test('page 1 by pageSize, absolute URL, no fake video', () async {
+    test('page 1 by pageSize, absolute URL, labelled sample recipe', () async {
       final body = fixture('community_fixture_feed_video.json');
       final raw = (((body['data'] as Map)['items'] as List).first
           as Map)['mediaUrl'] as String;
@@ -949,8 +913,8 @@ void main() {
       final reel = reels.first.toEntity();
       expect(reel.videoUrl, '${Env.apiOrigin}$raw');
       expect(reel.post.mediaUrl, '${Env.apiOrigin}$raw');
-      expect(reel.post.videoId, isNull);
-      expect(reel.post.hasAiRecipe, isFalse);
+      expect(reel.post.videoId, reel.post.id);
+      expect(reel.post.hasAiRecipe, isTrue);
       expect(reel.durationSeconds, isNull);
     });
 

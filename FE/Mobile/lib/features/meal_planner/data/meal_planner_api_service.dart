@@ -10,8 +10,6 @@ import '../../../core/session/mock_persona.dart';
 import '../../../core/session/session_controller.dart';
 import '../../../core/utils/formatters.dart';
 import '../../recipe/data/recipe_catalog.dart';
-import '../domain/body_progress.dart';
-import '../domain/entities/health_profile.dart';
 import '../domain/entities/meal_plan.dart';
 import 'mock/mock_recipe_book.dart';
 import 'mock_meal_planner_repository.dart';
@@ -91,12 +89,10 @@ abstract interface class MealPlannerApiService {
 
   Future<RecipeDto> createMyRecipe(CreateRecipeRequestDto request);
 
-  /// "Sửa" on an own recipe, in place. Only when
-  /// [BackendModules.myRecipeEdit]; the real BE has no PUT `/recipes/{id}`.
+  /// "Sửa" on an own recipe, in place.
   Future<RecipeDto> updateMyRecipe(String id, CreateRecipeRequestDto request);
 
-  /// "Xoá" on an own recipe. Only when [BackendModules.myRecipeEdit]; the real
-  /// BE has no DELETE `/recipes/{id}`.
+  /// "Xoá" on an own recipe.
   Future<void> deleteMyRecipe(String id);
 
   /// Dishes chefs suggested to this member ("Từ chuyên gia"); may be empty.
@@ -165,12 +161,9 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
   Future<HealthProfileDto> updateHealthProfile(
           UpdateHealthProfileRequestDto request) =>
       guardApi(() async {
-        // A PUT resets a missing activity level. `null` for a first profile.
-        final saved =
-            request.activityLevel == null ? await getHealthProfile() : null;
         final res = await _dio.put<Map<String, dynamic>>(
             ApiEndpoints.healthProfile,
-            data: request.toBackendJson(saved: saved));
+            data: request.toJson());
         return HealthProfileDto.fromJson(res.data!);
       });
 
@@ -188,48 +181,26 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
         }
       });
 
-  /// The BE checks nothing here (a weight of -5 is stored and overwrites the
-  /// profile, B36; without a profile it logs a made-up height), so the rules of
-  /// the sheet are checked again first. Its POST logs the row but leaves BMR,
-  /// TDEE, the target and the week as they were (B37): the PUT that follows, at
-  /// the weight the profile now has, recomputes them and adds no second row.
-  /// The row is saved even if that PUT fails.
+  /// The BE checks the values (400) and answers 404 without a health profile.
+  /// It recomputes the profile and the week's targets but answers with the row
+  /// only, so the profile is read after it. The row is saved even if that read
+  /// fails: `profile` is then `null`, and asking again would log a second row.
   @override
   Future<LogMeasurementResultDto> logBodyMeasurement(
           LogMeasurementRequestDto request) =>
       guardApi(() async {
-        final problem = BodyProgress.validateMeasurement(request.weightKg);
-        if (problem != null) {
-          throw ApiException(
-              message: problem, statusCode: 400, code: 'invalid_measurement');
-        }
-        final saved = await getHealthProfile();
-        if (saved == null) {
-          throw const ApiException(
-              message: 'Bạn chưa tạo hồ sơ sức khỏe.', statusCode: 404);
-        }
         final logged = await _dio.post<Map<String, dynamic>>(
             ApiEndpoints.healthMetrics,
             data: request.toJson());
-        final measurement = BodyMeasurementDto.fromJson(logged.data!);
-        HealthProfileDto profile;
+        HealthProfileDto? profile;
         try {
-          final res = await _dio.put<Map<String, dynamic>>(
-            ApiEndpoints.healthProfile,
-            data: UpdateHealthProfileRequestDto(
-              heightCm: saved.heightCm,
-              weightKg: request.weightKg,
-              goal: HealthGoal.fromApi(saved.goal),
-              allergies: saved.allergies,
-              dietaryRestrictions: saved.dietaryRestrictions,
-            ).toBackendJson(saved: saved),
-          );
-          profile = HealthProfileDto.fromJson(res.data!);
-        } on DioException {
-          profile = saved;
+          profile = await getHealthProfile();
+        } on ApiException {
+          profile = null;
         }
         return LogMeasurementResultDto(
-            measurement: measurement, profile: profile);
+            measurement: BodyMeasurementDto.fromJson(logged.data!),
+            profile: profile);
       });
 
   @override
@@ -377,16 +348,21 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
         return _myRecipe(res.data!);
       });
 
-  /// Never reached: the UI asks [BackendModules.myRecipeEdit] first.
-  static const _noRecipeEdit = ApiException(
-      message: 'Máy chủ chưa hỗ trợ sửa hoặc xoá công thức.', statusCode: 501);
-
   @override
   Future<RecipeDto> updateMyRecipe(String id, CreateRecipeRequestDto request) =>
-      throw _noRecipeEdit;
+      guardApi(() async {
+        final res = await _dio.put<Map<String, dynamic>>(
+            ApiEndpoints.recipe(id),
+            data: request.toBackendJson());
+        _catalog?.call().invalidate();
+        return _myRecipe(res.data!);
+      });
 
   @override
-  Future<void> deleteMyRecipe(String id) => throw _noRecipeEdit;
+  Future<void> deleteMyRecipe(String id) => guardApi(() async {
+        await _dio.delete<void>(ApiEndpoints.recipe(id));
+        _catalog?.call().invalidate();
+      });
 
   /// Chefs' plans are still mock while bookings are, and so are their dishes.
   @override
@@ -398,6 +374,8 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
           .map((s) => ChefSuggestionDto.fromJson(Map<String, dynamic>.from(s)))
           .toList();
     }
+    // A guest has no bookings, and a 401 here would read as an expired session.
+    if (userId == null) return const [];
     return guardApi(() async {
       final res = await _dio.get<List<dynamic>>(ApiEndpoints.chefSuggestions);
       return _list(res.data, ChefSuggestionDto.fromJson);
@@ -425,7 +403,7 @@ class RemoteMealPlannerApiService implements MealPlannerApiService {
           ApiEndpoints.mealPlanAdjustApply(proposalId),
           data: {'changeIds': changeIds},
         );
-        return MealPlanDto.fromJson(res.data!);
+        return _plan(res.data!);
       });
 }
 

@@ -41,7 +41,8 @@ class MockVideoRepository implements VideoApiService {
   @override
   Future<VideoRecipeDto> getVideo(String id) async {
     await mockDelay(400);
-    final video = _store.get(id);
+    final video = _store.get(id) ??
+        (BackendModules.isHybrid ? _store.sampleFor(id) : null);
     if (video == null) {
       throw const ApiException(
           message: 'Video không còn tồn tại.', statusCode: 404);

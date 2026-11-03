@@ -63,6 +63,16 @@ abstract final class BackendModules {
     BackendModule.allergens,
     BackendModule.recipes,
     BackendModule.scanner,
+    BackendModule.chefs,
+    BackendModule.bookings,
+    BackendModule.commerce,
+    BackendModule.chefStudio,
+    BackendModule.chefWallet,
+    BackendModule.chatbot,
+    BackendModule.search,
+    BackendModule.restaurants,
+    BackendModule.ads,
+    BackendModule.recipeSocial,
   };
 
   static final Set<BackendModule> _configured = resolveRealModules(
@@ -128,32 +138,40 @@ abstract final class BackendModules {
   // its getter changes here and nowhere else.
 
   /// PUT `/posts/{id}` ("Sửa bài").
-  static bool get postEdit => isMock(BackendModule.community);
+  static bool get postEdit => true;
 
   /// PUT on a comment ("Sửa").
-  static bool get commentEdit => isMock(BackendModule.community);
+  static bool get commentEdit => true;
 
   /// GET `/posts/{id}/comments/{cid}/replies` ("Xem thêm N phản hồi").
   static bool get commentReplyPaging => true;
 
   /// GET `/users/me/comments` (the "Bình luận" tab of "Nội dung của tôi").
-  static bool get myComments => isMock(BackendModule.community);
+  static bool get myComments => true;
 
-  /// `restaurantId` on a post ("Gắn quán").
-  static bool get restaurantTag => isMock(BackendModule.community);
+  /// `restaurantId` on a post ("Gắn quán"). On the real BE only with real
+  /// restaurants: a sample place has an id the BE doesn't know.
+  static bool get restaurantTag =>
+      isMock(BackendModule.community) || isReal(BackendModule.restaurants);
 
-  /// POST `/meal-plans/current/adjust` ("Chỉnh thực đơn với AI").
-  static bool get planAdjust => isMock(BackendModule.planner);
+  /// POST `/meal-plans/current/adjust` ("Chỉnh thực đơn").
+  static bool get planAdjust => true;
+
+  /// The real BE reads the request by rules and calls no AI, so the screens
+  /// don't claim one there.
+  static String get planAdjustTitle => isMock(BackendModule.planner)
+      ? 'Chỉnh thực đơn với AI'
+      : 'Chỉnh thực đơn';
 
   /// Emptying a week that already has meals ("Tự lên thực đơn"): POST
   /// `/meal-plans` with `empty: true`.
   static bool get planClear => true;
 
   /// `servings` on POST `/recipes` ("Số phần ăn" of an own recipe).
-  static bool get recipeServings => isMock(BackendModule.recipes);
+  static bool get recipeServings => true;
 
   /// PUT and DELETE on `/recipes/{id}` ("Sửa", "Xoá" in "Công thức của tôi").
-  static bool get myRecipeEdit => isMock(BackendModule.planner);
+  static bool get myRecipeEdit => true;
 
   /// Macros of a typed dish on POST `/meal-plans/current/meals`.
   static bool get manualMealMacros => true;
@@ -161,6 +179,10 @@ abstract final class BackendModules {
   /// "Thanh toán bằng ví": the wallet and the order must live on the same
   /// side, a mock wallet can't pay a real order (nor the other way round). The
   /// member's wallet ships with the chef's ([BackendModule.chefWallet]).
+  ///
+  /// `chefs`, `bookings`, `commerce` and `chefWallet` only make sense together:
+  /// a booking is made with a chef of the directory, its order and its money
+  /// live on the same side. Switch them as a group.
   static bool get payFromWallet =>
       isMock(BackendModule.commerce) == isMock(BackendModule.chefWallet);
 

@@ -71,8 +71,8 @@ final _cases = <(String, Widget Function(), List<String>)>[
   ('Tôi', () => const ProfileScreen(), ['GET /users/me']),
   (
     'tìm kiếm',
-    () => const SearchScreen(initialQuery: 'dau hu'),
-    ['GET /posts', 'GET /ingredients']
+    () => const SearchScreen(initialQuery: 'đậu hũ'),
+    ['GET /search', 'GET /search/discover']
   ),
   (
     'hồ sơ sức khoẻ',
@@ -171,8 +171,19 @@ void main() {
   setUp(() => BackendModules.debugOverride(BackendModules.supportedByBackend));
   tearDown(() => BackendModules.debugOverride(null));
 
-  for (final (name, build, routes) in _cases) {
+  for (final (name, build, routes) in [
+    ..._cases,
+    (
+      'tìm kiếm trên máy (BACKEND_MOCK_MODULES=search)',
+      () => const SearchScreen(initialQuery: 'dau hu'),
+      ['GET /posts', 'GET /ingredients']
+    ),
+  ]) {
     testWidgets('$name: one bad field at a time', (tester) async {
+      if (name.contains('BACKEND_MOCK_MODULES=search')) {
+        BackendModules.debugOverride({...BackendModules.supportedByBackend}
+          ..remove(BackendModule.search));
+      }
       tester.view
         ..physicalSize = const Size(411, 900)
         ..devicePixelRatio = 1;

@@ -5,14 +5,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/utils/formatters.dart';
+import '../../../../core/widgets/demo_data_banner.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/vl_card.dart';
 import '../../data/video_api_service.dart';
 import '../../domain/entities/video_recipe.dart';
 import 'ai_pipeline_status.dart';
+
+/// Under the banner on a real BE: this recipe wasn't read from this video.
+const sampleRecipeNote = 'Công thức minh hoạ, chưa được đọc từ video này.';
 
 /// "Xem công thức" on a video post or a reel: the AI recipe in a bottom
 /// sheet (85 % of the screen, drag down to close) over the player. Tapping
@@ -126,6 +131,13 @@ class _VideoRecipeSheetState extends ConsumerState<VideoRecipeSheet> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (DemoDataBanner.visibleFor(BackendModule.video)) ...[
+            const DemoDataBanner(module: BackendModule.video),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 6, 20, 2),
+              child: Text(sampleRecipeNote),
+            ),
+          ],
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 8, 4),
             child: Row(

@@ -87,14 +87,18 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
 
   // ---- actions --------------------------------------------------------------
 
+  /// Opens the payment screen from the order, which exists once an offer is
+  /// accepted. The QR is asked for there: without a gateway (503) the member
+  /// stays on that screen, told so, and can still pay from the wallet.
   Future<void> _pay(BookingDto b) async {
-    final navigator = Navigator.of(context);
-    String? orderId;
-    final ok = await _run(() async {
-      orderId = (await _api.startPayment(b.id)).id;
-    });
-    if (!ok || orderId == null || !mounted) return;
-    await navigator.push(PaymentScreen.route(orderId!));
+    final orderId = b.paymentOrderId;
+    if (orderId == null) {
+      _snack('Chưa có đơn thanh toán cho yêu cầu này. Bạn thử lại sau nhé.');
+      ref.bookingChanged();
+      return;
+    }
+    await Navigator.of(context)
+        .push(PaymentScreen.route(orderId, autoRenew: true));
     if (mounted) ref.bookingChanged();
   }
 
@@ -241,12 +245,14 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       ),
     );
     if (ok != true || !mounted) return;
-    final done = await _run(
-        () => _api.respondToOffer(b.id, offer.id, accept: true),
+    BookingDto? accepted;
+    final done = await _run(() async {
+      accepted = await _api.respondToOffer(b.id, offer.id, accept: true);
+    },
         done: asMember
             ? null
             : 'Đã tạo hồ sơ hợp đồng. Chờ thành viên thanh toán.');
-    if (done && asMember && mounted) await _pay(b);
+    if (done && asMember && mounted && accepted != null) await _pay(accepted!);
   }
 
   Future<void> _complain(BookingDto b) async {
@@ -398,7 +404,8 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(bookingProvider(widget.bookingId));
-    final me = ref.watch(sessionControllerProvider.select(mockPersonaId));
+    final me = ref.watch(sessionControllerProvider
+        .select((s) => moduleUserId(BackendModule.bookings, s)));
     final booking = async.valueOrNull;
     final party = booking?.partyOf(me);
     return AskAiBubbleFree(

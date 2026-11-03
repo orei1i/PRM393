@@ -23,11 +23,10 @@ class VeganVerdict {
       : isVegan = false,
         nonVeganReason = reason;
 
-  /// The BE's verdict on a food this app's own check finds vegan. It goes by
-  /// words in the name ("Bơ" could be butter, "Đậu gà" has "gà"), so the app
-  /// repeats it without claiming it.
+  /// The BE's verdict on a food this app's own check finds vegan ("Tiết canh"):
+  /// its list is longer than this one.
   factory VeganVerdict.server() => const VeganVerdict.nonVegan(
-        reason: 'Máy chủ xét theo tên nên có thể nhầm với món thuần chay.',
+        reason: 'Danh mục của máy chủ ghi món này có thành phần động vật.',
         byServerOnly: true,
       );
 
@@ -127,7 +126,7 @@ const _plantPhrases = [
   'sữa đậu nành', 'sữa đậu', 'sữa hạt', 'sữa dừa', 'sữa yến mạch',
   'sữa hạnh nhân', 'sữa gạo', 'sữa óc chó', 'sữa điều', 'sữa bắp', 'sữa mè',
   'sữa chua dừa', 'sữa chua hạt', 'sữa chua đậu nành', 'bơ đậu phộng',
-  'bơ hạt', 'bơ thực vật',
+  'bơ hạt', 'bơ thực vật', 'phô mai hạt điều', 'phô mai hạt', 'phô mai dừa',
 ];
 
 /// Words that make any name vegan ("gà chay", "nước mắm chay").

@@ -11,7 +11,10 @@
 // → 201 { "measurement": { …, "source": "check_in" }, "profile": HealthProfileDto }
 // The server uses the saved height, recomputes BMI/BMR/TDEE, updates the
 // profile and the current week's targets (like PUT /health-profile/me) and
-// logs one row.
+// logs one row. The real BE answers with the bare row, without `source`, so its
+// rows never read "Từ Hồ sơ sức khoẻ" and the service reads the profile after
+// it; it answers 404 without a health profile and 400 for a value out of its
+// range (20–300 kg; the sheet keeps its own, narrower 30–250).
 import '../../../../core/utils/bmi.dart';
 import '../../../../core/utils/json_helpers.dart';
 import '../../domain/entities/body_measurement.dart';
@@ -81,10 +84,10 @@ class LogMeasurementRequestDto {
   Map<String, dynamic> toJson() => {'weightKg': weightKg};
 }
 
-/// The logged row and the profile the server recomputed from it.
+/// The logged row and the profile the server recomputed from it; `null` when
+/// the row is saved but the profile could not be read back.
 class LogMeasurementResultDto {
-  const LogMeasurementResultDto(
-      {required this.measurement, required this.profile});
+  const LogMeasurementResultDto({required this.measurement, this.profile});
 
   factory LogMeasurementResultDto.fromJson(Map<String, dynamic> json) =>
       LogMeasurementResultDto(
@@ -93,10 +96,10 @@ class LogMeasurementResultDto {
       );
 
   final BodyMeasurementDto measurement;
-  final HealthProfileDto profile;
+  final HealthProfileDto? profile;
 
   Map<String, dynamic> toJson() => {
         'measurement': measurement.toJson(),
-        'profile': profile.toJson(),
+        if (profile != null) 'profile': profile!.toJson(),
       };
 }

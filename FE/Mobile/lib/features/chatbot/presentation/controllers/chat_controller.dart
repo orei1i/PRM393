@@ -68,6 +68,7 @@ final chatControllerProvider =
 class ChatController extends Notifier<ChatState> {
   StreamSubscription<ChatStreamEvent>? _subscription;
   CancelToken? _cancelToken;
+  bool _sawDone = false;
 
   ChatApiService get _api => ref.read(chatApiProvider);
 
@@ -203,6 +204,7 @@ class ChatController extends Notifier<ChatState> {
       required String question,
       required ChatRequestDto request}) {
     _cancelStream();
+    _sawDone = false;
     final token = CancelToken();
     _cancelToken = token;
     _subscription = _api
@@ -233,6 +235,7 @@ class ChatController extends Notifier<ChatState> {
         _replace(
             id, message.copyWith(citations: [...message.citations, entity]));
       case ChatDoneEvent(:final trialRemaining):
+        _sawDone = true;
         if (trialRemaining != null) {
           state = state.copyWith(trialRemaining: trialRemaining);
         }
@@ -245,7 +248,18 @@ class ChatController extends Notifier<ChatState> {
   void _onDone(String id) {
     final message = _byId(id);
     if (message != null && message.isInProgress) {
-      _replace(id, message.copyWith(status: MessageStatus.complete));
+      // No `done`: the connection closed cleanly in the middle of the answer.
+      _replace(
+        id,
+        _sawDone
+            ? message.copyWith(status: MessageStatus.complete)
+            : message.copyWith(
+                status: message.content.isEmpty
+                    ? MessageStatus.failed
+                    : MessageStatus.interrupted,
+                errorMessage: 'Câu trả lời bị ngắt giữa chừng.',
+              ),
+      );
     }
     state = state.copyWith(isStreaming: false);
   }

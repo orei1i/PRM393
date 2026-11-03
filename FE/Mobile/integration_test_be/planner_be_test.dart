@@ -10,6 +10,7 @@ import 'package:veganlife_mobile/features/meal_planner/data/models/health_profil
 import 'package:veganlife_mobile/features/meal_planner/data/models/meal_plan_model.dart';
 import 'package:veganlife_mobile/features/meal_planner/domain/entities/health_profile.dart';
 import 'package:veganlife_mobile/features/meal_planner/domain/entities/meal_plan.dart';
+import 'package:veganlife_mobile/features/meal_planner/domain/entities/plan_adjustment.dart';
 import 'package:veganlife_mobile/features/meal_planner/presentation/controllers/meal_plan_controller.dart';
 import 'package:veganlife_mobile/features/recipe/data/recipe_api_service.dart';
 
@@ -242,9 +243,58 @@ Future<void> main() async {
       expect(meal(MealSlot.snackAm), isNull);
     });
 
-    beTest('"Từ chuyên gia" comes from the mock persona while bookings is mock',
+    beTest('"Chỉnh thực đơn": a proposal changes nothing; applied once',
         () async {
-      expect(await notifier().fetchChefSuggestions(), isNotEmpty);
+      final user = await be.newUser(name: 'FE IT Planner Adjust');
+      final api = RemoteMealPlannerApiService(user.dio, userId: user.id);
+      await api.updateHealthProfile(const UpdateHealthProfileRequestDto(
+        heightCm: 170,
+        weightKg: 66,
+        goal: HealthGoal.maintain,
+        allergies: [],
+        dietaryRestrictions: [],
+        gender: Gender.female,
+        birthYear: 1997,
+        activityLevel: ActivityLevel.light,
+        mealPattern: [MealSlot.breakfast, MealSlot.lunch, MealSlot.dinner],
+      ));
+      final monday = startOfWeek(DateTime.now());
+      final plan = await api.generateMealPlan(startDate: monday);
+      final proposal = await api.adjustPlan(AdjustPlanRequestDto(
+        message: 'Nấu nhanh hơn cho cả tuần',
+        scope: AdjustScope.week,
+        date: monday,
+      ));
+      expect(proposal.proposalId, isNotEmpty);
+      expect(proposal.reply, isVietnamese);
+      final changes = proposal.toEntity().changes;
+      expect(changes, isNotEmpty, reason: proposal.reply);
+      for (final change in changes) {
+        expect(change.to, isNotNull, reason: 'a replacement says with what');
+      }
+      final before = await api.getCurrentMealPlan();
+      expect([
+        for (final d in before!.days) d.meals.keys.length
+      ], [
+        for (final d in plan.days) d.meals.keys.length
+      ], reason: 'nothing applied yet');
+
+      final first = proposal.changes.first;
+      final applied = await api.applyAdjustment(
+          proposalId: proposal.proposalId, changeIds: [first.id]);
+      final day = applied.days
+          .singleWhere((d) => toApiDate(d.date) == toApiDate(first.date));
+      expect(day.meals[first.slot]?.name, first.to!.name);
+      await expectApiError(
+          api.applyAdjustment(
+              proposalId: proposal.proposalId, changeIds: [first.id]),
+          status: 409,
+          code: 'already_applied');
+    });
+
+    beTest('"Từ chuyên gia" is empty with no booking: nothing made up',
+        () async {
+      expect(await notifier().fetchChefSuggestions(), isEmpty);
     });
 
     beTest('"Áp dụng kế hoạch": a batch lands on the real plan', () async {

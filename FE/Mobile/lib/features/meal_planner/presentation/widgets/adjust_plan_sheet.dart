@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/widgets/vl_card.dart';
@@ -144,7 +145,7 @@ class _AdjustPlanSheetState extends ConsumerState<AdjustPlanSheet> {
                 Icon(Icons.auto_awesome, color: vl.ai),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text('Chỉnh thực đơn với AI',
+                  child: Text(BackendModules.planAdjustTitle,
                       style: context.textStyles.titleLarge),
                 ),
                 IconButton(
@@ -205,7 +206,10 @@ class _AdjustPlanSheetState extends ConsumerState<AdjustPlanSheet> {
                             dimension: 16,
                             child: CircularProgressIndicator(strokeWidth: 2)),
                         const SizedBox(width: 8),
-                        Text('AI đang xem thực đơn…',
+                        Text(
+                            BackendModules.isMock(BackendModule.planner)
+                                ? 'AI đang xem thực đơn…'
+                                : 'Đang xem thực đơn…',
                             style: context.textStyles.bodySmall
                                 ?.copyWith(color: vl.muted)),
                       ],

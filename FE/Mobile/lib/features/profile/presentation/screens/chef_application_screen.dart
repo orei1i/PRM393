@@ -7,7 +7,6 @@ import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/vl_colors.dart';
 import '../../../../core/widgets/vl_card.dart';
 import '../../../chef/domain/chef_specialties.dart';
-import '../../data/profile_api_service.dart';
 import '../../domain/entities/user_profile.dart';
 import '../controllers/profile_controller.dart';
 
@@ -120,9 +119,6 @@ class _ChefApplicationScreenState extends ConsumerState<ChefApplicationScreen> {
     });
   }
 
-  /// The real BE has no chef applications yet.
-  bool get _savedOnDeviceOnly => BackendModules.isReal(BackendModule.profile);
-
   Future<void> _submit() async {
     final valid = _form.currentState?.validate() ?? false;
     if (!valid || _specialties.isEmpty || _certificates.isEmpty) {
@@ -144,10 +140,9 @@ class _ChefApplicationScreenState extends ConsumerState<ChefApplicationScreen> {
           );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(_savedOnDeviceOnly
-                ? chefApplicationLocalNote
-                : 'Đã gửi hồ sơ. Ban quản trị sẽ phản hồi trong 1–3 ngày làm việc.')),
+        const SnackBar(
+            content: Text(
+                'Đã gửi hồ sơ. Ban quản trị sẽ phản hồi trong 1–3 ngày làm việc.')),
       );
       Navigator.of(context).pop();
     } catch (e) {
@@ -329,7 +324,8 @@ class _ChefApplicationScreenState extends ConsumerState<ChefApplicationScreen> {
                   child: Text('Thêm ít nhất một chứng chỉ.',
                       style: TextStyle(color: context.colors.error)),
                 ),
-              if (!_savedOnDeviceOnly) ...[
+              // The real BE sends no email yet.
+              if (BackendModules.isMock(BackendModule.profile)) ...[
                 const SizedBox(height: 6),
                 Text(
                   'Ảnh chụp chứng chỉ sẽ được yêu cầu qua email sau khi gửi hồ sơ.',

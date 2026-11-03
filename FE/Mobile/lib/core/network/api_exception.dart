@@ -88,9 +88,10 @@ ApiException _fromResponse(DioException err) {
 
 const _invalidInput = 'Dữ liệu gửi lên chưa hợp lệ.';
 
-/// A BE source file saved in the wrong encoding (B35): "Email hoáº·c máº­t…". Such
-/// a message reads as if there were none, so the status decides the text.
-/// Remove with B35.
+/// Text saved in the wrong encoding: "Email hoáº·c máº­t…". Such a message reads as
+/// if there were none, so the status decides the text. The BE no longer sends
+/// any (B35), so this only guards against a new source file or a proxy, like the
+/// `garbledMessage` fault of `test/resilience`.
 final _garbled = RegExp(r'Ã[\u0080-\u00BF\u2018-\u203A]|Ä|Æ|á[º»]|â€');
 
 /// The first usable message of each field of `errors`, joined:

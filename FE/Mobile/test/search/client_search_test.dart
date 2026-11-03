@@ -185,7 +185,8 @@ Future<void> _dispose(WidgetTester tester) async {
 void main() {
   setUp(() {
     MockRestaurantRepository.reset();
-    BackendModules.debugOverride(BackendModules.supportedByBackend);
+    BackendModules.debugOverride({...BackendModules.supportedByBackend}
+      ..removeAll({BackendModule.search, BackendModule.restaurants}));
   });
   tearDown(() => BackendModules.debugOverride(null));
 

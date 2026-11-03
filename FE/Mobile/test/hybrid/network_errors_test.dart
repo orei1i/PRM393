@@ -141,7 +141,9 @@ void main() {
       expect(error.message, 'Dữ liệu yêu cầu không hợp lệ.');
     });
 
-    group('garbled text from the BE (B35) never shows', () {
+    // B35 is fixed in the BE (be_bug_pins_test.dart guards that); this guards
+    // against the next source of it.
+    group('garbled text never shows', () {
       for (final (status, garbled, shown) in [
         (404, 'KhÃ´ng tÃ¬m tháº¥y user vá»›i id: 1', 'Không tìm thấy dữ liệu.'),
         (
@@ -163,6 +165,20 @@ void main() {
         test(garbled, () async {
           final error = await _errorOf({'success': false, 'message': garbled},
               status: status);
+          expect(error.message, shown);
+        });
+      }
+    });
+
+    group('the text of an error', () {
+      for (final (status, shown) in [
+        (404, 'Không tìm thấy dữ liệu.'),
+        (401, 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.'),
+        (400, 'Dữ liệu gửi lên chưa hợp lệ.'),
+        (403, 'Bạn không có quyền thực hiện thao tác này.'),
+      ]) {
+        test('no message: $status reads by its status', () async {
+          final error = await _errorOf({'success': false}, status: status);
           expect(error.message, shown);
         });
       }
@@ -233,15 +249,23 @@ void main() {
         AuthErrors.localize(
             ApiException(message: message, statusCode: status, code: code));
 
-    test('a code sent as message maps to Vietnamese and becomes the code', () {
-      final invalid = localize('invalid_code', 400);
+    test('a code maps to Vietnamese and stays the code (B23)', () {
+      final invalid =
+          localize('Mã xác thực không hợp lệ.', 400, code: 'invalid_code');
       expect(invalid.message, AuthErrors.invalidCode);
       expect(invalid.code, 'invalid_code');
 
       // The screen allows "Gửi lại mã" right away on this code.
-      final expired = localize('code_expired', 400);
+      final expired =
+          localize('Mã xác thực đã hết hạn.', 400, code: 'code_expired');
       expect(expired.message, AuthErrors.codeExpired);
       expect(expired.code, 'code_expired');
+    });
+
+    test('a code in the message is only text now (B23)', () {
+      final e = localize('invalid_code', 400);
+      expect(e.message, 'invalid_code');
+      expect(e.code, isNull);
     });
 
     test('still maps by code', () {
@@ -269,7 +293,7 @@ void main() {
       expect(AuthErrors.localize(coded), same(coded));
     });
 
-    test('garbled login and register errors read by status (B35)', () async {
+    test('garbled login and register errors read by status', () async {
       final container = await _container(
         _FakeAdapter({
           '/auth/login': (
@@ -305,6 +329,46 @@ void main() {
       );
     });
 
+    test('login and register errors read as the BE words them (B35)', () async {
+      final container = await _container(
+        _FakeAdapter({
+          '/auth/login': (
+            401,
+            {
+              'success': false,
+              'code': 'unauthorized',
+              'message': 'Email hoặc mật khẩu không đúng.',
+              'statusCode': 401,
+            }
+          ),
+          '/auth/register': (
+            409,
+            {
+              'success': false,
+              'code': 'conflict',
+              'message': 'Email này đã có tài khoản. Đăng nhập hoặc dùng email '
+                  'khác.',
+              'statusCode': 409,
+            }
+          ),
+        }),
+        signedIn: false,
+      );
+      final api = RemoteAuthApiService(container.read(dioProvider));
+      await expectLater(
+        api.login(email: 'a@example.com', password: 'x'),
+        throwsA(isA<ApiException>()
+            .having((e) => e.message, 'message', AuthErrors.invalidCredentials)
+            .having((e) => e.code, 'code', 'unauthorized')),
+      );
+      await expectLater(
+        api.register(const RegisterRequest(
+            fullName: 'A', email: 'a@example.com', password: 'x')),
+        throwsA(isA<ApiException>()
+            .having((e) => e.message, 'message', AuthErrors.emailTaken)),
+      );
+    });
+
     test(
         'a Vietnamese message on the verify route stays; a used-up code can be '
         'sent again at once', () async {
@@ -312,14 +376,26 @@ void main() {
       const usedUp = 'Bạn đã nhập sai mã xác thực quá 5 lần. Vui lòng yêu cầu '
           'mã mới.';
       const gone = 'Mã xác thực không hợp lệ hoặc đã hết hạn.';
-      final kept = localize(wrong, 400);
-      expect(kept.message, wrong);
-      expect(kept.code, isNull);
-      for (final message in [usedUp, gone]) {
-        final e = localize(message, 400);
+      final kept = localize(wrong, 400, code: 'invalid_code');
+      expect(kept.message, AuthErrors.invalidCode);
+      expect(kept.code, 'invalid_code');
+      for (final (message, code) in [
+        (usedUp, 'too_many_attempts'),
+        (gone, 'invalid_code'),
+      ]) {
+        final e = localize(message, 400, code: code);
         expect(e.message, message);
-        expect(e.code, 'code_expired');
+        expect(e.code, 'code_expired', reason: 'not "thử lại sau 5 phút"');
       }
+    });
+
+    test('too many sign-ins is still a wait, not a new code', () {
+      final e = localize('Bạn thử sai quá nhiều lần. Thử lại sau 5 phút.', 429,
+          code: 'too_many_requests');
+      expect(e.code, 'too_many_requests');
+      expect(e.message, contains('5 phút'));
+      expect(localize('x', 429, code: 'too_many_attempts').message,
+          AuthErrors.tooManyAttempts);
     });
 
     test('verify-reset-code through the real pipeline', () async {
@@ -329,9 +405,9 @@ void main() {
             400,
             {
               'success': false,
-              'message': 'invalid_code',
+              'code': 'invalid_code',
+              'message': 'Mã xác thực không chính xác.',
               'statusCode': 400,
-              'detail': 'System.ArgumentException: invalid_code',
             }
           ),
         }),

@@ -237,8 +237,8 @@ class _PantryScreenState extends ConsumerState<PantryScreen> {
   }
 
   /// The server's warning, else the app's own check, which also knows the
-  /// names the BE has no keyword for. Always with the app's allergen names: the
-  /// BE's text has raw ids ("Cảnh báo dị ứng: peanut").
+  /// names the BE has no keyword for. Always in the app's sentence:
+  /// the BE's text is "Cảnh báo dị ứng: Đậu phộng".
   static String? _allergyWarning(PantryItem item, List<String> allergies) {
     final conflicts = item.allergyWarning?.split(':').last.split(',') ??
         allergyConflicts(

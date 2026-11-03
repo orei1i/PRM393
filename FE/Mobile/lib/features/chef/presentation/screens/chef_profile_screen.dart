@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/backend_modules.dart';
 import '../../../../core/session/mock_persona.dart';
 import '../../../../core/session/session_controller.dart';
 import '../../../../core/theme/vl_colors.dart';
@@ -51,7 +52,7 @@ class _ChefProfileScreenState extends ConsumerState<ChefProfileScreen> {
     final me = ref.read(sessionControllerProvider);
     return !me.isGuest &&
         chef.userId != null &&
-        chef.userId == mockPersonaId(me);
+        chef.userId == moduleUserId(BackendModule.chefs, me);
   }
 
   Future<void> _book(Chef chef) async {
