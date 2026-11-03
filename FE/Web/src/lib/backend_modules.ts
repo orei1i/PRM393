@@ -3,7 +3,7 @@
 //
 //   NEXT_PUBLIC_USE_MOCK_DATA !== "false"   every module is mock (the default)
 //   NEXT_PUBLIC_USE_MOCK_DATA=false         REAL_DEFAULT is real, the rest stay mock
-//   NEXT_PUBLIC_REAL_MODULES=comments,ads   adds modules to the real set
+//   NEXT_PUBLIC_REAL_MODULES=commerce,ads   adds modules to the real set
 //   NEXT_PUBLIC_MOCK_MODULES=content        removes modules (a module in both ends up mock)
 //
 // `auth` mock means everything is mock: real modules need a JWT and a mock session has none.
@@ -30,8 +30,8 @@ export const WEB_MODULES = [
 
 export type WebModule = (typeof WEB_MODULES)[number];
 
-/** What the backend supports today (be_integration_plan §4). Flipping a module later is one line. */
-const REAL_DEFAULT: readonly WebModule[] = ["auth", "users", "content"];
+/** What the backend supports today and an integration run has passed. Flipping a module later is one line. */
+const REAL_DEFAULT: readonly WebModule[] = WEB_MODULES;
 
 /** Comma-separated, case-insensitive module names. Unknown names are ignored. */
 function parseModules(raw: string | undefined): WebModule[] {
@@ -74,7 +74,7 @@ const PAGE_MODULE: Record<string, WebModule> = {
 
 /** Header badge text for a page. A hybrid build says per page which data it is showing. */
 export function dataModeLabel(pathname: string): string {
-  if (ALL_MODULES_REAL) return "Production";
+  if (ALL_MODULES_REAL) return "Dữ liệu máy chủ";
   const pageModule = PAGE_MODULE[pathname];
   return pageModule && !isMock(pageModule) ? "Dữ liệu máy chủ" : "Dữ liệu mô phỏng";
 }

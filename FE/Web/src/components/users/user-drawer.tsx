@@ -15,7 +15,7 @@ import { Input, Label, Skeleton, Textarea } from "@/components/ui/form-controls"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { describeError } from "@/lib/api_error";
 import { readSession } from "@/lib/auth";
-import { isMock, UNSUPPORTED_ACTION } from "@/lib/backend_modules";
+import { isMock } from "@/lib/backend_modules";
 import { useDeleteUser, useSetUserRole, useSetUserStatus, useUpdateUser } from "@/lib/hooks/use-admin";
 import { useWallets } from "@/lib/hooks/use-payouts";
 import { dateFormat, formatAge, formatNumber } from "@/lib/utils";
@@ -26,12 +26,12 @@ import { UserRoleBadges, UserStatusBadge } from "./status-badge";
 const MIN_REASON = 10;
 const dateVi = dateFormat({ day: "2-digit", month: "2-digit", year: "numeric" });
 
-/** Real mode: the backend lists, edits (name, phone only) and deletes users, and has no activity or post counts. */
+/** Real mode: name and phone can be edited too. */
 const REAL = !isMock("users");
 /** Real users with the comments page still on sample data: their comments are not there. */
 const COMMENTS_LINK = !REAL || !isMock("comments");
-/** Wallets are sample data keyed by sample user ids, so they only line up with sample users. */
-const WALLET_SECTION = !REAL && isMock("payouts");
+/** Users and wallets must be on the same side: sample wallets are keyed by sample user ids. */
+const WALLET_SECTION = REAL === !isMock("payouts");
 const MAX_NAME = 100;
 
 export function UserDrawer({ user, onOpenChange }: { user: AdminUser | null; onOpenChange: (open: boolean) => void }) {
@@ -129,9 +129,9 @@ function UserDetail({ user, onClose }: { user: AdminUser; onClose: () => void })
           <Info label="Số điện thoại" value={user.phone || "—"} />
           <Info label="Đăng nhập bằng" value={user.authType === "Google" ? "Google" : "Email & mật khẩu"} />
           <Info label="Tham gia" value={dateVi.format(new Date(user.createdAt))} />
-          <Info label="Hoạt động gần nhất" value={REAL ? "—" : user.lastActiveAt ? `${formatAge(user.lastActiveAt)} trước` : "Chưa đăng nhập"} />
-          <Info label="Bài viết" value={REAL ? "—" : formatNumber(user.postCount)} />
-          <Info label="Bị báo cáo" value={REAL ? "—" : formatNumber(user.reportCount)} highlight={user.reportCount > 0} />
+          <Info label="Hoạt động gần nhất" value={user.lastActiveAt ? `${formatAge(user.lastActiveAt)} trước` : REAL ? "Chưa có dữ liệu" : "Chưa đăng nhập"} />
+          <Info label="Bài viết" value={formatNumber(user.postCount)} />
+          <Info label="Bị báo cáo" value={formatNumber(user.reportCount)} highlight={user.reportCount > 0} />
         </dl>
 
         {isSelf && (
@@ -146,7 +146,7 @@ function UserDetail({ user, onClose }: { user: AdminUser; onClose: () => void })
             <Button asChild size="sm" variant="outline">
               <Link href={`/content?author=${encodeURIComponent(user.id)}`}>
                 <FileText aria-hidden />
-                {REAL ? "Bài viết & video" : `Bài viết & video (${formatNumber(user.postCount)})`}
+                {`Bài viết & video (${formatNumber(user.postCount)})`}
               </Link>
             </Button>
             {COMMENTS_LINK && (
@@ -174,7 +174,7 @@ function UserDetail({ user, onClose }: { user: AdminUser; onClose: () => void })
                 aria-checked={user.role === role}
                 variant={user.role === role ? "secondary" : "outline"}
                 size="sm"
-                disabled={REAL || isSelf || isChef || setRole.isPending || user.role === role}
+                disabled={isSelf || isChef || setRole.isPending || user.role === role}
                 onClick={() => setConfirmRole(role)}
               >
                 {role === "Admin" ? <ShieldCheck aria-hidden /> : <UserRound aria-hidden />}
@@ -183,11 +183,9 @@ function UserDetail({ user, onClose }: { user: AdminUser; onClose: () => void })
             ))}
           </div>
           <p id="role-hint" className="text-xs text-muted-foreground">
-            {REAL
-              ? UNSUPPORTED_ACTION
-              : isChef
-                ? "Vai trò Chuyên gia được cấp khi duyệt hồ sơ chuyên gia."
-                : "Quản trị viên đăng nhập được trang web này; thành viên chỉ dùng ứng dụng di động."}
+            {isChef
+              ? "Vai trò Chuyên gia được cấp khi duyệt hồ sơ chuyên gia."
+              : "Quản trị viên đăng nhập được trang web này; thành viên chỉ dùng ứng dụng di động."}
           </p>
         </section>
 
@@ -199,7 +197,7 @@ function UserDetail({ user, onClose }: { user: AdminUser; onClose: () => void })
                 key={a.status}
                 size="sm"
                 variant={pendingStatus === a.status ? "secondary" : a.variant}
-                disabled={REAL || isSelf || setStatus.isPending}
+                disabled={isSelf || setStatus.isPending}
                 onClick={() => {
                   setPendingStatus(a.status);
                   if (a.status === "Active") setReason("");
@@ -210,12 +208,10 @@ function UserDetail({ user, onClose }: { user: AdminUser; onClose: () => void })
               </Button>
             ))}
           </div>
-          {REAL && <p className="text-xs text-muted-foreground">{UNSUPPORTED_ACTION}</p>}
-
           {pendingStatus && (
             <div className="flex flex-col gap-2 rounded-lg border p-3">
               <Label htmlFor="status-reason">
-                Lý do {needsReason ? <span className="text-ochre-text">(bắt buộc, gửi tới người dùng)</span> : "(không bắt buộc)"}
+                Lý do {needsReason ? <span className="text-ochre-text">(bắt buộc, người dùng thấy khi đăng nhập)</span> : "(không bắt buộc)"}
               </Label>
               <Textarea
                 id="status-reason"
@@ -265,6 +261,7 @@ function UserDetail({ user, onClose }: { user: AdminUser; onClose: () => void })
             {confirmRole === "Admin"
               ? `${user.fullName} sẽ đăng nhập được trang quản trị và xem toàn bộ dữ liệu người dùng.`
               : `${user.fullName} sẽ chỉ còn là thành viên trên ứng dụng di động.`}
+            {REAL && " Người này phải đăng nhập lại."}
           </DialogDescription>
           <DialogFooter>
             <DialogClose asChild>
@@ -313,7 +310,7 @@ function WalletSummary({ user }: { user: AdminUser }) {
     <section className="flex flex-col gap-2">
       <h3 className="flex flex-wrap items-center gap-2 text-sm font-bold">
         Ví
-        <Badge variant="ochre">Dữ liệu mô phỏng</Badge>
+        {isMock("payouts") && <Badge variant="ochre">Dữ liệu mô phỏng</Badge>}
       </h3>
       {wallets.isError && !wallets.data ? (
         <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">Chưa tải được ví: {describeError(wallets.error)}</p>

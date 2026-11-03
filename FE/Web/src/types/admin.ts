@@ -149,14 +149,18 @@ export const VIDEO_AI_STATUS_LABEL: Record<VideoAiStatus, string> = {
   failed: "AI lỗi",
 };
 
-/** `posts.status`: published unless the AI pre-screen flags it (then Pending until an admin decides). */
-export const POST_STATUSES = ["Published", "Pending", "Rejected"] as const;
+/**
+ * `posts.status`. Review: Approve from Pending, Rejected, Published → Published; Reject from Pending, Published → Rejected.
+ * Actions: hide only Published → Hidden; unhide only Hidden → Published. Anything else is a 409, so a Hidden post can only be unhidden or deleted.
+ */
+export const POST_STATUSES = ["Published", "Pending", "Rejected", "Hidden"] as const;
 export type PostStatus = (typeof POST_STATUSES)[number];
 
 export const POST_STATUS_LABEL: Record<PostStatus, string> = {
   Published: "Đã đăng",
   Pending: "Chờ duyệt",
   Rejected: "Bị từ chối",
+  Hidden: "Đã ẩn",
 };
 
 /** `posts.media_type` — one attachment per post (single `media_url` column). */
@@ -175,8 +179,9 @@ export interface ContentItem {
   likeCount: number;
   commentCount: number;
   reportCount: number;
-  hidden: boolean;
   pinned: boolean;
+  /** Set while the post is Rejected. */
+  rejectionReason: string | null;
   /** Video attachment + AI recipe extraction (recipes with a video only). */
   video?: { durationSeconds: number; aiStatus: VideoAiStatus; failureReason?: string };
   status: PostStatus;
@@ -186,11 +191,29 @@ export interface ContentItem {
   restaurant: TaggedRestaurant | null;
   /** The AI pre-screen flag (ai_flags) that held the post. */
   aiFlag?: { reason: string; score: number; category: FlagCategory; createdAt: ISODateString };
-  /** moderation_decisions row (one per post). `note` goes back to the author as rejectionReason. */
+  /** moderation_decisions row (one per post, mock only). `note` goes back to the author as rejectionReason. */
   decision?: { decision: PostDecision; note: string | null; adminName: string; decidedAt: ISODateString };
 }
 
 export type ContentView = "all" | "pending" | "reported" | "hidden" | "pinned" | "rejected";
+
+/** Which posts a tab shows. Used by both data sources and by the cache update after an action. */
+export function contentInView(item: ContentItem, view: ContentView): boolean {
+  switch (view) {
+    case "pending":
+      return item.status === "Pending";
+    case "rejected":
+      return item.status === "Rejected";
+    case "hidden":
+      return item.status === "Hidden";
+    case "reported":
+      return item.status === "Published" && item.reportCount > 0;
+    case "pinned":
+      return item.pinned;
+    case "all":
+      return true;
+  }
+}
 
 export interface ContentQuery {
   view: ContentView;
@@ -202,8 +225,8 @@ export interface ContentQuery {
   authorId?: string;
 }
 
-/** "restore" (Rejected → Published) exists in real mode only. */
-export type ContentAction = "hide" | "unhide" | "restore" | "pin" | "unpin" | "delete" | "retry_ai";
+/** Restoring a rejected post is a review Approve, not an action. retry_ai exists in mock mode only. */
+export type ContentAction = "hide" | "unhide" | "pin" | "unpin" | "delete" | "retry_ai";
 
 /** POST /admin/posts/{id}/review — `note` is required (≥ 10 chars) when rejecting. */
 export interface PostReviewInput {

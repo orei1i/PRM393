@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/admin/page-header";
 import { EmptyState, ErrorState } from "@/components/admin/states";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { isMock } from "@/lib/backend_modules";
 import { useCatalog } from "@/lib/hooks/use-admin";
 import { CATALOG_KIND_LABEL, type CatalogKind } from "@/types/admin";
 
@@ -22,13 +23,19 @@ const HINT: Record<CatalogKind, string> = {
   specialty: "Chuyên môn hiển thị trong tab Chuyên gia và form đăng ký chuyên gia.",
 };
 
+/** On the server only "category" reaches the app (the idle search page); the rest are its own lists. */
+const REAL_DESCRIPTION = "Danh mục trên máy chủ. Số đang dùng đếm từ dữ liệu thật. Hiện chỉ Nhóm món ảnh hưởng tới app (trang tìm kiếm); dị ứng, thẻ và chuyên môn của app chưa đọc từ đây.";
+
 export default function CatalogPage() {
   const [kind, setKind] = React.useState<CatalogKind>("category");
   const catalog = useCatalog(kind);
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title="Danh mục" description="Dữ liệu dùng chung cho ứng dụng di động. Tắt một mục để ẩn khỏi app mà không mất dữ liệu cũ." />
+      <PageHeader
+        title="Danh mục"
+        description={isMock("catalog") ? "Dữ liệu dùng chung cho ứng dụng di động. Tắt một mục để ẩn khỏi app mà không mất dữ liệu cũ." : REAL_DESCRIPTION}
+      />
 
       <Tabs value={kind} onValueChange={(v) => setKind(v as CatalogKind)} className="max-w-full">
         <TabsList className="max-w-full justify-start overflow-x-auto">
@@ -41,7 +48,7 @@ export default function CatalogPage() {
       </Tabs>
 
       <Card className="gap-0 py-0">
-        <p className="border-b px-4 py-3 text-sm text-muted-foreground">{HINT[kind]}</p>
+        {isMock("catalog") && <p className="border-b px-4 py-3 text-sm text-muted-foreground">{HINT[kind]}</p>}
         <AddCatalogForm key={kind} kind={kind} />
         {catalog.isError && !catalog.data ? (
           <ErrorState error={catalog.error} onRetry={() => catalog.refetch()} />

@@ -1,5 +1,5 @@
 // src/lib/admin_api.ts
-// Admin-only endpoints. Real today: admin login, logout, /users and /admin/posts.
+// Admin-only endpoints. Real today: admin login, logout, /users, /admin/posts and /admin/comments.
 // The rest are agreed contracts the backend still has to implement (see README › API contract).
 import type {
   AdminComment,
@@ -20,6 +20,7 @@ import type {
   ContentItem,
   ContentKind,
   ContentQuery,
+  ContentView,
   MediaType,
   OverviewStats,
   PostDecision,
@@ -31,7 +32,7 @@ import type {
   UserStatusChange,
   VideoAiStatus,
 } from "@/types/admin";
-import { AUTH_TYPES, CATALOG_KIND_LABEL, CONTENT_KIND_LABEL, MEDIA_TYPES, USER_STATUSES } from "@/types/admin";
+import { AUTH_TYPES, CATALOG_KIND_LABEL, CONTENT_KIND_LABEL, contentInView, MEDIA_TYPES, USER_STATUSES } from "@/types/admin";
 import { FLAG_CATEGORY_LABEL, type FlagCategory } from "@/types/moderation";
 
 import { absoluteMediaUrl, qs, refreshAccessToken, request, requestList, requestObject } from "./api_client";
@@ -80,7 +81,7 @@ export function normalizeUser(raw: Raw): AdminUser {
 }
 
 /** Wire order of `posts.status`. A missing status is a legacy row → Published. */
-const POST_STATUS_WIRE: readonly PostStatus[] = ["Pending", "Published", "Rejected"];
+const POST_STATUS_WIRE: readonly PostStatus[] = ["Pending", "Published", "Rejected", "Hidden"];
 
 /** "recipe" | "discussion"; legacy "video" (and unknown recipe-like values) → recipe. */
 function readKind(raw: unknown): { kind: ContentKind; legacyVideo: boolean } {
@@ -139,8 +140,8 @@ export function normalizeContent(raw: Raw): ContentItem {
     likeCount: num(raw.likeCount),
     commentCount: num(raw.commentCount),
     reportCount: num(raw.reportCount),
-    hidden: bool(raw.hidden),
     pinned: bool(raw.pinned ?? raw.isPinned),
+    rejectionReason: optText(raw.rejectionReason),
     video,
     status: raw.status === undefined || raw.status === null ? "Published" : enumValue(POST_STATUS_WIRE, raw.status, "Pending"),
     mediaType: raw.mediaType === undefined || raw.mediaType === null ? derived : enumValue(MEDIA_TYPES, raw.mediaType, "Text"),
@@ -298,15 +299,29 @@ export const authApi = {
 const unsupported = () => new ApiError(UNSUPPORTED_ACTION, undefined, "unsupported");
 const USER_GONE = "Tài khoản này không còn tồn tại.";
 
+const USERS_PAGE_SIZE = 100; // the backend's maximum (its default is 50)
+const USERS_MAX_PAGES = 100;
+
+/** BE: GET /users pages by number, a full page may have a next one. */
+async function fetchUsers(query: UserQuery): Promise<AdminUser[]> {
+  const byId = new Map<string, AdminUser>();
+  const filters = { role: query.role === "all" ? undefined : query.role, status: query.status === "all" ? undefined : query.status };
+  for (let page = 1; page <= USERS_MAX_PAGES; page++) {
+    const rows = await requestList(`/users?${qs({ ...filters, page, pageSize: USERS_PAGE_SIZE })}`);
+    const before = byId.size;
+    for (const user of rows.map(normalizeUser).filter(hasId)) byId.set(user.id, user);
+    // A page with nothing new ends the pass too: a server ignoring `page` must not cost 100 requests.
+    if (rows.length < USERS_PAGE_SIZE || byId.size === before) break;
+  }
+  return [...byId.values()];
+}
+
 export const usersApi = {
-  /** BE: GET /users (Admin) returns every user and takes no query params, so filtering happens client-side. */
+  /** Role and status filter on the server. The search stays here: the server's does not ignore accents. */
   async list(query: UserQuery): Promise<AdminUser[]> {
     if (isMock("users")) return mock.listUsers(query);
-    const raw = await requestList("/users");
     const q = foldText(query.search.trim());
-    return raw
-      .map(normalizeUser)
-      .filter(hasId)
+    return (await fetchUsers(query))
       .filter((u) => query.role === "all" || u.role === query.role)
       .filter((u) => query.status === "all" || u.status === query.status)
       .filter((u) => !q || foldText(`${u.fullName} ${u.email} ${u.phone}`).includes(q));
@@ -318,16 +333,24 @@ export const usersApi = {
     return normalizeUser(raw);
   },
 
-  /** Needs BE: PATCH /users/{id}/role { role: "Admin" | "User" } — Chef comes only from approving an application. */
+  /** BE: PATCH /users/{id}/role { role: "Admin" | "User" }. 400 for Chef (only approving an application grants it), 409 `chef_role_locked`, `self_action`. */
   async setRole(userId: string, role: AssignableRole): Promise<AdminUser> {
     if (isMock("users")) return mock.updateUserRole(userId, role, readSession());
-    throw unsupported();
+    return normalizeUser(
+      await withStatusText(requestObject(`/users/${userId}/role`, { method: "PATCH", body: JSON.stringify({ role }) }), { 404: USER_GONE }),
+    );
   },
 
-  /** Needs BE: PATCH /users/{id}/status { status, reason } — status sent as the C# enum name. */
+  /** BE: PATCH /users/{id}/status { status: "Active" | "Locked" | "Banned", reason? }. "Inactive" means never activated: nothing sets it. 409 `self_action`. */
   async setStatus(change: UserStatusChange): Promise<AdminUser> {
     if (isMock("users")) return mock.updateUserStatus(change, readSession());
-    throw unsupported();
+    if (change.status === "Inactive") throw unsupported();
+    return normalizeUser(
+      await withStatusText(
+        requestObject(`/users/${change.userId}/status`, { method: "PATCH", body: JSON.stringify({ status: change.status, reason: change.reason }) }),
+        { 404: USER_GONE },
+      ),
+    );
   },
 
   /** BE: DELETE /users/{id} (Admin) */
@@ -366,11 +389,11 @@ export const chefApplicationsApi = {
 const FEED_PAGE_SIZE = 50; // the backend's maximum
 const FEED_MAX_PAGES = 100;
 
-/** `status` is case-sensitive on the backend. Without it: every post that is not deleted. */
-type AdminPostStatus = "Pending" | "Rejected";
+/** The backend filter for a tab; without one, every post that is not deleted (including Hidden). */
+const STATUS_OF_VIEW: Partial<Record<ContentView, PostStatus>> = { pending: "Pending", rejected: "Rejected", hidden: "Hidden", reported: "Published" };
 
-/** BE: GET /admin/posts pages by number. The feed-page answer has no report count, reject reason or hidden flag. */
-async function fetchAdminPosts(status: AdminPostStatus | undefined): Promise<ContentItem[]> {
+/** BE: GET /admin/posts pages by number. */
+async function fetchAdminPosts(status: PostStatus | undefined): Promise<ContentItem[]> {
   const byId = new Map<string, ContentItem>();
   for (let page = 1; page <= FEED_MAX_PAGES; page++) {
     const res = await requestObject(`/admin/posts?${qs({ status, page, pageSize: FEED_PAGE_SIZE })}`);
@@ -383,52 +406,66 @@ async function fetchAdminPosts(status: AdminPostStatus | undefined): Promise<Con
   return [...byId.values()];
 }
 
-const postsInFlight = new Map<AdminPostStatus | undefined, Promise<ContentItem[]>>();
+const postsInFlight = new Map<PostStatus | undefined, Promise<ContentItem[]>>();
 
 /** On the "Chờ duyệt" tab two queries want the same list (tab + count); they share one pass over the pages. */
-function listAdminPosts(status: AdminPostStatus | undefined): Promise<ContentItem[]> {
+function listAdminPosts(status: PostStatus | undefined): Promise<ContentItem[]> {
   let pass = postsInFlight.get(status);
   if (!pass) {
-    pass = fetchAdminPosts(status).finally(() => postsInFlight.delete(status));
+    pass = fetchAdminPosts(status).finally(() => {
+      if (postsInFlight.get(status) === pass) postsInFlight.delete(status);
+    });
     postsInFlight.set(status, pass);
   }
   return pass;
 }
 
-const ADMIN_POST_ACTIONS: readonly ContentAction[] = ["hide", "unhide", "restore", "delete"];
+/** A pass started before this write can hold the old status, so the refetch after it must not join that pass. */
+async function afterPostWrite<T>(write: Promise<T>): Promise<T> {
+  try {
+    return await write;
+  } finally {
+    postsInFlight.clear();
+  }
+}
+
+const ADMIN_POST_ACTIONS: readonly ContentAction[] = ["hide", "unhide", "pin", "unpin", "delete"];
 
 export const contentApi = {
-  /** The backend filters by status only; the other filters run client-side. /content offers no other real view. */
+  /** The backend filters by status only; the other filters run client-side. */
   async list(query: ContentQuery): Promise<ContentItem[]> {
     if (isMock("content")) return mock.listContent(query);
     const q = foldText(query.search.trim());
-    const status = query.view === "pending" ? "Pending" : query.view === "rejected" ? "Rejected" : undefined;
-    return (await listAdminPosts(status))
+    const rows = (await listAdminPosts(STATUS_OF_VIEW[query.view]))
+      .filter((c) => contentInView(c, query.view))
       .filter((c) => query.kind === "all" || c.kind === query.kind)
       .filter((c) => !query.hasVideo || c.mediaType === "Video")
       .filter((c) => !query.authorId || c.author.id === query.authorId)
       .filter((c) => !q || foldText(`${c.title} ${c.author.fullName} ${c.restaurant?.name ?? ""}`).includes(q));
+    return query.view === "reported" ? rows.sort((x, y) => y.reportCount - x.reportCount) : rows;
   },
 
-  /** Returns the updated item, or null when deleted. BE: POST /admin/posts/{id}/actions; hide sets Pending (there is no Hidden state). Pin and retry_ai have no route. */
+  /** Returns the updated item, or null when deleted. BE: POST /admin/posts/{id}/actions. retry_ai has no route. */
   async act(id: string, action: ContentAction): Promise<ContentItem | null> {
     if (isMock("content")) return mock.applyContentAction(id, action, readSession());
     if (!ADMIN_POST_ACTIONS.includes(action)) throw unsupported();
     const path = `/admin/posts/${id}/actions`;
     const init = { method: "POST", body: JSON.stringify({ action }) };
-    if (action !== "delete") return normalizeContent(await requestObject(path, init));
-    await request<unknown>(path, init);
+    if (action !== "delete") return normalizeContent(await afterPostWrite(requestObject(path, init)));
+    await afterPostWrite(request<unknown>(path, init));
     return null;
   },
 
-  /** BE: POST /admin/posts/{id}/review { decision, reason? }. The reason is stored but no endpoint returns it. */
+  /** BE: POST /admin/posts/{id}/review { decision, reason? }. Approve is also how a rejected post is restored. */
   async review(input: PostReviewInput): Promise<ContentItem> {
     if (isMock("content")) return mock.reviewPost(input, readSession());
     return normalizeContent(
-      await requestObject(`/admin/posts/${input.postId}/review`, {
-        method: "POST",
-        body: JSON.stringify({ decision: input.decision, reason: input.note || undefined }),
-      }),
+      await afterPostWrite(
+        requestObject(`/admin/posts/${input.postId}/review`, {
+          method: "POST",
+          body: JSON.stringify({ decision: input.decision, reason: input.note || undefined }),
+        }),
+      ),
     );
   },
 };
@@ -444,7 +481,7 @@ export const commentsApi = {
     return raw.map(normalizeComment).filter(hasId);
   },
 
-  /** hide / unhide return the updated comment; delete returns null. `reason` is sent to the author on delete. */
+  /** hide / unhide return the updated comment; delete returns null. The real BE stores `reason`; only the mock sends it to the author. */
   async act(id: string, action: CommentAction, reason?: string): Promise<AdminComment | null> {
     if (action === "delete") {
       if (isMock("comments")) {

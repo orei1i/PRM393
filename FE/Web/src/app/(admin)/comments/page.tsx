@@ -14,13 +14,15 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/form-controls";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { isMock } from "@/lib/backend_modules";
 import { useComments } from "@/lib/hooks/use-admin";
 import { formatNumber } from "@/lib/utils";
 import type { AdminComment, CommentView } from "@/types/admin";
 
+/** The backend has no route to report a comment, so on real data that tab would always be empty. */
 const VIEWS: { value: CommentView; label: string }[] = [
   { value: "all", label: "Tất cả" },
-  { value: "reported", label: "Bị báo cáo" },
+  ...(isMock("comments") ? [{ value: "reported" as const, label: "Bị báo cáo" }] : []),
   { value: "hidden", label: "Đã ẩn" },
 ];
 

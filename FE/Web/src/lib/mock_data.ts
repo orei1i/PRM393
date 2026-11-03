@@ -552,6 +552,8 @@ const formatBytes = (n: number) => `${Math.round(n / 1000)} KB`;
 function describeLog(log: AiLog): { inputText: string; outputText: string } {
   const extra = extras.get(log.id) ?? { seed: 0 };
   switch (log.task) {
+    case "other":
+      return { inputText: "", outputText: "" };
     case "moderation": {
       const target = MODERATION_REFS.find((r) => r.id === log.refId) ?? MODERATION_REFS[0];
       const score = Number((extra.score ?? 0).toFixed(2));
@@ -616,7 +618,7 @@ export async function labelLog(input: AiLogLabelInput, by: string): Promise<AiLo
   }
   const log = logs.find((l) => l.id === input.logId);
   if (!log) throw new ApiError("Bản ghi đã quá cũ, không còn lưu nội dung chi tiết.", 404, "not_found");
-  logLabels.set(log.id, { verdict: input.verdict, note: input.note?.trim() || undefined, by, at: new Date().toISOString(), task: log.task });
+  logLabels.set(log.id, { verdict: input.verdict, note: input.note?.trim() || undefined, by, at: new Date().toISOString(), task: log.task === "other" ? "chatbot" : log.task });
   return toDetail(log);
 }
 

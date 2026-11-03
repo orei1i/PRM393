@@ -120,12 +120,15 @@ export interface ModerationDecision extends ModerationDecisionInput {
 
 export type AiTaskType = "moderation" | "meal_plan" | "chatbot" | "vision_scan";
 
+/** A log row can also be a call outside these tasks (embedding a document): the server sends "other". */
+export type AiLogTask = AiTaskType | "other";
+
 export type AiLogStatus = "success" | "warning" | "error";
 
 export interface AiLog {
   id: string;
   timestamp: ISODateString;
-  task: AiTaskType;
+  task: AiLogTask;
   model: string;
   latencyMs: number;
   inputTokens: number;
@@ -212,11 +215,12 @@ export const CONTENT_TYPE_LABEL: Record<ContentType, string> = {
   recipe: "Công thức",
 };
 
-export const TASK_LABEL: Record<AiTaskType, string> = {
+export const TASK_LABEL: Record<AiLogTask, string> = {
   moderation: "Kiểm duyệt",
   meal_plan: "Thực đơn",
   chatbot: "Chatbot",
   vision_scan: "Quét ảnh",
+  other: "Khác",
 };
 
 export const ACTION_LABEL: Record<ModerationAction, string> = {

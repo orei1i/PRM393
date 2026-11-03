@@ -51,7 +51,9 @@ export function ModelCard({ model }: { model: AiModel }) {
   const thresholdChanged = usesThreshold && thresholdOk && Math.abs(thresholdValue - (model.threshold ?? 0)) > 1e-9;
   const dirty = enabled !== model.enabled || version !== model.activeVersion || thresholdChanged;
   const noteOk = note.trim().length >= MIN_AUDIT_NOTE_LENGTH;
-  const turningModerationOff = model.task === "moderation" && model.enabled && !enabled;
+  const turningModerationOff = model.task === "moderation" && model.enabled && !enabled && model.runtimeEnforced;
+  /** Not read at runtime and off: the server refuses to turn it on (409 no_pipeline). */
+  const locked = !model.runtimeEnforced && !model.enabled;
 
   const changes: string[] = [];
   if (enabled !== model.enabled) changes.push(enabled ? "Bật mô hình" : "Tắt mô hình");
@@ -68,7 +70,9 @@ export function ModelCard({ model }: { model: AiModel }) {
       { id: model.id, patch },
       {
         onSuccess: (saved) => {
-          toast.success(`Đã lưu ${saved.name}`, { description: "Thay đổi có hiệu lực với các lượt gọi mới." });
+          toast.success(`Đã lưu ${saved.name}`, {
+            description: saved.runtimeEnforced ? "Thay đổi có hiệu lực với các lượt gọi mới." : "Đã lưu cấu hình, nhưng tác vụ này chưa đọc cấu hình khi chạy.",
+          });
           setReview(null);
           setNote("");
         },
@@ -89,20 +93,38 @@ export function ModelCard({ model }: { model: AiModel }) {
             <CardDescription>{AI_TASK_TITLE[model.task]}</CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant={model.enabled ? "sprout" : "secondary"}>{model.enabled ? "Đang chạy" : "Đang tắt"}</Badge>
+            {model.runtimeEnforced ? (
+              <Badge variant={model.enabled ? "sprout" : "secondary"}>{model.enabled ? "Đang chạy" : "Đang tắt"}</Badge>
+            ) : (
+              <Badge variant="ochre">Chưa có hiệu lực</Badge>
+            )}
             <span className="text-sm font-semibold" aria-hidden>
               Bật
             </span>
-            <Switch checked={enabled} onCheckedChange={setEnabled} disabled={update.isPending} aria-label={`Bật ${model.name}`} />
+            <Switch checked={enabled} onCheckedChange={setEnabled} disabled={update.isPending || locked} aria-label={`Bật ${model.name}`} />
           </div>
         </div>
       </CardHeader>
 
       <CardContent className="flex flex-col gap-4">
+        {!model.runtimeEnforced && (
+          <p role="note" className="rounded-lg border border-ochre-border bg-ochre-soft px-3 py-2 text-sm text-ochre-text">
+            <b>Công tắc này chưa có hiệu lực khi chạy.</b>{" "}
+            {model.task === "moderation"
+              ? "Máy chủ chưa có quy trình AI kiểm duyệt nên không có bài nào được AI gắn cờ; việc duyệt do admin làm ở trang Nội dung."
+              : "Máy chủ lưu cấu hình này nhưng tác vụ chưa đọc nó."}
+          </p>
+        )}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor={`${ids}-version`}>Phiên bản đang chạy</Label>
-            <NativeSelect id={`${ids}-version`} value={version} onChange={(e) => setVersion(e.target.value)} disabled={update.isPending}>
+            <NativeSelect
+              id={`${ids}-version`}
+              value={version}
+              onChange={(e) => setVersion(e.target.value)}
+              disabled={update.isPending || model.availableVersions.length === 0}
+            >
+              {model.availableVersions.length === 0 && <option value={model.activeVersion}>Chưa có phiên bản nào</option>}
               {model.availableVersions.map((v) => (
                 <option key={v} value={v}>
                   {v}
@@ -181,7 +203,9 @@ export function ModelCard({ model }: { model: AiModel }) {
       >
         <DialogContent>
           <DialogTitle>Lưu thay đổi cho {model.name}?</DialogTitle>
-          <DialogDescription>Thay đổi áp dụng ngay cho các lượt gọi mới và được ghi vào nhật ký quản trị.</DialogDescription>
+          <DialogDescription>
+            {model.runtimeEnforced ? "Thay đổi áp dụng ngay cho các lượt gọi mới và được ghi vào nhật ký quản trị." : "Thay đổi được lưu và ghi vào nhật ký quản trị, nhưng chưa có hiệu lực khi chạy."}
+          </DialogDescription>
           <ul className="list-inside list-disc text-sm">
             {review?.changes.map((c) => (
               <li key={c}>{c}</li>

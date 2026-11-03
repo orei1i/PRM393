@@ -25,6 +25,7 @@ import type {
   UserStatus,
   UserStatusChange,
 } from "@/types/admin";
+import { contentInView } from "@/types/admin";
 import { MIN_AUDIT_NOTE_LENGTH } from "@/types/moderation";
 
 import { ApiError } from "./api_error";
@@ -340,19 +341,21 @@ export async function reviewChefApplication(input: ChefReviewInput, session: Adm
 
 const a = (id: string, fullName: string, isVerifiedChef = false) => ({ id, fullName, isVerifiedChef });
 
-type ContentSeed = Omit<ContentItem, "status" | "mediaType" | "mediaUrl" | "restaurant"> &
-  Partial<Pick<ContentItem, "status" | "mediaType" | "mediaUrl" | "restaurant">>;
+/** `hidden: true` is seed shorthand for status "Hidden". */
+type ContentSeed = Omit<ContentItem, "status" | "mediaType" | "mediaUrl" | "restaurant" | "rejectionReason"> &
+  Partial<Pick<ContentItem, "status" | "mediaType" | "mediaUrl" | "restaurant">> & { hidden: boolean };
 
 const MEDIA_BASE = "https://res.cloudinary.com/veganlife";
 
 /** Legacy rows have no status (→ Published); a `video` block means a video attachment, recipes otherwise get a photo. */
-function withPostDefaults(seed: ContentSeed): ContentItem {
+function withPostDefaults({ hidden, ...seed }: ContentSeed): ContentItem {
   const mediaType: MediaType = seed.mediaType ?? (seed.video ? "Video" : seed.kind === "recipe" ? "Image" : "Text");
   const derivedUrl =
     mediaType === "Video" ? `${MEDIA_BASE}/video/upload/v1/${seed.id}.mp4` : mediaType === "Image" ? `${MEDIA_BASE}/image/upload/v1/${seed.id}.jpg` : null;
   return {
     ...seed,
-    status: seed.status ?? "Published",
+    status: hidden ? "Hidden" : (seed.status ?? "Published"),
+    rejectionReason: seed.decision?.decision === "Reject" ? seed.decision.note : null,
     mediaType,
     mediaUrl: seed.mediaUrl !== undefined ? seed.mediaUrl : derivedUrl,
     restaurant: seed.restaurant ?? null,
@@ -394,22 +397,7 @@ export async function listContent(query: ContentQuery): Promise<ContentItem[]> {
     .filter((c) => query.kind === "all" || c.kind === query.kind)
     .filter((c) => !query.hasVideo || c.mediaType === "Video")
     .filter((c) => !query.authorId || c.author.id === query.authorId)
-    .filter((c) => {
-      switch (query.view) {
-        case "pending":
-          return c.status === "Pending";
-        case "rejected":
-          return c.status === "Rejected";
-        case "reported":
-          return c.status === "Published" && c.reportCount > 0 && !c.hidden;
-        case "hidden":
-          return c.hidden;
-        case "pinned":
-          return c.pinned;
-        default:
-          return true;
-      }
-    })
+    .filter((c) => contentInView(c, query.view))
     .filter((c) => !q || SEARCH_FOLD(`${c.title} ${c.author.fullName} ${c.restaurant?.name ?? ""}`).includes(q))
     .sort((x, y) => {
       if (query.view === "reported") return y.reportCount - x.reportCount;
@@ -436,13 +424,18 @@ export async function reviewPost(input: PostReviewInput, session: AdminSession |
   }
   const item = content.find((c) => c.id === input.postId);
   if (!item) throw new ApiError("Bài viết không còn tồn tại.", 404);
-  if (item.status !== "Pending") throw new ApiError("Bài này đã được người khác xử lý.", 409, "already_reviewed");
+  // Same transitions as ModeratePostAsync.
+  if (item.status === "Hidden") throw new ApiError("Bài đang ẩn: hãy hiện lại bài trước.", 409, "post_hidden");
+  if (input.decision === "Reject" && item.status === "Rejected") throw new ApiError("Bài này đã được người khác xử lý.", 409, "already_reviewed");
 
   const actor = session?.fullName ?? "Quản trị viên";
   const decidedAt = new Date().toISOString();
+  const wasPending = item.status === "Pending";
   item.status = input.decision === "Approve" ? "Published" : "Rejected";
   item.decision = { decision: input.decision, note: note || null, adminName: actor, decidedAt };
-  if (item.aiFlag) {
+  item.rejectionReason = input.decision === "Reject" ? note : null;
+  if (input.decision === "Approve") item.reportCount = 0;
+  if (item.aiFlag && wasPending) {
     recordDecisionSample({
       category: item.aiFlag.category,
       upheld: input.decision === "Reject",
@@ -462,12 +455,13 @@ export async function applyContentAction(id: string, action: ContentAction, sess
   const actor = session?.fullName ?? "Quản trị viên";
   switch (action) {
     case "hide":
-      item.hidden = true;
-      item.pinned = false;
+      if (item.status !== "Published") throw new ApiError("Chỉ ẩn được bài đã đăng.", 409, "not_published");
+      item.status = "Hidden";
       logAction(actor, "ẩn bài viết", item.title);
       break;
     case "unhide":
-      item.hidden = false;
+      if (item.status !== "Hidden") throw new ApiError("Bài này không ở trạng thái đã ẩn.", 409, "not_hidden");
+      item.status = "Published";
       logAction(actor, "hiện lại bài viết", item.title);
       break;
     case "pin":
@@ -727,7 +721,7 @@ export async function getOverview(): Promise<OverviewStats> {
     pending: {
       aiFlags: flags.pending,
       chefApplications: chefApplications.filter((x) => x.status === "pending").length,
-      reportedContent: content.filter((x) => x.status === "Published" && x.reportCount > 0 && !x.hidden).length,
+      reportedContent: content.filter((x) => contentInView(x, "reported")).length,
       failedVideos: content.filter((x) => x.video?.aiStatus === "failed").length,
       pendingPosts: countPendingPosts(),
     },

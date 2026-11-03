@@ -11,6 +11,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, Di
 import { Label, Skeleton, Textarea } from "@/components/ui/form-controls";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { describeError } from "@/lib/api_error";
+import { isMock } from "@/lib/backend_modules";
 import { useDeleteKnowledgeDoc, useKnowledgeChunks, useReviewKnowledgeDoc } from "@/lib/hooks/use-knowledge";
 import { dateFormat, formatNumber } from "@/lib/utils";
 import type { KnowledgeDoc } from "@/types/knowledge";
@@ -50,7 +51,8 @@ function Detail({ doc, onClose, onDocChange }: { doc: KnowledgeDoc; onClose: () 
 
   const noteOk = note.trim().length >= MIN_AUDIT_NOTE_LENGTH;
   const busy = review.isPending || remove.isPending;
-  const reviewable = doc.status === "Pending" && doc.source === "Chef";
+  // Includes a WHO doc whose indexing failed: approving retries it.
+  const reviewable = doc.status === "Pending";
 
   function decide(decision: "Approve" | "Reject") {
     if (decision === "Reject" && !noteOk) return;
@@ -58,8 +60,11 @@ function Detail({ doc, onClose, onDocChange }: { doc: KnowledgeDoc; onClose: () 
       { docId: doc.id, decision, note: decision === "Reject" ? note.trim() : "" },
       {
         onSuccess: (updated) => {
-          if (decision === "Approve") toast.success("Đã duyệt. Hệ thống đang tách đoạn & tạo embedding (mô phỏng).");
-          else toast.success("Đã từ chối tài liệu", { description: "Chuyên gia sẽ thấy ghi chú trong ứng dụng." });
+          if (decision === "Approve" && updated.ingestStatus === "Failed") {
+            toast.warning("Chưa duyệt được: chưa tạo được chỉ mục", { description: updated.ingestError ?? "Tài liệu vẫn chờ duyệt. Thử lại khi dịch vụ AI hoạt động." });
+          } else if (decision === "Approve") {
+            toast.success(isMock("knowledge") ? "Đã duyệt. Hệ thống đang tách đoạn & tạo embedding (mô phỏng)." : "Đã duyệt. Chatbot đã dùng được tài liệu này.");
+          } else toast.success("Đã từ chối tài liệu", { description: "Chuyên gia sẽ thấy ghi chú trong ứng dụng." });
           setRejectOpen(false);
           setNote("");
           onDocChange(updated);
@@ -95,7 +100,7 @@ function Detail({ doc, onClose, onDocChange }: { doc: KnowledgeDoc; onClose: () 
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
           <Info label="Nguồn" value={doc.source === "WHO" ? "WHO" : "Chuyên gia"} />
           <Info label="Người đóng góp" value={doc.chefName ?? "Ban quản trị"} />
-          <Info label="Số đoạn" value={doc.status === "Approved" ? formatNumber(doc.chunkCount) : "Chưa tách"} />
+          <Info label="Số đoạn" value={doc.chunkCount > 0 ? formatNumber(doc.chunkCount) : "Chưa tách"} />
           <Info label="Lượt trích dẫn" value={formatNumber(doc.citationCount)} />
           {doc.reviewedBy && <Info label="Xử lý bởi" value={doc.reviewedBy} />}
           {doc.reviewedAt && <Info label="Lúc" value={dateTimeVi.format(new Date(doc.reviewedAt))} />}
@@ -108,13 +113,21 @@ function Detail({ doc, onClose, onDocChange }: { doc: KnowledgeDoc; onClose: () 
           </p>
         )}
 
+        {doc.ingestStatus === "Failed" && (
+          <p role="alert" className="rounded-lg border border-destructive/40 px-3 py-2 text-sm text-destructive">
+            Chưa tạo được chỉ mục nên chatbot chưa dùng được tài liệu này{doc.ingestError ? `: ${doc.ingestError}` : "."} Bấm Duyệt để thử lại.
+          </p>
+        )}
+
         <div className="flex flex-wrap gap-2">
-          <Button asChild size="sm" variant="outline">
-            <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer">
-              <ExternalLink aria-hidden />
-              Mở tệp
-            </a>
-          </Button>
+          {doc.fileUrl && (
+            <Button asChild size="sm" variant="outline">
+              <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer">
+                <ExternalLink aria-hidden />
+                Mở tệp
+              </a>
+            </Button>
+          )}
           <Button size="sm" variant="outline" aria-expanded={showChunks} onClick={() => setShowChunks((v) => !v)}>
             <Layers aria-hidden />
             {showChunks ? "Ẩn các đoạn" : "Xem trước các đoạn"}

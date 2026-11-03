@@ -7,7 +7,6 @@ import { InitialsAvatar } from "@/components/admin/initials-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/form-controls";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { isMock } from "@/lib/backend_modules";
 import { formatAge, formatNumber } from "@/lib/utils";
 import { CONTENT_KIND_LABEL, POST_STATUS_LABEL, VIDEO_AI_STATUS_LABEL, type ContentItem, type PostStatus } from "@/types/admin";
 
@@ -32,6 +31,13 @@ export function PostStatusBadge({ status }: { status: PostStatus }) {
       return (
         <Badge variant="secondary">
           <CircleX aria-hidden />
+          {POST_STATUS_LABEL[status]}
+        </Badge>
+      );
+    case "Hidden":
+      return (
+        <Badge variant="secondary">
+          <EyeOff aria-hidden />
           {POST_STATUS_LABEL[status]}
         </Badge>
       );
@@ -72,9 +78,6 @@ export function VideoAiBadge({ item }: { item: ContentItem }) {
     </Badge>
   );
 }
-
-/** The backend's post list has no report count: "—", never a made-up 0. */
-const REPORTS_KNOWN = isMock("content");
 
 export function ContentTable({
   items,
@@ -133,12 +136,6 @@ export function ContentTable({
                           Đã ghim
                         </Badge>
                       )}
-                      {item.hidden && (
-                        <Badge variant="secondary">
-                          <EyeOff aria-hidden />
-                          Đã ẩn
-                        </Badge>
-                      )}
                       <span className="font-semibold">{item.title}</span>
                     </div>
                     {item.status === "Pending" && item.aiFlag ? (
@@ -179,9 +176,7 @@ export function ContentTable({
                   </div>
                 </TableCell>
                 <TableCell className="text-right">
-                  {!REPORTS_KNOWN ? (
-                    <span className="font-mono text-muted-foreground tabular">—</span>
-                  ) : item.reportCount > 0 ? (
+                  {item.reportCount > 0 ? (
                     <span className="inline-flex items-center gap-1 font-mono font-semibold text-ochre-text tabular">
                       <Flag className="size-3.5" aria-hidden />
                       {item.reportCount}

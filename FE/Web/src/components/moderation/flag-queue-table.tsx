@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/form-controls";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { isMock } from "@/lib/backend_modules";
 import { cn, formatAge } from "@/lib/utils";
 import { CONTENT_TYPE_LABEL, FLAG_CATEGORY_LABEL, type AiFlag, type ContentType } from "@/types/moderation";
 
@@ -41,7 +42,9 @@ export function FlagQueueTable({
         </span>
         <p className="font-bold">Hàng đợi trống</p>
         <p className="max-w-sm text-sm text-muted-foreground">
-          Không còn mục nào khớp bộ lọc. AI quét nội dung mới mỗi vài phút, danh sách sẽ tự cập nhật.
+          {isMock("moderation")
+            ? "Không còn mục nào khớp bộ lọc. AI quét nội dung mới mỗi vài phút, danh sách sẽ tự cập nhật."
+            : "Máy chủ chưa có quy trình AI kiểm duyệt nên hàng đợi này luôn trống. Bài bị báo cáo và bài chờ duyệt nằm ở trang Nội dung."}
         </p>
       </div>
     );

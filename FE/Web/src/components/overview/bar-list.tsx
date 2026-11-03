@@ -8,6 +8,7 @@ import { formatNumber } from "@/lib/utils";
 export function BarList({ items }: { items: { label: string; value: number }[] }) {
   const max = Math.max(...items.map((i) => i.value), 1);
   const total = items.reduce((s, i) => s + i.value, 0);
+  if (total === 0) return <p className="py-6 text-center text-sm text-muted-foreground">Chưa có dữ liệu.</p>;
   return (
     <ul className="flex flex-col gap-3">
       {items.map((item) => (

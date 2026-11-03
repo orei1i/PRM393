@@ -24,13 +24,17 @@ export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
 /** The single order type left (shown in the "Loại" column). */
 export const ORDER_TYPE_LABEL = "Đặt chuyên gia";
 
-/** "Wallet": paid in full from the member's wallet (POST /orders/{id}/wallet-payment); there is no partial balance. */
-export const PAYMENT_PROVIDERS = ["PaymentOS", "Wallet"] as const;
+/**
+ * "Wallet": paid in full from the member's wallet (POST /orders/{id}/wallet-payment); there is no partial balance.
+ * "Sandbox": the BE's test gateway (`Payment:Provider=Sandbox`), no real money.
+ */
+export const PAYMENT_PROVIDERS = ["PaymentOS", "Wallet", "Sandbox"] as const;
 export type PaymentProvider = (typeof PAYMENT_PROVIDERS)[number];
 
 export const PAYMENT_PROVIDER_LABEL: Record<PaymentProvider, string> = {
   PaymentOS: "PaymentOS",
   Wallet: "Ví VeganLife",
+  Sandbox: "Cổng thử nghiệm (không có tiền thật)",
 };
 
 export const PAYMENT_STATUSES = ["Pending", "Paid", "Failed", "Expired", "Refunded"] as const;

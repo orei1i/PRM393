@@ -24,7 +24,7 @@ import type {
 } from "@/types/restaurants";
 import { RESTAURANT_STATUSES } from "@/types/restaurants";
 
-import { qs, request, requestList, requestObject } from "./api_client";
+import { absoluteMediaUrl, qs, request, requestList, requestObject } from "./api_client";
 import { isMock } from "./backend_modules";
 import { readSession } from "./auth";
 import { readId } from "./ids";
@@ -42,7 +42,7 @@ function normalizeMedia(raw: Raw): RestaurantMedia {
   return {
     id: readId(raw.id),
     mediaType: typeof raw.mediaType === "string" && raw.mediaType.toLowerCase() === "video" ? "Video" : "Image",
-    mediaUrl: text(raw.mediaUrl ?? raw.url),
+    mediaUrl: absoluteMediaUrl(raw.mediaUrl ?? raw.url) ?? "",
     uploadedBy: readPerson(raw.uploadedBy, raw.uploadedByName),
     createdAt: isoOr(raw.createdAt),
   };

@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/card";
 import { Input, NativeSelect } from "@/components/ui/form-controls";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { describeError } from "@/lib/api_error";
+import { isMock } from "@/lib/backend_modules";
 import { useFlagCounts, useFlagQueue } from "@/lib/hooks/use-moderation";
 import { FLAG_CATEGORY_LABEL, type AiFlag, type FlagCategory, type FlagStatus } from "@/types/moderation";
 
@@ -37,7 +38,9 @@ export default function ModerationPage() {
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight">Kiểm duyệt nội dung</h1>
           <p className="text-sm text-muted-foreground">
-            AI gắn cờ, con người quyết định. Hàng đợi sắp xếp mục chờ lâu nhất lên đầu.
+            {isMock("moderation")
+              ? "AI gắn cờ, con người quyết định. Hàng đợi sắp xếp mục chờ lâu nhất lên đầu."
+              : "Máy chủ chưa có quy trình AI kiểm duyệt nên chưa có bài nào được AI gắn cờ. Báo cáo của người dùng nằm ở trang Nội dung."}
           </p>
         </div>
         <Button variant="outline" onClick={() => flags.refetch()} disabled={flags.isFetching}>

@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Label, Skeleton, Textarea } from "@/components/ui/form-controls";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { describeError } from "@/lib/api_error";
+import { isMock } from "@/lib/backend_modules";
 import { useAiLogDetail, useLabelAiLog } from "@/lib/hooks/use-telemetry";
 import { dateFormat, formatNumber, formatTime } from "@/lib/utils";
 import { TASK_LABEL, type AiLog, type AiLogVerdict } from "@/types/moderation";
@@ -23,7 +24,11 @@ const REF_LABEL: Record<string, string> = {
   chat_session: "Phiên chat",
   meal_plan: "Thực đơn",
   user_ingredients: "Nguyên liệu người dùng",
+  scan: "Lượt quét",
 };
+
+/** The server keeps no prompt or answer, so an empty block is not an empty answer. */
+const NO_TEXT = isMock("telemetry") ? "(trống)" : "Máy chủ không lưu nội dung này.";
 
 const dateTimeVi = dateFormat({
   hour: "2-digit",
@@ -176,7 +181,7 @@ function TextBlock({ title, text, loading }: { title: string; text: string | und
           tabIndex={0}
           className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
         >
-          {text || "(trống)"}
+          {text || NO_TEXT}
         </pre>
       )}
     </section>

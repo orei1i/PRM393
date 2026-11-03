@@ -93,7 +93,7 @@ export function OrderTable({
                       <div className="flex flex-col gap-1">
                         <PaymentStatusBadge status={payment.status} />
                         <span className="font-mono text-xs text-muted-foreground">{payment.transactionRef}</span>
-                        {payment.provider === "Wallet" && <span className="text-xs text-muted-foreground">{PAYMENT_PROVIDER_LABEL.Wallet}</span>}
+                        {payment.provider !== "PaymentOS" && <span className="text-xs text-muted-foreground">{PAYMENT_PROVIDER_LABEL[payment.provider]}</span>}
                       </div>
                     ) : (
                       <span className="text-muted-foreground">—</span>

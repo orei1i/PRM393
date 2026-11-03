@@ -29,6 +29,7 @@ import { SignupsChart } from "@/components/overview/signups-chart";
 import { MetricCard } from "@/components/telemetry/metric-card";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/form-controls";
+import { isMock } from "@/lib/backend_modules";
 import { useOverview } from "@/lib/hooks/use-admin";
 import { useEscrowSummary } from "@/lib/hooks/use-bookings";
 import { useKnowledgeCounts } from "@/lib/hooks/use-knowledge";
@@ -43,6 +44,8 @@ const timeAgo = (iso: string) => {
 };
 
 const today = new Intl.DateTimeFormat("vi-VN", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
+
+const REAL = !isMock("overview");
 
 export default function OverviewPage() {
   const overview = useOverview();
@@ -60,8 +63,8 @@ export default function OverviewPage() {
   }
 
   const queue: { href: string; label: string; hint: string; count?: number; icon: LucideIcon }[] = [
-    { href: "/moderation", label: "Cờ AI chờ duyệt", hint: "Bài AI nghi vi phạm, cần người quyết định", count: data?.pending.aiFlags, icon: ShieldAlert },
-    { href: "/content?view=pending", label: "Bài chờ duyệt", hint: "Bài mới, bài đã sửa và bài AI giữ lại, chưa lên bảng tin", count: data?.pending.pendingPosts, icon: Hourglass },
+    { href: "/moderation", label: "Cờ AI chờ duyệt", hint: REAL ? "Luôn trống: máy chủ chưa có quy trình AI kiểm duyệt" : "Bài AI nghi vi phạm, cần người quyết định", count: data?.pending.aiFlags, icon: ShieldAlert },
+    { href: "/content?view=pending", label: "Bài chờ duyệt", hint: REAL ? "Bài mới và bài đã sửa, chưa lên bảng tin" : "Bài mới, bài đã sửa và bài AI giữ lại, chưa lên bảng tin", count: data?.pending.pendingPosts, icon: Hourglass },
     { href: "/chefs", label: "Hồ sơ chuyên gia", hint: "Thành viên xin xác minh đầu bếp / chuyên gia", count: data?.pending.chefApplications, icon: BadgeCheck },
     { href: "/content?view=reported", label: "Bài bị báo cáo", hint: "Người dùng báo cáo từ ứng dụng di động", count: data?.pending.reportedContent, icon: Flag },
     { href: "/content?kind=video", label: "Video AI lỗi", hint: "Không trích xuất được công thức từ video đính kèm", count: data?.pending.failedVideos, icon: VideoOff },
@@ -87,7 +90,7 @@ export default function OverviewPage() {
         <MetricCard
           label="Hoạt động 24 giờ"
           value={data ? formatNumber(data.activeUsers24h) : "–"}
-          hint="so với hôm qua"
+          hint={REAL ? "người có đăng bài, bình luận hoặc gọi AI" : "so với hôm qua"}
           delta={data?.activeDelta}
           icon={Activity}
           loading={overview.isLoading}
@@ -103,7 +106,7 @@ export default function OverviewPage() {
         <MetricCard
           label="Lượt hỏi AI 24 giờ"
           value={data ? formatNumber(data.aiQueries24h) : "–"}
-          hint="chatbot + thực đơn + quét"
+          hint={REAL ? "lượt gọi mô hình, không tính tạo chỉ mục tài liệu" : "chatbot + thực đơn + quét"}
           delta={data?.aiQueriesDelta}
           icon={Bot}
           loading={overview.isLoading}
@@ -175,7 +178,7 @@ export default function OverviewPage() {
               <UserPlus className="size-4 text-muted-foreground" aria-hidden />
               <CardTitle>Đăng ký mới mỗi ngày</CardTitle>
             </div>
-            <CardDescription>14 ngày gần nhất, từ ứng dụng iOS và Android.</CardDescription>
+            <CardDescription>{REAL ? "14 ngày gần nhất." : "14 ngày gần nhất, từ ứng dụng iOS và Android."}</CardDescription>
           </CardHeader>
           <CardContent>
             {data ? <SignupsChart data={data.signupsDaily} dimmed={overview.isFetching && !overview.isLoading} /> : <Skeleton className="h-56" />}
@@ -185,10 +188,12 @@ export default function OverviewPage() {
         <Card>
           <CardHeader>
             <CardTitle>Nhật ký quản trị</CardTitle>
-            <CardDescription>Thao tác gần đây của ban quản trị.</CardDescription>
+            <CardDescription>{REAL ? "Thao tác gần đây. Duyệt bài, xoá bình luận và thao tác tiền chưa được ghi ở đây." : "Thao tác gần đây của ban quản trị."}</CardDescription>
           </CardHeader>
           <CardContent>
-            {data ? (
+            {data?.recentActions.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">Chưa có thao tác nào được ghi.</p>
+            ) : data ? (
               <ol className="flex flex-col gap-3">
                 {data.recentActions.map((a) => (
                   <li key={a.id} className="text-sm">
